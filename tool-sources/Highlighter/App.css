@@ -1,0 +1,477 @@
+:root {
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  --code-line: 1.55;
+  --code-pad: 1.15em 1.4em;
+}
+
+/* ---------- shell ---------- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
+/* ---------- toolbar ---------- */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px 20px;
+  background: var(--funky-bg);
+  border-bottom: 3px solid var(--funky-border-color, #222);
+  flex: 0 0 auto;
+}
+
+.toolbar__title {
+  margin: 0 8px 0 0;
+}
+
+.toolbar__group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar__font {
+  min-width: 44px;
+  text-align: center;
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.toolbar__spacer {
+  flex: 1 1 auto;
+}
+
+/* ---------- size settings row ---------- */
+
+.settings {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 12px 20px;
+  background: #fff0b8;
+  border-bottom: 3px solid var(--funky-border-color, #222);
+  flex: 0 0 auto;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.field__ratio,
+.field__px {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+}
+
+.num {
+  width: 6.5ch;
+  padding: 4px 6px;
+  border: 2px solid #222;
+  background: #fff;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-align: right;
+  outline: none;
+}
+.num:focus {
+  box-shadow: 3px 3px 0 0 rgba(0, 0, 0, 0.2);
+}
+/* hide native number spinners for a cleaner look */
+.num::-webkit-outer-spin-button,
+.num::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.num {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.settings__hint {
+  margin-left: auto;
+}
+
+/* ---------- stage ---------- */
+
+.stage {
+  flex: 1 1 auto;
+  overflow: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px;
+  background: var(--funky-bg);
+  background-image: radial-gradient(rgba(0, 0, 0, 0.07) 1.5px, transparent 1.5px);
+  background-size: 22px 22px;
+}
+
+/* occupies the *scaled* footprint in layout so the stage centers / scrolls
+   around the shrunk preview, not the full-size node */
+.fitbox {
+  flex: 0 0 auto;
+}
+
+/* the exact node handed to html-to-image (transparent padding leaves room
+   for the window's hard shadow in the PNG). scaled down for on-screen preview
+   via transform — export overrides the transform to capture full resolution */
+.shot {
+  display: inline-block;
+  padding: 14px 18px 22px 14px;
+  background: transparent;
+  transform-origin: top left;
+}
+
+/* ---------- code window ---------- */
+
+.frame {
+  display: inline-block;
+  border: 3px solid #222;
+  box-shadow: 8px 8px 0 0 rgba(0, 0, 0, 0.25);
+}
+
+.frame__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-bottom: 3px solid #222;
+}
+
+.dot {
+  width: 13px;
+  height: 13px;
+  border: 2px solid #222;
+}
+.dot--pink {
+  background: #ff4eba;
+}
+.dot--yellow {
+  background: #ffd500;
+}
+.dot--green {
+  background: #00c22a;
+}
+
+.frame__name {
+  margin-left: 8px;
+  min-width: 0;
+  flex: 0 1 auto;
+  width: 16ch;
+  max-width: 60%;
+  border: 0;
+  background: transparent;
+  padding: 2px 4px;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: inherit;
+  outline: none;
+}
+
+.frame__name:focus {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.frame--dark .frame__name:focus {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* ---------- editor: transparent textarea layered over highlighted <pre> ----
+   .code         fixed-width (and optionally cropped) viewport, clips overflow
+   .code__layers content sized; translated to pan the cropped / wide code
+   .code__pre    highlighted text, drives the content height (in flow)
+   .code__input  transparent textarea on top, fills .code__layers            */
+
+.code {
+  position: relative;
+  display: block;
+  overflow: hidden;
+}
+
+.code__layers {
+  position: relative;
+}
+
+.code__pre,
+.code__input {
+  margin: 0;
+  border: 0;
+  padding: var(--code-pad);
+  font-family: var(--mono);
+  font-size: inherit;
+  line-height: var(--code-line);
+  font-weight: 500;
+  tab-size: 4;
+}
+
+.code--wrap .code__pre,
+.code--wrap .code__input {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.code--nowrap .code__pre,
+.code--nowrap .code__input {
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.code__pre {
+  pointer-events: none;
+}
+
+.code__pre code {
+  font: inherit;
+  display: block;
+}
+
+.code__input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  resize: none;
+  overflow: hidden;
+  background: transparent;
+  color: transparent;
+  outline: none;
+}
+
+.code__input::selection {
+  background: rgba(120, 40, 200, 0.28);
+}
+
+/* ---------- themes ---------- */
+
+.frame--light {
+  background: var(--funky-bg);
+}
+.frame--light .frame__bar {
+  background: #fff0b8;
+}
+.frame--light .code__pre {
+  color: #1c1c1c;
+}
+.frame--light .code__input {
+  caret-color: #222;
+}
+
+.frame--dark {
+  background: #1e1e22;
+}
+.frame--dark .frame__bar {
+  background: #2b2b31;
+}
+.frame--dark .frame__name {
+  color: #f4f4f4;
+}
+.frame--dark .code__pre {
+  color: #f2f2f2;
+}
+.frame--dark .code__input {
+  caret-color: #fff;
+}
+
+/* ---------- Prism token palette — light ---------- */
+
+.frame--light .token.comment,
+.frame--light .token.prolog,
+.frame--light .token.doctype,
+.frame--light .token.cdata {
+  color: #8a8a8a;
+  font-style: italic;
+}
+.frame--light .token.punctuation {
+  color: #5a5a5a;
+}
+.frame--light .token.keyword,
+.frame--light .token.atrule,
+.frame--light .token.important,
+.frame--light .token.deleted {
+  color: #7828c8;
+  font-weight: 700;
+}
+.frame--light .token.string,
+.frame--light .token.char,
+.frame--light .token.attr-value,
+.frame--light .token.regex,
+.frame--light .token.inserted {
+  color: #1a7a1a;
+}
+.frame--light .token.number,
+.frame--light .token.boolean,
+.frame--light .token.constant,
+.frame--light .token.symbol {
+  color: #c2410c;
+}
+.frame--light .token.function,
+.frame--light .token.function-name {
+  color: #d6219b;
+}
+.frame--light .token.class-name,
+.frame--light .token.builtin,
+.frame--light .token.namespace {
+  color: #0277b6;
+}
+.frame--light .token.operator,
+.frame--light .token.entity,
+.frame--light .token.url {
+  color: #b45309;
+}
+.frame--light .token.property,
+.frame--light .token.tag,
+.frame--light .token.attr-name,
+.frame--light .token.selector {
+  color: #be123c;
+}
+.frame--light .token.decorator,
+.frame--light .token.annotation {
+  color: #7828c8;
+}
+
+/* markdown — light */
+.frame--light .token.title,
+.frame--light .token.title .token.punctuation {
+  color: #7828c8;
+  font-weight: 700;
+}
+.frame--light .token.url,
+.frame--light .token.url-link {
+  color: #0277b6;
+}
+.frame--light .token.code,
+.frame--light .token.code-snippet {
+  color: #c2410c;
+}
+.frame--light .token.list.punctuation,
+.frame--light .token.blockquote.punctuation,
+.frame--light .token.hr.punctuation {
+  color: #d6219b;
+}
+
+/* ---------- Prism token palette — dark ---------- */
+
+.frame--dark .token.comment,
+.frame--dark .token.prolog,
+.frame--dark .token.doctype,
+.frame--dark .token.cdata {
+  color: #7e8597;
+  font-style: italic;
+}
+.frame--dark .token.punctuation {
+  color: #b6bccb;
+}
+.frame--dark .token.keyword,
+.frame--dark .token.atrule,
+.frame--dark .token.important,
+.frame--dark .token.deleted {
+  color: #c792ff;
+  font-weight: 700;
+}
+.frame--dark .token.string,
+.frame--dark .token.char,
+.frame--dark .token.attr-value,
+.frame--dark .token.regex,
+.frame--dark .token.inserted {
+  color: #5fe884;
+}
+.frame--dark .token.number,
+.frame--dark .token.boolean,
+.frame--dark .token.constant,
+.frame--dark .token.symbol {
+  color: #ffac5f;
+}
+.frame--dark .token.function,
+.frame--dark .token.function-name {
+  color: #ff6fc9;
+}
+.frame--dark .token.class-name,
+.frame--dark .token.builtin,
+.frame--dark .token.namespace {
+  color: #4fc3ff;
+}
+.frame--dark .token.operator,
+.frame--dark .token.entity,
+.frame--dark .token.url {
+  color: #ffd500;
+}
+.frame--dark .token.property,
+.frame--dark .token.tag,
+.frame--dark .token.attr-name,
+.frame--dark .token.selector {
+  color: #ff8fab;
+}
+.frame--dark .token.decorator,
+.frame--dark .token.annotation {
+  color: #c792ff;
+}
+
+/* markdown — dark */
+.frame--dark .token.title,
+.frame--dark .token.title .token.punctuation {
+  color: #c792ff;
+  font-weight: 700;
+}
+.frame--dark .token.url,
+.frame--dark .token.url-link {
+  color: #4fc3ff;
+}
+.frame--dark .token.code,
+.frame--dark .token.code-snippet {
+  color: #ffac5f;
+}
+.frame--dark .token.list.punctuation,
+.frame--dark .token.blockquote.punctuation,
+.frame--dark .token.hr.punctuation {
+  color: #ff6fc9;
+}
+
+.token.bold {
+  font-weight: 700;
+}
+.token.italic {
+  font-style: italic;
+}
+
+/* ---------- hint + toast ---------- */
+
+.hint {
+  flex: 0 0 auto;
+  padding: 10px 20px;
+  border-top: 2px solid var(--funky-border-color, #222);
+  background: var(--funky-bg);
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 64px;
+  transform: translateX(-50%);
+  background: #222;
+  color: #fff5d1;
+  font-weight: 700;
+  font-size: 0.9rem;
+  padding: 10px 18px;
+  border: 2px solid #222;
+  box-shadow: 4px 4px 0 0 rgba(0, 0, 0, 0.25);
+  z-index: 50;
+}

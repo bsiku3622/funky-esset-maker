@@ -1,0 +1,150 @@
+/* hand-authored, prefixed with .scope-numline (native tool, not generated) */
+
+.scope-numline .app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
+.scope-numline .toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px 20px;
+  background: var(--funky-bg);
+  border-bottom: 3px solid var(--funky-border-color, #222);
+  flex: 0 0 auto;
+}
+
+.scope-numline .toolbar__title {
+  margin: 0 8px 0 0;
+}
+
+.scope-numline .toolbar__group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.scope-numline .toolbar__label {
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.scope-numline .toolbar__spacer {
+  flex: 1 1 auto;
+}
+
+.scope-numline .nl-num {
+  width: 5ch;
+  padding: 4px 6px;
+  border: 2px solid #222;
+  background: #fff;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-align: right;
+  outline: none;
+}
+.scope-numline .nl-num:focus {
+  box-shadow: 3px 3px 0 0 rgba(0, 0, 0, 0.2);
+}
+.scope-numline .nl-tilde {
+  font-weight: 700;
+  opacity: 0.6;
+}
+
+/* stage */
+.scope-numline .stage {
+  flex: 1 1 auto;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  background-color: #e9e2c4;
+  background-image: linear-gradient(45deg, #d8cfa8 25%, transparent 25%),
+    linear-gradient(-45deg, #d8cfa8 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #d8cfa8 75%),
+    linear-gradient(-45deg, transparent 75%, #d8cfa8 75%);
+  background-size: 24px 24px;
+  background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+}
+
+.scope-numline .fitbox {
+  flex: 0 0 auto;
+}
+
+.scope-numline .shot {
+  display: inline-block;
+  width: max-content;
+  padding: 18px 20px;
+  border: 3px solid #222;
+  box-shadow: 8px 8px 0 0 rgba(0, 0, 0, 0.25);
+  transform-origin: top left;
+}
+
+.scope-numline .nline {
+  display: block;
+}
+
+/* editor */
+.scope-numline .editor {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 20px;
+  background: var(--funky-bg);
+  border-top: 3px solid var(--funky-border-color, #222);
+  flex: 0 0 auto;
+}
+.scope-numline .editor__prompt {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #7828c8;
+  flex: 0 0 auto;
+  margin-top: 8px;
+}
+.scope-numline .editor__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 10px 14px;
+  border: 2px solid #222;
+  background: #fff;
+  font-family: var(--mono);
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.5;
+  outline: none;
+  resize: none;
+  overflow-y: auto;
+  white-space: pre;
+}
+.scope-numline .editor__input:focus {
+  box-shadow: 4px 4px 0 0 rgba(0, 0, 0, 0.2);
+}
+
+.scope-numline .hint {
+  flex: 0 0 auto;
+  padding: 10px 20px;
+  border-top: 2px solid var(--funky-border-color, #222);
+  background: var(--funky-bg);
+}
+
+.scope-numline .toast {
+  position: fixed;
+  left: 50%;
+  bottom: 96px;
+  transform: translateX(-50%);
+  background: #222;
+  color: #fff5d1;
+  font-weight: 700;
+  font-size: 0.9rem;
+  padding: 10px 18px;
+  border: 2px solid #222;
+  box-shadow: 4px 4px 0 0 rgba(0, 0, 0, 0.25);
+  z-index: 50;
+}

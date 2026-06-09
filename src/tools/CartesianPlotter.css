@@ -1,0 +1,159 @@
+/* hand-authored, prefixed with .scope-cartesian (native tool, not generated) */
+
+.scope-cartesian .app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
+.scope-cartesian .toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px 20px;
+  background: var(--funky-bg);
+  border-bottom: 3px solid var(--funky-border-color, #222);
+  flex: 0 0 auto;
+}
+
+.scope-cartesian .toolbar__title {
+  margin: 0 8px 0 0;
+}
+
+.scope-cartesian .toolbar__group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.scope-cartesian .toolbar__label {
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.scope-cartesian .toolbar__spacer {
+  flex: 1 1 auto;
+}
+
+.scope-cartesian .cp-num {
+  padding: 4px 6px;
+  border: 2px solid #222;
+  background: #fff;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-align: right;
+  outline: none;
+}
+.scope-cartesian .cp-num:focus {
+  box-shadow: 3px 3px 0 0 rgba(0, 0, 0, 0.2);
+}
+
+.scope-cartesian .cp-tilde {
+  font-weight: 700;
+  opacity: 0.6;
+}
+
+.scope-cartesian .cp-theta {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 0.82rem;
+  opacity: 0.75;
+}
+
+/* stage */
+.scope-cartesian .stage {
+  flex: 1 1 auto;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  background-color: #e9e2c4;
+  background-image: linear-gradient(45deg, #d8cfa8 25%, transparent 25%),
+    linear-gradient(-45deg, #d8cfa8 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #d8cfa8 75%),
+    linear-gradient(-45deg, transparent 75%, #d8cfa8 75%);
+  background-size: 24px 24px;
+  background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+}
+
+.scope-cartesian .fitbox {
+  flex: 0 0 auto;
+}
+
+.scope-cartesian .shot {
+  display: inline-block;
+  width: max-content;
+  padding: 16px;
+  border: 3px solid #222;
+  box-shadow: 8px 8px 0 0 rgba(0, 0, 0, 0.25);
+  transform-origin: top left;
+}
+
+.scope-cartesian .plot {
+  display: block;
+}
+
+/* editor */
+.scope-cartesian .editor {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 20px;
+  background: var(--funky-bg);
+  border-top: 3px solid var(--funky-border-color, #222);
+  flex: 0 0 auto;
+}
+
+.scope-cartesian .editor__prompt {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 1rem;
+  color: #7828c8;
+  flex: 0 0 auto;
+  margin-top: 10px;
+}
+
+.scope-cartesian .editor__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 10px 14px;
+  border: 2px solid #222;
+  background: #fff;
+  font-family: var(--mono);
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.5;
+  outline: none;
+  resize: none;
+  overflow-y: auto;
+  white-space: pre;
+}
+.scope-cartesian .editor__input:focus {
+  box-shadow: 4px 4px 0 0 rgba(0, 0, 0, 0.2);
+}
+
+.scope-cartesian .hint {
+  flex: 0 0 auto;
+  padding: 10px 20px;
+  border-top: 2px solid var(--funky-border-color, #222);
+  background: var(--funky-bg);
+}
+
+.scope-cartesian .toast {
+  position: fixed;
+  left: 50%;
+  bottom: 96px;
+  transform: translateX(-50%);
+  background: #222;
+  color: #fff5d1;
+  font-weight: 700;
+  font-size: 0.9rem;
+  padding: 10px 18px;
+  border: 2px solid #222;
+  box-shadow: 4px 4px 0 0 rgba(0, 0, 0, 0.25);
+  z-index: 50;
+}

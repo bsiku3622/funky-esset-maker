@@ -1,0 +1,26 @@
+:root {
+  /* hoisted from the individual tools so their scoped CSS keeps working */
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  --code-line: 1.55;
+  --code-pad: 1.15em 1.4em;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: var(--funky-font-family);
+  background: var(--funky-bg);
+  color: var(--funky-ink);
+  overflow: hidden;
+}

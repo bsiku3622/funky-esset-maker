@@ -1,0 +1,283 @@
+/* ---------- shell ---------- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
+/* ---------- toolbar ---------- */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px 20px;
+  background: var(--funky-bg);
+  border-bottom: 3px solid var(--funky-border-color, #222);
+  flex: 0 0 auto;
+}
+
+.toolbar__title {
+  margin: 0 8px 0 0;
+}
+
+.toolbar__group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar__label {
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.toolbar__font {
+  min-width: 48px;
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.toolbar__spacer {
+  flex: 1 1 auto;
+}
+
+.field__px {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.num {
+  width: 6ch;
+  padding: 4px 6px;
+  border: 2px solid #222;
+  background: #fff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-align: right;
+  outline: none;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.num:focus {
+  box-shadow: 3px 3px 0 0 rgba(0, 0, 0, 0.2);
+}
+
+.num::-webkit-outer-spin-button,
+.num::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* ---------- color swatches ---------- */
+
+.swatches {
+  display: flex;
+  gap: 4px;
+}
+
+.swatch {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 2px solid #222;
+  cursor: pointer;
+  transition: box-shadow 0.1s ease-out, transform 0.1s ease-out;
+}
+
+.swatch:hover {
+  box-shadow: 3px 3px 0 0 rgba(0, 0, 0, 0.2);
+}
+
+.swatch--active {
+  box-shadow: 0 0 0 2px var(--funky-bg), 0 0 0 4px #222;
+}
+
+/* ---------- stage ---------- */
+
+.stage {
+  flex: 1 1 auto;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  /* checkerboard to make transparency obvious */
+  background-color: #e9e2c4;
+  background-image: linear-gradient(45deg, #d8cfa8 25%, transparent 25%),
+    linear-gradient(-45deg, #d8cfa8 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #d8cfa8 75%),
+    linear-gradient(-45deg, transparent 75%, #d8cfa8 75%);
+  background-size: 24px 24px;
+  background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+}
+
+.fitbox {
+  flex: 0 0 auto;
+}
+
+/* the exact node handed to html-to-image — just the equation with breathing
+   room, no frame, so the PNG is literally the formula. padding is set inline
+   (proportional to font size). scaled for on-screen preview only. */
+.shot {
+  display: inline-block;
+  transform-origin: top left;
+}
+
+.shot--transparent {
+  background: transparent;
+}
+
+/* ---------- equation ---------- */
+
+/* one display block per input line, stacked and centered */
+.eq {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3em; /* relative to the equation font-size */
+  line-height: 1.2;
+}
+
+/* KaTeX sets its own font-size in em; our .eq font-size drives the scale.
+   neutralize KaTeX's display margins so each line hugs its equation. */
+.eq__line .katex-display {
+  margin: 0;
+}
+
+.eq__line .katex {
+  color: inherit;
+}
+
+.eq__line--blank {
+  height: 0.7em;
+}
+
+.eq__line--error {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.5em;
+  font-weight: 700;
+  color: #d11;
+  max-width: 60ch;
+  word-break: break-word;
+}
+
+/* ---------- document mode (text + inline math) ---------- */
+
+.doc {
+  /* same typeface as the math (Computer Modern via KaTeX); Korean falls back
+     to serif since CM has no CJK glyphs — matching real LaTeX behavior */
+  font-family: 'KaTeX_Main', 'Latin Modern Roman', 'Times New Roman', serif;
+  line-height: 1.5;
+  text-align: left;
+  word-break: break-word;
+}
+
+/* unlimited width → never auto-wrap; break only at \\ and paragraph breaks */
+.doc--unlimited .doc__p {
+  white-space: pre;
+}
+
+.doc__p {
+  margin: 0 0 0.7em 0;
+}
+
+.doc__p:last-child {
+  margin-bottom: 0;
+}
+
+/* inline math sits on the text baseline; display math ($$) breaks to its own row */
+.doc .katex {
+  color: inherit;
+}
+
+.doc .katex-display {
+  margin: 0.4em 0;
+}
+
+.doc .doc__err {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7em;
+  font-weight: 700;
+  color: #d11;
+}
+
+.doc code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+}
+
+/* ---------- editor ---------- */
+
+.editor {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 20px;
+  background: var(--funky-bg);
+  border-top: 3px solid var(--funky-border-color, #222);
+  flex: 0 0 auto;
+}
+
+.editor__prompt {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #7828c8;
+  flex: 0 0 auto;
+  margin-top: 10px;
+}
+
+.editor__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 10px 14px;
+  border: 2px solid #222;
+  background: #fff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.4;
+  outline: none;
+  resize: none;
+  overflow-y: auto;
+  white-space: pre;
+}
+
+.editor__input:focus {
+  box-shadow: 4px 4px 0 0 rgba(0, 0, 0, 0.2);
+}
+
+/* ---------- hint + toast ---------- */
+
+.hint {
+  flex: 0 0 auto;
+  padding: 10px 20px;
+  border-top: 2px solid var(--funky-border-color, #222);
+  background: var(--funky-bg);
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 96px;
+  transform: translateX(-50%);
+  background: #222;
+  color: #fff5d1;
+  font-weight: 700;
+  font-size: 0.9rem;
+  padding: 10px 18px;
+  border: 2px solid #222;
+  box-shadow: 4px 4px 0 0 rgba(0, 0, 0, 0.25);
+  z-index: 50;
+}

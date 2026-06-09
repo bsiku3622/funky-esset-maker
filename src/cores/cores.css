@@ -1,0 +1,328 @@
+/* Self-contained styles for the Esset render cores.
+   Prefixed with .fx- so they never collide with a host app's classes, and they
+   inline their own tokens (no dependency on the Esset Maker globals). */
+
+:root {
+  --fx-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+}
+
+/* ---------- CodeBlock ---------- */
+
+.fx-frame {
+  display: inline-block;
+  border: 3px solid #222;
+  box-shadow: 8px 8px 0 0 rgba(0, 0, 0, 0.25);
+  text-align: left;
+}
+.fx-frame__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-bottom: 3px solid #222;
+}
+.fx-dot {
+  width: 13px;
+  height: 13px;
+  border: 2px solid #222;
+  flex: 0 0 auto;
+}
+.fx-dot--pink {
+  background: #ff4eba;
+}
+.fx-dot--yellow {
+  background: #ffd500;
+}
+.fx-dot--green {
+  background: #00c22a;
+}
+.fx-frame__name {
+  margin-left: 8px;
+  padding: 2px 4px;
+  font-family: var(--fx-mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.fx-code {
+  position: relative;
+  display: block;
+  overflow: hidden;
+}
+.fx-code__pre {
+  margin: 0;
+  border: 0;
+  padding: 1.15em 1.4em;
+  font-family: var(--fx-mono);
+  font-size: inherit;
+  line-height: 1.55;
+  font-weight: 500;
+  tab-size: 4;
+}
+.fx-code--wrap .fx-code__pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.fx-code--nowrap .fx-code__pre {
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.fx-code__pre code {
+  font: inherit;
+  display: block;
+}
+
+/* themes */
+.fx-frame--light {
+  background: #fff5d1;
+}
+.fx-frame--light .fx-frame__bar {
+  background: #fff0b8;
+}
+.fx-frame--light .fx-frame__name {
+  color: #222;
+}
+.fx-frame--light .fx-code__pre {
+  color: #1c1c1c;
+}
+.fx-frame--dark {
+  background: #1e1e22;
+}
+.fx-frame--dark .fx-frame__bar {
+  background: #2b2b31;
+}
+.fx-frame--dark .fx-frame__name {
+  color: #f4f4f4;
+}
+.fx-frame--dark .fx-code__pre {
+  color: #f2f2f2;
+}
+
+/* ---------- token colors (light) ---------- */
+.fx-frame--light .token.comment,
+.fx-frame--light .token.prolog,
+.fx-frame--light .token.doctype,
+.fx-frame--light .token.cdata {
+  color: #8a8a8a;
+  font-style: italic;
+}
+.fx-frame--light .token.punctuation {
+  color: #5a5a5a;
+}
+.fx-frame--light .token.keyword,
+.fx-frame--light .token.atrule,
+.fx-frame--light .token.important,
+.fx-frame--light .token.deleted {
+  color: #7828c8;
+  font-weight: 700;
+}
+.fx-frame--light .token.string,
+.fx-frame--light .token.char,
+.fx-frame--light .token.attr-value,
+.fx-frame--light .token.regex,
+.fx-frame--light .token.inserted {
+  color: #1a7a1a;
+}
+.fx-frame--light .token.number,
+.fx-frame--light .token.boolean,
+.fx-frame--light .token.constant,
+.fx-frame--light .token.symbol {
+  color: #c2410c;
+}
+.fx-frame--light .token.function,
+.fx-frame--light .token.function-name {
+  color: #d6219b;
+}
+.fx-frame--light .token.class-name,
+.fx-frame--light .token.builtin,
+.fx-frame--light .token.namespace {
+  color: #0277b6;
+}
+.fx-frame--light .token.operator,
+.fx-frame--light .token.entity,
+.fx-frame--light .token.url {
+  color: #b45309;
+}
+.fx-frame--light .token.property,
+.fx-frame--light .token.tag,
+.fx-frame--light .token.attr-name,
+.fx-frame--light .token.selector {
+  color: #be123c;
+}
+.fx-frame--light .token.decorator,
+.fx-frame--light .token.annotation,
+.fx-frame--light .token.title,
+.fx-frame--light .token.title .token.punctuation {
+  color: #7828c8;
+  font-weight: 700;
+}
+
+/* ---------- token colors (dark) ---------- */
+.fx-frame--dark .token.comment,
+.fx-frame--dark .token.prolog,
+.fx-frame--dark .token.doctype,
+.fx-frame--dark .token.cdata {
+  color: #7e8597;
+  font-style: italic;
+}
+.fx-frame--dark .token.punctuation {
+  color: #b6bccb;
+}
+.fx-frame--dark .token.keyword,
+.fx-frame--dark .token.atrule,
+.fx-frame--dark .token.important,
+.fx-frame--dark .token.deleted {
+  color: #c792ff;
+  font-weight: 700;
+}
+.fx-frame--dark .token.string,
+.fx-frame--dark .token.char,
+.fx-frame--dark .token.attr-value,
+.fx-frame--dark .token.regex,
+.fx-frame--dark .token.inserted {
+  color: #5fe884;
+}
+.fx-frame--dark .token.number,
+.fx-frame--dark .token.boolean,
+.fx-frame--dark .token.constant,
+.fx-frame--dark .token.symbol {
+  color: #ffac5f;
+}
+.fx-frame--dark .token.function,
+.fx-frame--dark .token.function-name {
+  color: #ff6fc9;
+}
+.fx-frame--dark .token.class-name,
+.fx-frame--dark .token.builtin,
+.fx-frame--dark .token.namespace {
+  color: #4fc3ff;
+}
+.fx-frame--dark .token.operator,
+.fx-frame--dark .token.entity,
+.fx-frame--dark .token.url {
+  color: #ffd500;
+}
+.fx-frame--dark .token.property,
+.fx-frame--dark .token.tag,
+.fx-frame--dark .token.attr-name,
+.fx-frame--dark .token.selector {
+  color: #ff8fab;
+}
+.fx-frame--dark .token.decorator,
+.fx-frame--dark .token.annotation,
+.fx-frame--dark .token.title,
+.fx-frame--dark .token.title .token.punctuation {
+  color: #c792ff;
+  font-weight: 700;
+}
+
+.fx-frame .token.bold {
+  font-weight: 700;
+}
+.fx-frame .token.italic {
+  font-style: italic;
+}
+
+/* ---------- Diagram ---------- */
+
+.fx-diagram {
+  position: relative;
+}
+.fx-diagram__world {
+  position: absolute;
+}
+.fx-diagram__edges {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.fx-diagram__line {
+  stroke: #222;
+  stroke-width: 2;
+}
+
+.fx-node {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 150px;
+  min-height: 50px;
+  max-width: 320px;
+  padding: 8px 16px;
+  border: 2px solid #222;
+  box-shadow: 4px 4px 0 0 rgba(0, 0, 0, 0.2);
+  font-family: 'Pretendard', system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 1.25;
+  text-align: center;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  box-sizing: border-box;
+}
+.fx-node__label {
+  display: block;
+}
+.fx-node__tag {
+  position: absolute;
+  top: -14px;
+  left: -12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 5px;
+  background: #fff;
+  border: 2px solid #222;
+  box-shadow: 3px 3px 0 0 rgba(0, 0, 0, 0.2);
+  color: #222;
+  font-family: 'Pretendard', system-ui, sans-serif;
+  font-weight: 800;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+/* ---------- Chart ---------- */
+
+.fx-chart {
+  display: inline-block;
+  font-family: 'Pretendard', system-ui, sans-serif;
+}
+.fx-chart svg {
+  display: block;
+}
+.fx-chart__legend {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0 8px 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  font-size: 13px;
+}
+.fx-chart__legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.fx-chart__box {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #222;
+  flex: 0 0 auto;
+}
+.fx-chart__label {
+  font-weight: 600;
+}
+.fx-chart__val {
+  font-weight: 800;
+  opacity: 0.7;
+}

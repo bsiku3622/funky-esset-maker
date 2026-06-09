@@ -1,0 +1,199 @@
+/* ---------- shell ---------- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
+/* ---------- toolbar ---------- */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px 20px;
+  background: var(--funky-bg);
+  border-bottom: 3px solid var(--funky-border-color, #222);
+  flex: 0 0 auto;
+}
+
+.toolbar__title {
+  margin: 0 8px 0 0;
+}
+
+.toolbar__group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar__label {
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.toolbar__font {
+  min-width: 48px;
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.toolbar__spacer {
+  flex: 1 1 auto;
+}
+
+/* ---------- color swatches ---------- */
+
+.swatches {
+  display: flex;
+  gap: 4px;
+}
+
+.swatch {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 2px solid #222;
+  cursor: pointer;
+  transition: box-shadow 0.1s ease-out;
+}
+
+.swatch:hover {
+  box-shadow: 3px 3px 0 0 rgba(0, 0, 0, 0.2);
+}
+
+.swatch--active {
+  box-shadow: 0 0 0 2px var(--funky-bg), 0 0 0 4px #222;
+}
+
+/* ---------- stage ---------- */
+
+.stage {
+  flex: 1 1 auto;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  /* checkerboard to make transparency obvious */
+  background-color: #e9e2c4;
+  background-image: linear-gradient(45deg, #d8cfa8 25%, transparent 25%),
+    linear-gradient(-45deg, #d8cfa8 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #d8cfa8 75%),
+    linear-gradient(-45deg, transparent 75%, #d8cfa8 75%);
+  background-size: 24px 24px;
+  background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+}
+
+.fitbox {
+  flex: 0 0 auto;
+}
+
+/* the exact node handed to html-to-image; scaled for on-screen preview only.
+   width: max-content keeps the table at its natural size even though .fitbox
+   reserves only the *scaled* (smaller) footprint — otherwise table-layout auto
+   would shrink columns to fit and collapse cells to one character per line. */
+.shot {
+  display: inline-block;
+  width: max-content;
+  padding: 14px 18px 22px 14px; /* room for the hard shadow in the PNG */
+  background: transparent;
+  transform-origin: top left;
+}
+
+/* ---------- table ---------- */
+
+.tbl {
+  border-collapse: collapse;
+  border: 3px solid #222;
+  box-shadow: 8px 8px 0 0 rgba(0, 0, 0, 0.25);
+  background: var(--body-bg, #fff);
+  table-layout: auto;
+}
+
+.cell {
+  border: 2px solid #222;
+  padding: 0;
+  vertical-align: top;
+  background: var(--body-bg, #fff);
+  color: #222;
+}
+
+.cell--header .cell__sizer {
+  font-weight: 800;
+}
+
+/* sizer (visible text, drives cell size) + transparent textarea on top.
+   reliable column alignment via table-layout and correct export of the text. */
+.cell__box {
+  position: relative;
+}
+
+.cell__sizer,
+.cell__input {
+  font: inherit;
+  padding: 0.32em 0.6em;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  min-width: 2.5ch;
+  max-width: 26ch;
+}
+
+.cell__sizer {
+  display: block;
+  color: inherit;
+}
+
+.cell__input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  resize: none;
+  overflow: hidden;
+  background: transparent;
+  color: transparent;
+  caret-color: #222;
+  outline: none;
+}
+
+.cell__input:focus {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.cell__input::selection {
+  background: rgba(120, 40, 200, 0.28);
+}
+
+/* ---------- hint + toast ---------- */
+
+.hint {
+  flex: 0 0 auto;
+  padding: 10px 20px;
+  border-top: 2px solid var(--funky-border-color, #222);
+  background: var(--funky-bg);
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 64px;
+  transform: translateX(-50%);
+  background: #222;
+  color: #fff5d1;
+  font-weight: 700;
+  font-size: 0.9rem;
+  padding: 10px 18px;
+  border: 2px solid #222;
+  box-shadow: 4px 4px 0 0 rgba(0, 0, 0, 0.25);
+  z-index: 50;
+}

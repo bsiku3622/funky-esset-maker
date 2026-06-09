@@ -1,0 +1,104 @@
+/* ---------- unified shell ---------- */
+
+.fem {
+  display: flex;
+  height: 100%;
+  width: 100%;
+}
+
+/* sidebar */
+.fem__nav {
+  flex: 0 0 210px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 12px;
+  background: #fff0b8;
+  border-right: 3px solid #222;
+  overflow-y: auto;
+}
+
+.fem__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 6px 14px;
+  border-bottom: 3px solid #222;
+}
+
+.fem__logo {
+  font-size: 1.7rem;
+  line-height: 1;
+}
+
+.fem__name {
+  font-weight: 900;
+  font-size: 1.05rem;
+  line-height: 1.08;
+  letter-spacing: -0.01em;
+}
+
+.fem__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fem__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: 10px 12px;
+  border: 2px solid #222;
+  background: #fff;
+  color: #222;
+  cursor: pointer;
+  box-shadow: 3px 3px 0 0 rgba(0, 0, 0, 0.2);
+  transition: transform 0.1s ease-out, box-shadow 0.1s ease-out;
+}
+
+.fem__item:hover {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 0 rgba(0, 0, 0, 0.2);
+}
+
+.fem__item.is-active {
+  background: #7828c8;
+  color: #fff;
+  transform: translate(3px, 3px);
+  box-shadow: none;
+}
+
+.fem__item-label {
+  font-weight: 800;
+  font-size: 0.95rem;
+}
+
+.fem__item-desc {
+  font-size: 0.72rem;
+  opacity: 0.72;
+}
+
+/* content area — each tool is wrapped in a .femtool scope element that fills
+   it; the tool's own root (.app / .editor) is height:100% within that */
+.fem__content {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.femtool {
+  height: 100%;
+  width: 100%;
+}
+
+.fem__loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-weight: 700;
+  opacity: 0.5;
+}
