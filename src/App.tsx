@@ -80,6 +80,21 @@ export default function App() {
             </button>
           ))}
         </nav>
+
+        <footer className="fem__footer">
+          <a
+            className="fem__gh"
+            href="https://github.com/bsiku3622/funky-esset-maker"
+            target="_blank"
+            rel="noreferrer"
+          >
+            <span className="fem__gh-icon" aria-hidden="true">
+              ★
+            </span>
+            GitHub
+          </a>
+          <span className="fem__credit">by Jaewon Baek</span>
+        </footer>
       </aside>
 
       <main className="fem__content">
