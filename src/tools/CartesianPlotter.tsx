@@ -167,7 +167,8 @@ function latexToExpr(latex: string): string {
 
 function preprocess(expr: string): string {
   return expr
-    .replace(/(\d)\s*([a-zA-Z(])/g, '$1*$2')
+    .replace(/(\d)\s*([a-zA-Z(])/g, '$1*$2')   // 4x → 4*x, 4( → 4*(
+    .replace(/([xy])\s*([xy])/g, '$1*$2')        // xy → x*y, yx → y*x
     .replace(/\)\s*\(/g, ')*(')
     .replace(/\)\s*([a-zA-Z])/g, ')*$1')
 }
@@ -544,7 +545,7 @@ export default function CartesianPlotterTool() {
       } else if (it.kind === 'implicit') {
         // x를 격자로 고정한 뒤 y 방향으로 부호 변화 스캔
         const NX = 40, NY = 120
-        const yScan = Math.max(50, (uxhi - uxlo) * 2)
+        const yScan = uxhi - uxlo
         for (let ix = 0; ix <= NX; ix++) {
           const x = uxlo + ((uxhi - uxlo) * ix) / NX
           let prev = it.f(x, -yScan)
@@ -619,8 +620,9 @@ export default function CartesianPlotterTool() {
   }
 
   const implicitPath = (f: (x: number, y: number) => number): string => {
-    const nx = Math.min(280, Math.ceil(figW * 0.44))
-    const ny = Math.min(280, Math.ceil(figH * 0.44))
+    const nx = Math.min(400, Math.ceil(figW * 0.44))
+    // y 범위가 넓을수록 세밀한 격자 필요 (aliasing 방지)
+    const ny = Math.min(600, Math.max(Math.ceil(figH * 0.44), Math.ceil((yhi - ylo) * 18)))
     const dx = (xhi - xlo) / nx
     const dy = (yhi - ylo) / ny
 
