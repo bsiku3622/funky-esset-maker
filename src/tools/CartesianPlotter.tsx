@@ -541,6 +541,22 @@ export default function CartesianPlotterTool() {
         }
       } else if (it.kind === 'point') {
         lo = Math.min(lo, it.y); hi = Math.max(hi, it.y)
+      } else if (it.kind === 'implicit') {
+        // x를 격자로 고정한 뒤 y 방향으로 부호 변화 스캔
+        const NX = 40, NY = 120
+        const yScan = Math.max(50, (uxhi - uxlo) * 2)
+        for (let ix = 0; ix <= NX; ix++) {
+          const x = uxlo + ((uxhi - uxlo) * ix) / NX
+          let prev = it.f(x, -yScan)
+          for (let iy = 1; iy <= NY; iy++) {
+            const y = -yScan + (2 * yScan * iy) / NY
+            const cur = it.f(x, y)
+            if (Number.isFinite(cur) && Number.isFinite(prev) && prev * cur < 0) {
+              lo = Math.min(lo, y); hi = Math.max(hi, y)
+            }
+            prev = cur
+          }
+        }
       }
     }
     if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [-6, 6] as const
