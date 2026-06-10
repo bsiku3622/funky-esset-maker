@@ -137,6 +137,9 @@ function latexToExpr(latex: string): string {
     .replace(/\\ln\b/g, 'ln')
     .replace(/\\log\b/g, 'log')
     .replace(/\\exp\b/g, 'exp')
+    // 지수의 {} → () — frac/sqrt 보다 먼저 처리해야 중첩 지수가 올바르게 변환됨
+    // 예: \frac{x^{2}}{4} → \frac{x^(2)}{4} → (x^(2))/(4)
+    .replace(/\^{([^{}]*)}/g, '^($1)')
     // sqrt: \sqrt{expr} → sqrt(expr)
     .replace(/\\sqrt\{([^{}]*)\}/g, 'sqrt($1)')
     .replace(/\\sqrt\b/g, 'sqrt')
@@ -152,8 +155,6 @@ function latexToExpr(latex: string): string {
     .replace(/\\cdot\b/g, '*')
     .replace(/\\times\b/g, '*')
     .replace(/\\div\b/g, '/')
-    // 지수의 {} → ()
-    .replace(/\^{([^{}]*)}/g, '^($1)')
     // 나머지 LaTeX 커맨드 제거
     .replace(/\\[a-zA-Z]+/g, '')
     // 남은 {} → ()
