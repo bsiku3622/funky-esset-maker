@@ -6,9 +6,30 @@ import {
   useRef,
   useState,
 } from 'react'
-import { Button, Text } from '@studio-baeks/funky-ui'
+import { Button, Icon, Text } from '@studio-baeks/funky-ui'
 import { toBlob } from 'html-to-image'
+import { MathfieldElement } from 'mathlive'
+import 'mathlive'
 import './CartesianPlotter.css'
+
+// CDN에서 폰트 로드 (Vite가 node_modules 폰트를 자동 서빙하지 않음)
+MathfieldElement.fontsDirectory =
+  'https://cdn.jsdelivr.net/npm/mathlive@0.110.0/fonts/'
+MathfieldElement.soundsDirectory = null
+
+// math-field 웹 컴포넌트 JSX 타입
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      'math-field': React.HTMLAttributes<MathfieldElement> & {
+        ref?: React.Ref<MathfieldElement>
+        placeholder?: string
+        'virtual-keyboard-mode'?: string
+        'smart-mode'?: string
+      }
+    }
+  }
+}
 
 /* ---------- model ---------- */
 
@@ -31,14 +52,25 @@ const BGS: { key: BgKey; label: string; hex: string | null }[] = [
   { key: 'dark', label: '어두움', hex: '#1e1e22' },
 ]
 
-const SAMPLE = `y = x^2
-y = sin(x)
-(1.5, 2.25) A`
+interface GraphEntry {
+  id: string
+  /** MathLive LaTeX 형식으로 저장 */
+  expr: string
+  enabled: boolean
+  color: string
+}
 
-const STORE_KEY = 'fem.cartesian.v1'
+// 초기 샘플 — LaTeX 형식
+const SAMPLE_GRAPHS: GraphEntry[] = [
+  { id: 's1', expr: 'y=x^{2}', enabled: true, color: CURVE_COLORS[0] },
+  { id: 's2', expr: 'y=\\sin\\left(x\\right)', enabled: true, color: CURVE_COLORS[1] },
+  { id: 's3', expr: '\\left(1.5,\\ 2.25\\right)\\ A', enabled: true, color: '#222' },
+]
+
+const STORE_KEY = 'fem.cartesian.v3'
 
 interface Persisted {
-  input: string
+  graphs: GraphEntry[]
   xmin: number
   xmax: number
   ymin: number
@@ -46,14 +78,14 @@ interface Persisted {
   autoY: boolean
   grid: boolean
   equalAspect: boolean
-  thetaMaxPi: number // θ range is [0, thetaMaxPi·π] for polar curves
+  thetaMaxPi: number
   figW: number
   figH: number
   bg: BgKey
 }
 
 const DEFAULTS: Persisted = {
-  input: SAMPLE,
+  graphs: SAMPLE_GRAPHS,
   xmin: -5,
   xmax: 5,
   ymin: -3,
@@ -77,6 +109,69 @@ function loadState(): Persisted {
   }
 }
 
+/* ---------- LaTeX → JS expression ---------- */
+
+function latexToExpr(latex: string): string {
+  return latex
+    // LaTeX 공백 문자 제거
+    .replace(/\\[,;:! ]/g, ' ')
+    // \left( \right) → 일반 괄호
+    .replace(/\\left\(/g, '(')
+    .replace(/\\right\)/g, ')')
+    .replace(/\\left\[/g, '(')
+    .replace(/\\right\]/g, ')')
+    .replace(/\\left\{/g, '(')
+    .replace(/\\right\}/g, ')')
+    .replace(/\\left\|/g, 'abs(')
+    .replace(/\\right\|/g, ')')
+    // 삼각함수
+    .replace(/\\arcsin\b/g, 'asin')
+    .replace(/\\arccos\b/g, 'acos')
+    .replace(/\\arctan\b/g, 'atan')
+    .replace(/\\sin\b/g, 'sin')
+    .replace(/\\cos\b/g, 'cos')
+    .replace(/\\tan\b/g, 'tan')
+    .replace(/\\sinh\b/g, 'sinh')
+    .replace(/\\cosh\b/g, 'cosh')
+    .replace(/\\tanh\b/g, 'tanh')
+    .replace(/\\ln\b/g, 'ln')
+    .replace(/\\log\b/g, 'log')
+    .replace(/\\exp\b/g, 'exp')
+    // sqrt: \sqrt{expr} → sqrt(expr)
+    .replace(/\\sqrt\{([^{}]*)\}/g, 'sqrt($1)')
+    .replace(/\\sqrt\b/g, 'sqrt')
+    // 분수: \frac{a}{b} → (a)/(b)  (단순 1-level만)
+    .replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, '($1)/($2)')
+    // 상수
+    .replace(/\\pi\b/g, 'pi')
+    .replace(/\\theta\b/g, 'theta')
+    .replace(/\\tau\b/g, 'tau')
+    .replace(/\\infty\b/g, 'Infinity')
+    .replace(/\\e\b/g, 'e')
+    // 연산자
+    .replace(/\\cdot\b/g, '*')
+    .replace(/\\times\b/g, '*')
+    .replace(/\\div\b/g, '/')
+    // 지수의 {} → ()
+    .replace(/\^{([^{}]*)}/g, '^($1)')
+    // 나머지 LaTeX 커맨드 제거
+    .replace(/\\[a-zA-Z]+/g, '')
+    // 남은 {} → ()
+    .replace(/\{/g, '(').replace(/\}/g, ')')
+    // 공백 정리
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/* ---------- implicit multiplication ---------- */
+
+function preprocess(expr: string): string {
+  return expr
+    .replace(/(\d)\s*([a-zA-Z(])/g, '$1*$2')
+    .replace(/\)\s*\(/g, ')*(')
+    .replace(/\)\s*([a-zA-Z])/g, ')*$1')
+}
+
 /* ---------- expression compiler ---------- */
 
 const FN_NAMES = [
@@ -93,8 +188,29 @@ const FN_IMPL: Record<string, (...a: number[]) => number> = {
   max: Math.max, pow: Math.pow, atan2: Math.atan2,
 }
 
+function compile2d(expr: string): (x: number, y: number) => number {
+  const body = preprocess(expr).replace(/\^/g, '**')
+  if (/[^0-9+\-*/().,\s a-zA-Z_]/.test(body))
+    throw new Error('허용되지 않는 문자')
+  // eslint-disable-next-line @typescript-eslint/no-implied-eval
+  const f = new Function(
+    'x', 'y',
+    ...FN_NAMES,
+    `"use strict";const pi=Math.PI,e=Math.E,tau=2*Math.PI;return (${body});`,
+  ) as (x: number, y: number, ...fns: ((...a: number[]) => number)[]) => number
+  const impls = FN_NAMES.map((n) => FN_IMPL[n])
+  return (x: number, y: number) => {
+    try {
+      const v = f(x, y, ...impls)
+      return typeof v === 'number' ? v : NaN
+    } catch {
+      return NaN
+    }
+  }
+}
+
 function compile(expr: string, varName = 'x'): (v: number) => number {
-  const body = expr.replace(/\^/g, '**')
+  const body = preprocess(expr).replace(/\^/g, '**')
   if (/[^0-9+\-*/().,\s a-zA-Z_]/.test(body))
     throw new Error('허용되지 않는 문자')
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
@@ -104,9 +220,6 @@ function compile(expr: string, varName = 'x'): (v: number) => number {
     `"use strict";const pi=Math.PI,e=Math.E,tau=2*Math.PI;return (${body});`,
   ) as (v: number, ...fns: ((...a: number[]) => number)[]) => number
   const impls = FN_NAMES.map((n) => FN_IMPL[n])
-  // a half-typed expression (e.g. "t" on the way to "theta") references an
-  // unknown identifier and throws at call time — catch it and return NaN so the
-  // sampler just skips it instead of crashing the render.
   return (v: number) => {
     try {
       const y = f(v, ...impls)
@@ -122,6 +235,7 @@ function compile(expr: string, varName = 'x'): (v: number) => number {
 type Item =
   | { kind: 'fn'; expr: string; f: (x: number) => number; color: string }
   | { kind: 'polar'; expr: string; f: (theta: number) => number; color: string }
+  | { kind: 'implicit'; expr: string; f: (x: number, y: number) => number; color: string }
   | { kind: 'point'; x: number; y: number; label?: string; color: string }
   | { kind: 'error'; raw: string; msg: string }
 
@@ -129,43 +243,58 @@ const POLAR_RE = /^r\s*=\s*(.+)$/i
 const FN_RE = /^(?:y|[a-zA-Z]\w*\s*\(\s*x\s*\))\s*=\s*(.+)$/
 const PT_RE = /^\(?\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)?\s*(.*)$/
 
-function parse(input: string): Item[] {
+function parseSingleLine(line: string, color: string): Item | null {
+  if (!line || line.startsWith('#')) return null
+
+  const rm = POLAR_RE.exec(line)
+  if (rm) {
+    try {
+      return { kind: 'polar', expr: rm[1], f: compile(rm[1], 'theta'), color }
+    } catch (e) {
+      return { kind: 'error', raw: line, msg: e instanceof Error ? e.message : '식 오류' }
+    }
+  }
+
+  const fm = FN_RE.exec(line)
+  if (fm) {
+    try {
+      return { kind: 'fn', expr: fm[1], f: compile(fm[1], 'x'), color }
+    } catch (e) {
+      return { kind: 'error', raw: line, msg: e instanceof Error ? e.message : '식 오류' }
+    }
+  }
+
+  const pm = PT_RE.exec(line)
+  if (pm) {
+    const x = parseFloat(pm[1])
+    const y = parseFloat(pm[2])
+    const label = pm[3].replace(/^["']|["']$/g, '').trim() || undefined
+    return { kind: 'point', x, y, label, color }
+  }
+
+  // 음함수: = 을 포함하는 임의 식 — lhs = rhs → lhs - rhs = 0 으로 변환
+  const eqIdx = line.indexOf('=')
+  if (eqIdx >= 0) {
+    const lhs = line.slice(0, eqIdx).trim()
+    const rhs = line.slice(eqIdx + 1).trim()
+    try {
+      const f = compile2d(`(${lhs})-(${rhs})`)
+      return { kind: 'implicit', expr: line, f, color }
+    } catch (e) {
+      return { kind: 'error', raw: line, msg: e instanceof Error ? e.message : '식 오류' }
+    }
+  }
+
+  return { kind: 'error', raw: line, msg: 'y = … · r = … · x²+y²=r² · (x, y) 형식으로 입력' }
+}
+
+function parseGraphs(graphs: GraphEntry[]): Item[] {
   const out: Item[] = []
-  let ci = 0
-  const next = () => CURVE_COLORS[ci++ % CURVE_COLORS.length]
-  for (const rawLine of input.split('\n')) {
-    const line = rawLine.trim()
-    if (!line || line.startsWith('#')) continue
-    // polar: r = f(theta)
-    const rm = POLAR_RE.exec(line)
-    if (rm) {
-      try {
-        const f = compile(rm[1], 'theta')
-        out.push({ kind: 'polar', expr: rm[1], f, color: next() })
-      } catch (e) {
-        out.push({ kind: 'error', raw: line, msg: e instanceof Error ? e.message : '식 오류' })
-      }
-      continue
-    }
-    const fm = FN_RE.exec(line)
-    if (fm) {
-      try {
-        const f = compile(fm[1], 'x')
-        out.push({ kind: 'fn', expr: fm[1], f, color: next() })
-      } catch (e) {
-        out.push({ kind: 'error', raw: line, msg: e instanceof Error ? e.message : '식 오류' })
-      }
-      continue
-    }
-    const pm = PT_RE.exec(line)
-    if (pm) {
-      const x = parseFloat(pm[1])
-      const y = parseFloat(pm[2])
-      const label = pm[3].replace(/^["']|["']$/g, '').trim() || undefined
-      out.push({ kind: 'point', x, y, label, color: '#222' })
-      continue
-    }
-    out.push({ kind: 'error', raw: line, msg: 'y = … · r = … · (x, y) 형식' })
+  for (const g of graphs) {
+    if (!g.enabled) continue
+    const expr = latexToExpr(g.expr).trim()
+    const item = parseSingleLine(expr, g.color)
+    if (item) out.push(item)
   }
   return out
 }
@@ -189,7 +318,7 @@ function ticks(min: number, max: number): number[] {
   return out
 }
 
-/* ---------- numeric field (free typing, commit on blur) ---------- */
+/* ---------- numeric field ---------- */
 
 function NumField({
   value,
@@ -222,11 +351,126 @@ function NumField({
   )
 }
 
+/* ---------- icons ---------- */
+
+function EyeIcon({ open }: { open: boolean }) {
+  return open ? (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+      <circle cx="12" cy="12" r="3"/>
+    </svg>
+  ) : (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+      <line x1="1" y1="1" x2="23" y2="23"/>
+    </svg>
+  )
+}
+
+function TrashIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 6 5 6 21 6"/>
+      <path d="M19 6l-1 14H6L5 6"/>
+      <path d="M10 11v6M14 11v6"/>
+      <path d="M9 6V4h6v2"/>
+    </svg>
+  )
+}
+
+/* ---------- GraphRow ---------- */
+
+function GraphRow({
+  entry,
+  onChange,
+  onDelete,
+}: {
+  entry: GraphEntry
+  onChange: (updated: GraphEntry) => void
+  onDelete: () => void
+}) {
+  const mathfieldRef = useRef<MathfieldElement>(null)
+
+  // stale-closure 방지: 최신 entry/onChange를 ref로 유지
+  const entryRef = useRef(entry)
+  const onChangeRef = useRef(onChange)
+  useEffect(() => {
+    entryRef.current = entry
+    onChangeRef.current = onChange
+  })
+
+  // mount: 초기값 설정 + input 이벤트 등록
+  useEffect(() => {
+    const el = mathfieldRef.current
+    if (!el) return
+    el.value = entry.expr
+    const handler = () => {
+      onChangeRef.current({ ...entryRef.current, expr: el.value })
+    }
+    el.addEventListener('input', handler)
+    return () => el.removeEventListener('input', handler)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // 외부(예: 다른 곳에서 setGraphs)에서 expr이 바뀌면 MathLive에 반영
+  useEffect(() => {
+    const el = mathfieldRef.current
+    if (el && el.value !== entry.expr) el.value = entry.expr
+  }, [entry.expr])
+
+  const cycleColor = () => {
+    const idx = CURVE_COLORS.indexOf(entry.color)
+    const next = CURVE_COLORS[(idx + 1) % CURVE_COLORS.length]
+    onChange({ ...entry, color: next })
+  }
+
+  return (
+    <div className={`graph-row${entry.enabled ? '' : ' graph-row--dim'}`}>
+      <input
+        type="checkbox"
+        className="graph-row__check"
+        checked={entry.enabled}
+        onChange={(e) => onChange({ ...entry, enabled: e.target.checked })}
+        aria-label="그래프 활성화"
+      />
+      <button
+        className="graph-row__color funky-pressable"
+        style={{ background: entry.color }}
+        onClick={cycleColor}
+        title="색상 변경"
+        aria-label="색상 변경"
+      />
+      <math-field
+        ref={mathfieldRef as React.Ref<MathfieldElement>}
+        className="graph-row__mathfield"
+        placeholder="y = x^2"
+        virtual-keyboard-mode="off"
+      />
+      <Button
+        variant="neutral"
+        size="sm"
+        onClick={() => onChange({ ...entry, enabled: !entry.enabled })}
+        aria-label={entry.enabled ? '숨기기' : '표시'}
+      >
+        <Icon size={15}><EyeIcon open={entry.enabled} /></Icon>
+      </Button>
+      <Button
+        variant="neutral"
+        size="sm"
+        onClick={onDelete}
+        aria-label="삭제"
+      >
+        <Icon size={14}><TrashIcon /></Icon>
+      </Button>
+    </div>
+  )
+}
+
 /* ---------- app ---------- */
 
 export default function CartesianPlotterTool() {
   const initial = useMemo(loadState, [])
-  const [input, setInput] = useState(initial.input)
+  const [graphs, setGraphs] = useState<GraphEntry[]>(initial.graphs)
   const [xmin, setXmin] = useState(initial.xmin)
   const [xmax, setXmax] = useState(initial.xmax)
   const [ymin, setYmin] = useState(initial.ymin)
@@ -246,15 +490,12 @@ export default function CartesianPlotterTool() {
 
   const stageRef = useRef<HTMLDivElement>(null)
   const shotRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLTextAreaElement>(null)
 
-  const items = useMemo(() => parse(input), [input])
+  const items = useMemo(() => parseGraphs(graphs), [graphs])
   const bgHex = BGS.find((b) => b.key === bg)?.hex ?? null
   const hasPolar = items.some((i) => i.kind === 'polar')
   const thMax = thetaMaxPi * Math.PI
 
-  // turn equal aspect on when a polar curve first appears (so circles are round);
-  // the user can still toggle it off afterwards.
   useEffect(() => {
     if (hasPolar) setEqualAspect(true)
   }, [hasPolar])
@@ -264,28 +505,15 @@ export default function CartesianPlotterTool() {
     try {
       localStorage.setItem(
         STORE_KEY,
-        JSON.stringify({ input, xmin, xmax, ymin, ymax, autoY, grid, equalAspect, thetaMaxPi, figW, figH, bg }),
+        JSON.stringify({ graphs, xmin, xmax, ymin, ymax, autoY, grid, equalAspect, thetaMaxPi, figW, figH, bg }),
       )
-    } catch {
-      /* ignore */
-    }
-  }, [input, xmin, xmax, ymin, ymax, autoY, grid, equalAspect, thetaMaxPi, figW, figH, bg])
-
-  /* editor auto-grow */
-  useLayoutEffect(() => {
-    const ta = inputRef.current
-    if (!ta) return
-    ta.style.height = 'auto'
-    ta.style.height = `${Math.min(180, ta.scrollHeight)}px`
-  }, [input])
+    } catch { /* ignore */ }
+  }, [graphs, xmin, xmax, ymin, ymax, autoY, grid, equalAspect, thetaMaxPi, figW, figH, bg])
 
   const PAD = 52
-  // user-requested X range (used to evaluate content; the *view* range below may
-  // be widened by equal aspect)
   const uxlo = Math.min(xmin, xmax)
   const uxhi = Math.max(xmin, xmax) === uxlo ? uxlo + 1 : Math.max(xmin, xmax)
 
-  // base y-range (auto from samples, or manual) before equal-aspect adjustment
   const [baseLo, baseHi] = useMemo(() => {
     if (!autoY) {
       const a = Math.min(ymin, ymax)
@@ -300,10 +528,7 @@ export default function CartesianPlotterTool() {
         for (let i = 0; i <= N; i++) {
           const x = uxlo + ((uxhi - uxlo) * i) / N
           const y = it.f(x)
-          if (Number.isFinite(y)) {
-            lo = Math.min(lo, y)
-            hi = Math.max(hi, y)
-          }
+          if (Number.isFinite(y)) { lo = Math.min(lo, y); hi = Math.max(hi, y) }
         }
       } else if (it.kind === 'polar') {
         for (let i = 0; i <= N; i++) {
@@ -311,27 +536,19 @@ export default function CartesianPlotterTool() {
           const r = it.f(th)
           if (Number.isFinite(r)) {
             const y = r * Math.sin(th)
-            lo = Math.min(lo, y)
-            hi = Math.max(hi, y)
+            lo = Math.min(lo, y); hi = Math.max(hi, y)
           }
         }
       } else if (it.kind === 'point') {
-        lo = Math.min(lo, it.y)
-        hi = Math.max(hi, it.y)
+        lo = Math.min(lo, it.y); hi = Math.max(hi, it.y)
       }
     }
     if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [-6, 6] as const
-    if (hi - lo < 1e-6) {
-      lo -= 1
-      hi += 1
-    }
+    if (hi - lo < 1e-6) { lo -= 1; hi += 1 }
     const pad = (hi - lo) * 0.12
     return [lo - pad, hi + pad] as const
   }, [autoY, ymin, ymax, items, uxlo, uxhi, thMax])
 
-  // view range. with equal aspect (auto-on for polar) we keep the same pixels-
-  // per-unit on both axes by fitting BOTH content ranges at a common scale —
-  // whichever axis has slack is widened, so nothing gets cropped.
   const eqAspect = equalAspect
   let xlo = uxlo
   let xhi = uxhi
@@ -342,21 +559,16 @@ export default function CartesianPlotterTool() {
     const ph = figH - 2 * PAD
     const xs = uxhi - uxlo
     const ys = baseHi - baseLo || 1
-    const s = Math.min(pw / xs, ph / ys) // common px/unit that fits both
+    const s = Math.min(pw / xs, ph / ys)
     const xc = (uxlo + uxhi) / 2
     const yc = (baseLo + baseHi) / 2
-    const hx = pw / s / 2
-    const hy = ph / s / 2
-    xlo = xc - hx
-    xhi = xc + hx
-    ylo = yc - hy
-    yhi = yc + hy
+    xlo = xc - pw / s / 2; xhi = xc + pw / s / 2
+    ylo = yc - ph / s / 2; yhi = yc + ph / s / 2
   }
 
   const sx = (x: number) => PAD + ((x - xlo) / (xhi - xlo)) * (figW - 2 * PAD)
   const sy = (y: number) => figH - PAD - ((y - ylo) / (yhi - ylo)) * (figH - 2 * PAD)
 
-  // build a polyline path for a function, breaking on non-finite / big jumps
   const curvePath = (f: (x: number) => number): string => {
     const N = Math.max(200, figW)
     let d = ''
@@ -366,22 +578,15 @@ export default function CartesianPlotterTool() {
       const x = xlo + ((xhi - xlo) * i) / N
       const y = f(x)
       if (!Number.isFinite(y) || y < ylo - (yhi - ylo) * 4 || y > yhi + (yhi - ylo) * 4) {
-        pen = false
-        prevY = null
-        continue
+        pen = false; prevY = null; continue
       }
-      // break on a huge jump (likely an asymptote)
-      if (prevY !== null && Math.abs(y - prevY) > (yhi - ylo) * 1.2) {
-        pen = false
-      }
+      if (prevY !== null && Math.abs(y - prevY) > (yhi - ylo) * 1.2) pen = false
       d += `${pen ? 'L' : 'M'}${sx(x).toFixed(2)} ${sy(y).toFixed(2)} `
-      pen = true
-      prevY = y
+      pen = true; prevY = y
     }
     return d.trim()
   }
 
-  // polar curve: sample θ over [0, thMax], map (r·cosθ, r·sinθ) into the plane
   const polarPath = (f: (theta: number) => number): string => {
     const N = 720
     let d = ''
@@ -389,67 +594,108 @@ export default function CartesianPlotterTool() {
     for (let i = 0; i <= N; i++) {
       const th = (thMax * i) / N
       const r = f(th)
-      if (!Number.isFinite(r)) {
-        pen = false
-        continue
-      }
-      const x = r * Math.cos(th)
-      const y = r * Math.sin(th)
+      if (!Number.isFinite(r)) { pen = false; continue }
+      const x = r * Math.cos(th); const y = r * Math.sin(th)
       d += `${pen ? 'L' : 'M'}${sx(x).toFixed(2)} ${sy(y).toFixed(2)} `
       pen = true
     }
     return d.trim()
   }
 
-  const inXY = (x: number, y: number) =>
-    x >= xlo && x <= xhi && y >= ylo && y <= yhi
-  const x0 = sx(0)
-  const y0 = sy(0)
+  const implicitPath = (f: (x: number, y: number) => number): string => {
+    const nx = Math.min(280, Math.ceil(figW * 0.44))
+    const ny = Math.min(280, Math.ceil(figH * 0.44))
+    const dx = (xhi - xlo) / nx
+    const dy = (yhi - ylo) / ny
+
+    const w = nx + 1
+    const grid = new Float64Array((ny + 1) * w)
+    for (let j = 0; j <= ny; j++)
+      for (let i = 0; i <= nx; i++)
+        grid[j * w + i] = f(xlo + i * dx, ylo + j * dy)
+
+    const lerpC = (v0: number, v1: number, c0: number, c1: number) =>
+      c0 + (c1 - c0) * (-v0) / (v1 - v0)
+
+    let d = ''
+
+    for (let j = 0; j < ny; j++) {
+      for (let i = 0; i < nx; i++) {
+        const v00 = grid[j * w + i]
+        const v10 = grid[j * w + i + 1]
+        const v01 = grid[(j + 1) * w + i]
+        const v11 = grid[(j + 1) * w + i + 1]
+
+        if (!Number.isFinite(v00) || !Number.isFinite(v10) ||
+            !Number.isFinite(v01) || !Number.isFinite(v11)) continue
+
+        const x0 = xlo + i * dx, x1 = x0 + dx
+        const y0 = ylo + j * dy, y1 = y0 + dy
+
+        type Pt = [number, number]
+        const pts: Pt[] = []
+        if (v00 * v10 < 0) pts.push([lerpC(v00, v10, x0, x1), y0])
+        if (v10 * v11 < 0) pts.push([x1, lerpC(v10, v11, y0, y1)])
+        if (v01 * v11 < 0) pts.push([lerpC(v01, v11, x0, x1), y1])
+        if (v00 * v01 < 0) pts.push([x0, lerpC(v00, v01, y0, y1)])
+
+        const seg = (a: Pt, b: Pt) =>
+          `M${sx(a[0]).toFixed(1)} ${sy(a[1]).toFixed(1)}L${sx(b[0]).toFixed(1)} ${sy(b[1]).toFixed(1)}`
+
+        if (pts.length === 2) {
+          d += seg(pts[0], pts[1])
+        } else if (pts.length === 4) {
+          // 안장점(saddle) 처리: 중심값 부호로 연결 방향 결정
+          const vc = f((x0 + x1) / 2, (y0 + y1) / 2)
+          if ((vc > 0) !== (v00 > 0)) {
+            d += seg(pts[0], pts[1]); d += seg(pts[3], pts[2])
+          } else {
+            d += seg(pts[0], pts[3]); d += seg(pts[1], pts[2])
+          }
+        }
+      }
+    }
+
+    return d
+  }
+
+  const inXY = (x: number, y: number) => x >= xlo && x <= xhi && y >= ylo && y <= yhi
+  const x0 = sx(0); const y0 = sy(0)
   const axisColor = bg === 'dark' ? '#f4f4f4' : '#222'
   const gridColor = bg === 'dark' ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.1)'
   const labelColor = bg === 'dark' ? '#cfcfd6' : '#555'
 
-  /* preview scale */
   const recompute = useCallback(() => {
-    const stage = stageRef.current
-    const shot = shotRef.current
+    const stage = stageRef.current; const shot = shotRef.current
     if (!stage || !shot) return
     const cs = getComputedStyle(stage)
     const aw = stage.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
     const ah = stage.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)
-    const w = shot.offsetWidth
-    const h = shot.offsetHeight
+    const w = shot.offsetWidth; const h = shot.offsetHeight
     if (!w || !h) return
     const s = Math.max(0.05, Math.min(1, aw / w, ah / h))
     setNat((p) => (p.w !== w || p.h !== h ? { w, h } : p))
     setScale((p) => (Math.abs(p - s) > 0.001 ? s : p))
   }, [])
-  useLayoutEffect(() => {
-    recompute()
-  }, [recompute, figW, figH, bg])
+  useLayoutEffect(() => { recompute() }, [recompute, figW, figH, bg])
   useEffect(() => {
-    const stage = stageRef.current
-    const shot = shotRef.current
+    const stage = stageRef.current; const shot = shotRef.current
     if (!stage || !shot) return
     const ro = new ResizeObserver(recompute)
-    ro.observe(stage)
-    ro.observe(shot)
+    ro.observe(stage); ro.observe(shot)
     return () => ro.disconnect()
   }, [recompute])
 
   const flash = (m: string) => {
-    setToast(m)
-    window.setTimeout(() => setToast(null), 1800)
+    setToast(m); window.setTimeout(() => setToast(null), 1800)
   }
 
   const makeBlob = useCallback(async () => {
     const node = shotRef.current
     if (!node) return null
     return toBlob(node, {
-      pixelRatio: 3,
-      skipFonts: true,
-      width: node.offsetWidth,
-      height: node.offsetHeight,
+      pixelRatio: 3, skipFonts: true,
+      width: node.offsetWidth, height: node.offsetHeight,
       style: { transform: 'none', transformOrigin: 'top left' },
     })
   }, [])
@@ -459,40 +705,44 @@ export default function CartesianPlotterTool() {
     setBusy(true)
     try {
       const b = await makeBlob()
-      if (!b) {
-        flash('이미지를 만들지 못했습니다')
-        return
-      }
+      if (!b) { flash('이미지를 만들지 못했습니다'); return }
       await run(b)
-    } catch {
-      flash('내보내기 실패')
-    } finally {
-      setBusy(false)
-    }
+    } catch { flash('내보내기 실패') } finally { setBusy(false) }
   }
-  const savePng = () =>
-    withExport((b) => {
-      const url = URL.createObjectURL(b)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'plot.png'
-      a.click()
-      URL.revokeObjectURL(url)
-      flash('PNG로 저장했습니다')
-    })
-  const copyPng = () =>
-    withExport(async (b) => {
-      try {
-        await navigator.clipboard.write([new ClipboardItem({ 'image/png': b })])
-        flash('클립보드에 복사했습니다')
-      } catch {
-        flash('복사 실패 — 저장을 이용하세요')
-      }
-    })
+
+  const savePng = () => withExport((b) => {
+    const url = URL.createObjectURL(b)
+    const a = document.createElement('a')
+    a.href = url; a.download = 'plot.png'; a.click()
+    URL.revokeObjectURL(url); flash('PNG로 저장했습니다')
+  })
+
+  const copyPng = () => withExport(async (b) => {
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': b })])
+      flash('클립보드에 복사했습니다')
+    } catch { flash('복사 실패 — 저장을 이용해주세요') }
+  })
+
+  const addGraph = () => {
+    const nextColor = CURVE_COLORS[graphs.length % CURVE_COLORS.length]
+    setGraphs((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), expr: '', enabled: true, color: nextColor },
+    ])
+  }
+
+  const updateGraph = (id: string, updated: GraphEntry) =>
+    setGraphs((prev) => prev.map((g) => (g.id === id ? updated : g)))
+
+  const deleteGraph = (id: string) =>
+    setGraphs((prev) => prev.filter((g) => g.id !== id))
 
   const xt = ticks(xlo, xhi)
   const yt = ticks(ylo, yhi)
   const fmt = (v: number) => (Number.isInteger(v) ? String(v) : String(+v.toFixed(2)))
+
+  const errors = items.filter((it): it is Extract<Item, { kind: 'error' }> => it.kind === 'error')
 
   return (
     <div className="app">
@@ -509,11 +759,7 @@ export default function CartesianPlotterTool() {
         </div>
 
         <div className="toolbar__group">
-          <Button
-            variant={autoY ? 'primary' : 'neutral'}
-            size="sm"
-            onClick={() => setAutoY((v) => !v)}
-          >
+          <Button variant={autoY ? 'primary' : 'neutral'} size="sm" onClick={() => setAutoY((v) => !v)}>
             Y 자동
           </Button>
           {!autoY && (
@@ -525,19 +771,11 @@ export default function CartesianPlotterTool() {
           )}
         </div>
 
-        <Button
-          variant={grid ? 'secondary' : 'neutral'}
-          size="sm"
-          onClick={() => setGrid((v) => !v)}
-        >
+        <Button variant={grid ? 'secondary' : 'neutral'} size="sm" onClick={() => setGrid((v) => !v)}>
           격자 {grid ? '켜짐' : '꺼짐'}
         </Button>
 
-        <Button
-          variant={eqAspect ? 'secondary' : 'neutral'}
-          size="sm"
-          onClick={() => setEqualAspect((v) => !v)}
-        >
+        <Button variant={eqAspect ? 'secondary' : 'neutral'} size="sm" onClick={() => setEqualAspect((v) => !v)}>
           등축 {eqAspect ? '켜짐' : '꺼짐'}
         </Button>
 
@@ -560,12 +798,7 @@ export default function CartesianPlotterTool() {
         <div className="toolbar__group">
           <span className="toolbar__label">배경</span>
           {BGS.map((b) => (
-            <Button
-              key={b.key}
-              variant={bg === b.key ? 'secondary' : 'neutral'}
-              size="sm"
-              onClick={() => setBg(b.key)}
-            >
+            <Button key={b.key} variant={bg === b.key ? 'secondary' : 'neutral'} size="sm" onClick={() => setBg(b.key)}>
               {b.label}
             </Button>
           ))}
@@ -573,136 +806,43 @@ export default function CartesianPlotterTool() {
 
         <div className="toolbar__spacer" />
 
-        <Button variant="success" size="sm" onClick={savePng} disabled={busy}>
-          PNG 저장
-        </Button>
-        <Button variant="info" size="sm" onClick={copyPng} disabled={busy}>
-          복사
-        </Button>
+        <Button variant="success" size="sm" onClick={savePng} disabled={busy}>PNG 저장</Button>
+        <Button variant="info" size="sm" onClick={copyPng} disabled={busy}>복사</Button>
       </div>
 
       <div className="stage" ref={stageRef}>
-        <div
-          className="fitbox"
-          style={nat.w ? { width: nat.w * scale, height: nat.h * scale } : undefined}
-        >
-          <div
-            className="shot"
-            ref={shotRef}
-            style={{
-              transform: `scale(${scale})`,
-              ...(bgHex ? { background: bgHex } : null),
-            }}
-          >
-            <svg
-              className="plot"
-              width={figW}
-              height={figH}
-              viewBox={`0 0 ${figW} ${figH}`}
-            >
+        <div className="fitbox" style={nat.w ? { width: nat.w * scale, height: nat.h * scale } : undefined}>
+          <div className="shot" ref={shotRef} style={{ transform: `scale(${scale})`, ...(bgHex ? { background: bgHex } : null) }}>
+            <svg className="plot" width={figW} height={figH} viewBox={`0 0 ${figW} ${figH}`}>
               <defs>
-                <marker
-                  id="cp-arrow"
-                  viewBox="0 0 10 10"
-                  refX="8"
-                  refY="5"
-                  markerWidth="7"
-                  markerHeight="7"
-                  orient="auto-start-reverse"
-                >
+                <marker id="cp-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                   <path d="M0 0 L10 5 L0 10 z" fill={axisColor} />
                 </marker>
               </defs>
-
-              {/* grid */}
               {grid && (
                 <g>
-                  {xt.map((t, i) => (
-                    <line
-                      key={`gx${i}`}
-                      x1={sx(t)}
-                      y1={PAD}
-                      x2={sx(t)}
-                      y2={figH - PAD}
-                      stroke={gridColor}
-                      strokeWidth={1}
-                    />
-                  ))}
-                  {yt.map((t, i) => (
-                    <line
-                      key={`gy${i}`}
-                      x1={PAD}
-                      y1={sy(t)}
-                      x2={figW - PAD}
-                      y2={sy(t)}
-                      stroke={gridColor}
-                      strokeWidth={1}
-                    />
-                  ))}
+                  {xt.map((t, i) => <line key={`gx${i}`} x1={sx(t)} y1={PAD} x2={sx(t)} y2={figH - PAD} stroke={gridColor} strokeWidth={1} />)}
+                  {yt.map((t, i) => <line key={`gy${i}`} x1={PAD} y1={sy(t)} x2={figW - PAD} y2={sy(t)} stroke={gridColor} strokeWidth={1} />)}
                 </g>
               )}
-
-              {/* axes (drawn at 0 if visible, else along the edge) */}
               <g>
-                <line
-                  x1={PAD}
-                  y1={ylo <= 0 && yhi >= 0 ? y0 : figH - PAD}
-                  x2={figW - PAD}
-                  y2={ylo <= 0 && yhi >= 0 ? y0 : figH - PAD}
-                  stroke={axisColor}
-                  strokeWidth={2.5}
-                  markerEnd="url(#cp-arrow)"
-                />
-                <line
-                  x1={xlo <= 0 && xhi >= 0 ? x0 : PAD}
-                  y1={figH - PAD}
-                  x2={xlo <= 0 && xhi >= 0 ? x0 : PAD}
-                  y2={PAD}
-                  stroke={axisColor}
-                  strokeWidth={2.5}
-                  markerEnd="url(#cp-arrow)"
-                />
+                <line x1={PAD} y1={ylo <= 0 && yhi >= 0 ? y0 : figH - PAD} x2={figW - PAD} y2={ylo <= 0 && yhi >= 0 ? y0 : figH - PAD} stroke={axisColor} strokeWidth={2.5} markerEnd="url(#cp-arrow)" />
+                <line x1={xlo <= 0 && xhi >= 0 ? x0 : PAD} y1={figH - PAD} x2={xlo <= 0 && xhi >= 0 ? x0 : PAD} y2={PAD} stroke={axisColor} strokeWidth={2.5} markerEnd="url(#cp-arrow)" />
               </g>
-
-              {/* tick labels */}
               <g fontSize={13} fill={labelColor} fontFamily="var(--mono)">
-                {xt.map((t, i) =>
-                  t === 0 ? null : (
-                    <text
-                      key={`tx${i}`}
-                      x={sx(t)}
-                      y={(ylo <= 0 && yhi >= 0 ? y0 : figH - PAD) + 16}
-                      textAnchor="middle"
-                    >
-                      {fmt(t)}
-                    </text>
-                  ),
-                )}
-                {yt.map((t, i) =>
-                  t === 0 ? null : (
-                    <text
-                      key={`ty${i}`}
-                      x={(xlo <= 0 && xhi >= 0 ? x0 : PAD) - 8}
-                      y={sy(t) + 4}
-                      textAnchor="end"
-                    >
-                      {fmt(t)}
-                    </text>
-                  ),
-                )}
-                {xlo <= 0 && xhi >= 0 && ylo <= 0 && yhi >= 0 && (
-                  <text x={x0 - 8} y={y0 + 16} textAnchor="end">
-                    0
-                  </text>
-                )}
+                {xt.map((t, i) => t === 0 ? null : <text key={`tx${i}`} x={sx(t)} y={(ylo <= 0 && yhi >= 0 ? y0 : figH - PAD) + 16} textAnchor="middle">{fmt(t)}</text>)}
+                {yt.map((t, i) => t === 0 ? null : <text key={`ty${i}`} x={(xlo <= 0 && xhi >= 0 ? x0 : PAD) - 8} y={sy(t) + 4} textAnchor="end">{fmt(t)}</text>)}
+                {xlo <= 0 && xhi >= 0 && ylo <= 0 && yhi >= 0 && <text x={x0 - 8} y={y0 + 16} textAnchor="end">0</text>}
               </g>
-
-              {/* curves (cartesian + polar) */}
               {items.map((it, i) =>
-                it.kind === 'fn' || it.kind === 'polar' ? (
+                it.kind === 'fn' || it.kind === 'polar' || it.kind === 'implicit' ? (
                   <path
                     key={i}
-                    d={it.kind === 'fn' ? curvePath(it.f) : polarPath(it.f)}
+                    d={
+                      it.kind === 'fn' ? curvePath(it.f) :
+                      it.kind === 'polar' ? polarPath(it.f) :
+                      implicitPath(it.f)
+                    }
                     fill="none"
                     stroke={it.color}
                     strokeWidth={2.6}
@@ -711,30 +851,12 @@ export default function CartesianPlotterTool() {
                   />
                 ) : null,
               )}
-
-              {/* points */}
               {items.map((it, i) =>
                 it.kind === 'point' && inXY(it.x, it.y) ? (
                   <g key={`p${i}`}>
-                    <circle
-                      cx={sx(it.x)}
-                      cy={sy(it.y)}
-                      r={5}
-                      fill={bg === 'dark' ? '#fff' : '#222'}
-                      stroke={bg === 'dark' ? '#222' : '#fff'}
-                      strokeWidth={2}
-                    />
+                    <circle cx={sx(it.x)} cy={sy(it.y)} r={5} fill={bg === 'dark' ? '#fff' : '#222'} stroke={bg === 'dark' ? '#222' : '#fff'} strokeWidth={2} />
                     {it.label && (
-                      <text
-                        x={sx(it.x) + 9}
-                        y={sy(it.y) - 8}
-                        fontSize={15}
-                        fontWeight={700}
-                        fill={axisColor}
-                        fontFamily="var(--mono)"
-                      >
-                        {it.label}
-                      </text>
+                      <text x={sx(it.x) + 9} y={sy(it.y) - 8} fontSize={15} fontWeight={700} fill={axisColor} fontFamily="var(--mono)">{it.label}</text>
                     )}
                   </g>
                 ) : null,
@@ -744,23 +866,36 @@ export default function CartesianPlotterTool() {
         </div>
       </div>
 
-      <div className="editor">
-        <span className="editor__prompt">y=</span>
-        <textarea
-          ref={inputRef}
-          className="editor__input"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder={'한 줄에 하나 — y = x^2 / f(x) = sin(x) / (1, 2) 라벨'}
-          spellCheck={false}
-          rows={1}
-          aria-label="그래프 입력"
-        />
+      <div className="graphs-panel">
+        <div className="graphs-header">
+          <span className="graphs-title">Graphs</span>
+          <Button variant="neutral" size="sm" onClick={addGraph} aria-label="그래프 추가">+</Button>
+        </div>
+        <div className="graphs-list">
+          {graphs.map((g) => (
+            <GraphRow
+              key={g.id}
+              entry={g}
+              onChange={(updated) => updateGraph(g.id, updated)}
+              onDelete={() => deleteGraph(g.id)}
+            />
+          ))}
+          {graphs.length === 0 && <p className="graphs-empty">+ 버튼으로 그래프를 추가하세요</p>}
+        </div>
+        {errors.length > 0 && (
+          <div className="graphs-errors">
+            {errors.map((e, i) => (
+              <div key={i} className="graphs-error">
+                <span className="graphs-error__raw">{e.raw}</span>
+                <span className="graphs-error__msg">{e.msg}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <Text variant="chrome" muted className="hint">
-        y = f(x) · 극좌표 r = f(theta) (등축 자동) · 점 (x, y) 라벨 · ^ 거듭제곱,
-        sin·cos·sqrt·pi 등 · 곱셈은 2*x 처럼 명시 · 투명 PNG로 저장 / 복사
+        y = f(x) · 음함수 x²+y²=r² · 극좌표 r = f(theta) · 점 (x, y) 라벨 · ^ 거듭제곱 · sin·cos·sqrt·pi·e 가능
       </Text>
 
       {toast && <div className="toast">{toast}</div>}

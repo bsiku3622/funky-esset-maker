@@ -97,43 +97,138 @@
   display: block;
 }
 
-/* editor */
-.scope-cartesian .editor {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 14px 20px;
-  background: var(--funky-bg);
+/* graphs panel */
+.scope-cartesian .graphs-panel {
+  flex: 0 0 auto;
   border-top: 3px solid var(--funky-border-color, #222);
-  flex: 0 0 auto;
+  background: var(--funky-bg);
 }
 
-.scope-cartesian .editor__prompt {
-  font-family: var(--mono);
+.scope-cartesian .graphs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px 6px;
+}
+
+.scope-cartesian .graphs-title {
+  font-size: 0.78rem;
   font-weight: 700;
-  font-size: 1rem;
-  color: #7828c8;
-  flex: 0 0 auto;
-  margin-top: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.55;
 }
 
-.scope-cartesian .editor__input {
+.scope-cartesian .graphs-list {
+  padding: 0 16px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* 3개 row 기준 고정 높이 + 스크롤 */
+  max-height: 174px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #aaa transparent;
+}
+
+.scope-cartesian .graphs-list::-webkit-scrollbar {
+  width: 4px;
+}
+.scope-cartesian .graphs-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scope-cartesian .graphs-list::-webkit-scrollbar-thumb {
+  background: #bbb;
+  border-radius: 2px;
+}
+
+.scope-cartesian .graphs-empty {
+  font-size: 0.82rem;
+  opacity: 0.45;
+  padding: 4px 4px 6px;
+  margin: 0;
+}
+
+.scope-cartesian .graphs-errors {
+  padding: 0 20px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.scope-cartesian .graphs-error {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.78rem;
+}
+
+.scope-cartesian .graphs-error__raw {
+  font-family: var(--mono);
+  font-weight: 600;
+  color: #e03;
+  flex: 0 0 auto;
+}
+
+.scope-cartesian .graphs-error__msg {
+  opacity: 0.6;
+}
+
+/* graph row */
+.scope-cartesian .graph-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  transition: opacity 120ms;
+}
+
+.scope-cartesian .graph-row--dim {
+  opacity: 0.45;
+}
+
+.scope-cartesian .graph-row__check {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  accent-color: var(--funky-primary, #ff4eba);
+}
+
+.scope-cartesian .graph-row__color {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border: 2px solid #222;
+  cursor: pointer;
+  padding: 0;
+  /* press effect via .funky-pressable */
+}
+
+/* MathLive math-field */
+.scope-cartesian .graph-row__mathfield {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 10px 14px;
   border: 2px solid #222;
-  background: #fff;
-  font-family: var(--mono);
+  background: var(--funky-surface, #fff);
+  padding: 4px 10px;
   font-size: 1rem;
-  font-weight: 500;
-  line-height: 1.5;
+  --caret-color: #222;
+  --selection-background-color: rgba(120, 40, 200, 0.15);
+  --selection-color: #222;
   outline: none;
-  resize: none;
-  overflow-y: auto;
-  white-space: pre;
+  cursor: text;
+  /* MathLive 내부 메뉴 버튼 숨김 */
+  --menu-toggle-opacity: 0;
 }
-.scope-cartesian .editor__input:focus {
+
+.scope-cartesian .graph-row__mathfield:focus-within {
   box-shadow: 4px 4px 0 0 rgba(0, 0, 0, 0.2);
+}
+
+.scope-cartesian math-field::part(menu-toggle),
+.scope-cartesian math-field::part(virtual-keyboard-toggle) {
+  display: none;
 }
 
 .scope-cartesian .hint {
