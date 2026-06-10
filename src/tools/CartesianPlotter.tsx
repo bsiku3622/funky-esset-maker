@@ -545,7 +545,7 @@ export default function CartesianPlotterTool() {
       } else if (it.kind === 'implicit') {
         // x를 격자로 고정한 뒤 y 방향으로 부호 변화 스캔
         const NX = 40, NY = 120
-        const yScan = uxhi - uxlo
+        const yScan = Math.min(30, uxhi - uxlo)
         for (let ix = 0; ix <= NX; ix++) {
           const x = uxlo + ((uxhi - uxlo) * ix) / NX
           let prev = it.f(x, -yScan)
@@ -575,12 +575,11 @@ export default function CartesianPlotterTool() {
     const pw = figW - 2 * PAD
     const ph = figH - 2 * PAD
     const xs = uxhi - uxlo
-    const ys = baseHi - baseLo || 1
-    const s = Math.min(pw / xs, ph / ys)
-    const xc = (uxlo + uxhi) / 2
+    const s = pw / xs  // x 범위를 기준 스케일로 고정 — x가 늘어나지 않음
     const yc = (baseLo + baseHi) / 2
-    xlo = xc - pw / s / 2; xhi = xc + pw / s / 2
-    ylo = yc - ph / s / 2; yhi = yc + ph / s / 2
+    ylo = yc - ph / s / 2
+    yhi = yc + ph / s / 2
+    // xlo, xhi는 uxlo/uxhi 그대로 유지
   }
 
   const sx = (x: number) => PAD + ((x - xlo) / (xhi - xlo)) * (figW - 2 * PAD)
