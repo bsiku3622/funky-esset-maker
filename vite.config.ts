@@ -8,4 +8,16 @@ export default defineConfig({
     port: 5178,
     strictPort: true,
   },
+  build: {
+    rolldownOptions: {
+      output: {
+        advancedChunks: {
+          groups: [
+            // MathLive는 무겁고 CartesianPlotter에서만 쓰이므로 별도 청크로 분리
+            { name: 'mathlive', test: /[\\/]node_modules[\\/]mathlive[\\/]/ },
+          ],
+        },
+      },
+    },
+  },
 })
