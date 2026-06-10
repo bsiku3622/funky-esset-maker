@@ -17,8 +17,8 @@ MathfieldElement.fontsDirectory =
   'https://cdn.jsdelivr.net/npm/mathlive@0.110.0/fonts/'
 MathfieldElement.soundsDirectory = null
 
-// math-field 웹 컴포넌트 JSX 타입
-declare global {
+// math-field 웹 컴포넌트 JSX 타입 (React 19부터 JSX 네임스페이스가 React.JSX로 이동)
+declare module 'react' {
   namespace JSX {
     interface IntrinsicElements {
       'math-field': React.HTMLAttributes<MathfieldElement> & {
