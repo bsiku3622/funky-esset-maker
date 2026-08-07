@@ -14,6 +14,21 @@
 
 `tool-sources/`가 이제 그 다섯 도구 CSS의 **유일한 원본**입니다. 예전에는 독립 프로젝트의 `src/App.css`를 복사해 오는 흐름이었는데, 원본이 아카이브됐으니 이제 `tool-sources/`에서 직접 고치고 `npm run gen:css`를 돌리면 됩니다.
 
+### ⚠️ 폴더명을 바꿀 때는 Claude 기록도 같이 옮겨야 합니다
+
+정리 직후 로컬 폴더명을 저장소 이름에 맞춰 `funky-essets` → `funky-esset-maker`로 바꿨습니다. 이때 폴더만 옮기면 **그동안의 Claude Code 세션 기록과 메모리가 끊깁니다.**
+
+Claude Code는 프로젝트의 절대경로를 슬래시→하이픈으로 인코딩한 이름으로 `~/.claude/projects/` 아래에 기록을 둡니다. 폴더를 옮기면 새 경로에 대응하는 디렉토리가 새로 생기고, 옛 기록은 존재하지 않는 경로에 묶인 채 접근할 수 없게 됩니다. 그래서 폴더와 함께 그 디렉토리도 같은 규칙으로 rename해야 합니다:
+
+```
+~/.claude/projects/-Users-baeks-Projects-Main-Projects-funky-essets
+  → ~/.claude/projects/-Users-baeks-Projects-Main-Projects-funky-esset-maker
+```
+
+이번에는 챙길 게 하나 더 있었습니다. 앱이 `funky-essets/Funky Esset Maker/`에 있던 시절의 기록 디렉토리(`…-funky-essets-Funky-Esset-Maker`)에 **`memory/`가 남아 있었습니다** — "명시적 요청 없이 커밋하지 말 것" 피드백이 거기 저장돼 있었고, 그대로 뒀으면 다시는 불러와지지 않았을 겁니다. 그 `memory/`도 새 디렉토리로 옮기고 빈 껍데기는 지웠습니다.
+
+세션 도중에 옮겨도 안전합니다. `mv`는 inode를 유지하므로 지금 쓰이고 있는 로그 파일도 그대로 따라옵니다.
+
 ## 2026-08-07 — 이미지 반입 경로 + 캔버스 줌이 페이지를 확대하던 버그
 
 - 변경 파일: `src/tools/aifig/image.ts` (신규), `src/tools/AiFigureMaker.tsx`, `src/tools/aifig/Inspector.tsx`, `src/tools/aifig/{types,shapes,doc}.ts`, `src/tools/AiFigureMaker.css`
