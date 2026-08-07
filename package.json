@@ -16,6 +16,7 @@
     "@studio-baeks/funky-ui": "^0.1.1",
     "html-to-image": "^1.11.13",
     "katex": "^0.16.11",
+    "mathjax-full": "^3.2.1",
     "mathlive": "^0.110.0",
     "prismjs": "^1.30.0",
     "react": "^19.2.6",

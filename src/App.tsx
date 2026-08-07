@@ -7,6 +7,7 @@ type ToolId =
   | 'tabler'
   | 'dsviz'
   | 'grapher'
+  | 'aifig'
   | 'cartesian'
   | 'chart'
   | 'numline'
@@ -28,6 +29,7 @@ const TOOLS: Tool[] = [
   { id: 'tabler', label: 'Tabler', desc: '표', scope: 'scope-tabler', Component: lazy(() => import('./tools/Tabler')) },
   { id: 'dsviz', label: 'DS Visualizer', desc: '자료구조', scope: 'scope-dsviz', Component: lazy(() => import('./tools/DsVisualizer')) },
   { id: 'grapher', label: 'Grapher', desc: '그래프 · 다이어그램', scope: 'scope-grapher', Component: lazy(() => import('./tools/Grapher')) },
+  { id: 'aifig', label: 'AI Figure Maker', desc: '논문용 모델 구조도', scope: 'scope-aifig', Component: lazy(() => import('./tools/AiFigureMaker')) },
   { id: 'cartesian', label: 'Cartesian Plotter', desc: '함수 그래프', scope: 'scope-cartesian', Component: lazy(() => import('./tools/CartesianPlotter')) },
   { id: 'chart', label: 'Chart Maker', desc: '막대 · 선 · 원 · 산점도', scope: 'scope-chart', Component: lazy(() => import('./tools/ChartMaker')) },
   { id: 'numline', label: 'Number Line', desc: '수직선 · 구간 · 부등식', scope: 'scope-numline', Component: lazy(() => import('./tools/NumberLine')) },
