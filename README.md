@@ -46,7 +46,7 @@ src/
   tools/           각 도구 (UI · 툴바 · 내보내기 + 생성된 스코프 CSS)
     aifig/         AI Figure Maker 모듈 (문서 모델 · 도형 · 라우팅 · LaTeX · 내보내기)
   cores/           순수 렌더 컴포넌트 (CodeBlock · Diagram · Chart)
-tool-sources/      독립 도구 프로젝트에서 가져온 원본 App.css (스코프 CSS의 소스)
+tool-sources/      다섯 도구의 원본 App.css (스코프 CSS의 소스)
 scripts/
   gen-scoped-css.mjs   tool-sources의 CSS에 스코프 prefix 붙여 src/tools로 생성
 ```
@@ -55,9 +55,11 @@ scripts/
 
 ### 스코프 CSS
 
-일부 도구(Highlighter · LaTeX Imager · Tabler · DS Visualizer · Grapher)는 원래 독립 프로젝트로 만들어졌고, 그들의 `App.css`는 `.toolbar`, `.stage` 같은 전역 클래스명을 써서 합칠 때 충돌합니다. 그래서 원본 CSS를 `tool-sources/<도구>/App.css`로 가져와 두고(self-contained), `gen-scoped-css.mjs`가 모든 셀렉터에 도구별 스코프 클래스(`.scope-highlighter .toolbar { … }`)를 붙여 `src/tools/*.css`로 생성합니다 — 순수 CSS이고 `@scope`는 쓰지 않습니다.
+다섯 도구(Highlighter · LaTeX Imager · Tabler · DS Visualizer · Grapher)는 원래 각각 독립 프로젝트였고, 그들의 `App.css`는 `.toolbar`, `.stage` 같은 전역 클래스명을 써서 한 앱으로 합칠 때 충돌합니다. 그래서 원본 CSS를 `tool-sources/<도구>/App.css`로 두고, `gen-scoped-css.mjs`가 모든 셀렉터에 도구별 스코프 클래스(`.scope-highlighter .toolbar { … }`)를 붙여 `src/tools/*.css`로 생성합니다 — 순수 CSS이고 `@scope`는 쓰지 않습니다.
 
-원본 도구의 스타일이 바뀌면 해당 프로젝트의 `src/App.css`를 `tool-sources/<도구>/App.css`로 다시 복사한 뒤 `npm run gen:css`를 실행해 주세요. (생성된 `src/tools/*.css`는 커밋되어 있으므로, 빌드 시 원본이 없어도 안전하게 동작합니다.)
+**`tool-sources/`가 이 다섯 도구 CSS의 원본입니다.** 스타일을 바꾸려면 거기서 고치고 `npm run gen:css`를 실행하세요. 생성된 `src/tools/*.css`는 커밋되어 있으므로 빌드는 스크립트 없이도 동작합니다.
+
+> 이 다섯 도구는 예전에 별도 저장소로도 존재했지만, 코드가 이 앱과 완전히 동일해져서 2026-08-07에 아카이브했습니다 (`funky-essets-*`). 이 저장소가 유일한 원본입니다.
 
 ## AI Figure Maker
 

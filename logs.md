@@ -1,5 +1,19 @@
 # 작업 기록
 
+## 2026-08-07 — 저장소 하나로 정리 (독립 도구 5개 아카이브)
+
+- 대상: 로컬 `~/Projects/Main Projects/funky-essets/`, GitHub `bsiku3622/funky-essets-*` 5개
+- 요약: 앱을 `funky-essets/` 루트로 승격하고, 완전히 중복이던 독립 도구 저장소 5개를 아카이브했습니다.
+
+정리 전에는 `funky-essets/` 아래에 폴더 6개가 나란히 있고 각각이 별도 git 저장소였습니다. 조사해 보니 **독립 도구 5개(Highlighter · LaTeX Imager · Tabler · DS Visualizer · Grapher)의 소스가 통합 앱 안의 복사본과 완전히 동일**했습니다 — `App.tsx` 줄 수까지 일치하고 CSS도 바이트 단위로 같았습니다. 마지막 커밋은 2026-06-09/10이고, Vercel에 배포된 것은 통합 앱 하나뿐이었습니다. 즉 죽은 중복이었습니다.
+
+- 로컬: `Funky Esset Maker/`의 내용을 `funky-essets/` 루트로 올리고 폴더를 없앴습니다. 독립 도구 5개는 `~/Projects/Archive/funky-essets-standalone/`로 옮겼습니다.
+- GitHub: 5개 저장소의 description을 "Merged into bsiku3622/funky-esset-maker"로 바꾼 뒤 아카이브했습니다. 삭제가 아니라 아카이브라 초기 개발 히스토리는 남아 있고, 필요하면 되돌릴 수 있습니다.
+
+**이 작업은 로컬 폴더 재배치일 뿐 저장소 내용은 건드리지 않았습니다.** `funky-esset-maker` 저장소는 원래부터 루트에 `src/`와 `package.json`을 두고 있었고, 그것이 로컬에서 한 단계 깊은 폴더에 체크아웃돼 있었을 뿐입니다. 그래서 GitHub 구조와 Vercel 연동·도메인은 아무 영향을 받지 않았습니다. 저장소 이름도 `funky-esset-maker` 그대로 뒀습니다 — 폴더명과는 어긋나지만, 이름을 바꾸면 리다이렉트와 연동을 다시 확인해야 해서 얻는 것에 비해 번거롭습니다.
+
+`tool-sources/`가 이제 그 다섯 도구 CSS의 **유일한 원본**입니다. 예전에는 독립 프로젝트의 `src/App.css`를 복사해 오는 흐름이었는데, 원본이 아카이브됐으니 이제 `tool-sources/`에서 직접 고치고 `npm run gen:css`를 돌리면 됩니다.
+
 ## 2026-08-07 — 이미지 반입 경로 + 캔버스 줌이 페이지를 확대하던 버그
 
 - 변경 파일: `src/tools/aifig/image.ts` (신규), `src/tools/AiFigureMaker.tsx`, `src/tools/aifig/Inspector.tsx`, `src/tools/aifig/{types,shapes,doc}.ts`, `src/tools/AiFigureMaker.css`
