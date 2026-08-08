@@ -1,13 +1,7 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, Text } from '@studio-baeks/funky-ui'
-import { toBlob } from 'html-to-image'
+import { useFitScale, usePersist, usePngExport, useStored } from './hooks'
+import SharedNumField from './NumField'
 import './NumberLine.css'
 
 /* ---------- model ---------- */
@@ -45,15 +39,6 @@ const DEFAULTS: Persisted = {
   vmax: 5,
   figW: 760,
   bg: 'transparent',
-}
-function loadState(): Persisted {
-  try {
-    const raw = localStorage.getItem(STORE_KEY)
-    if (!raw) return DEFAULTS
-    return { ...DEFAULTS, ...(JSON.parse(raw) as Partial<Persisted>) }
-  } catch {
-    return DEFAULTS
-  }
 }
 
 /* ---------- parse ---------- */
@@ -123,43 +108,20 @@ function niceStep(range: number, target = 10): number {
 }
 const fmt = (v: number) => (Number.isInteger(v) ? String(v) : String(+v.toFixed(2)))
 
-function NumField({ value, onCommit }: { value: number; onCommit: (n: number) => void }) {
-  const [text, setText] = useState(String(value))
-  useEffect(() => setText(String(value)), [value])
-  return (
-    <input
-      className="nl-num"
-      type="text"
-      inputMode="decimal"
-      value={text}
-      onChange={(e) => setText(e.target.value)}
-      onBlur={() => {
-        const n = parseFloat(text)
-        if (Number.isFinite(n)) onCommit(n)
-        else setText(String(value))
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-      }}
-    />
-  )
-}
+const NumField = (props: { value: number; onCommit: (n: number) => void }) => (
+  <SharedNumField {...props} className="nl-num" />
+)
 
 /* ---------- app ---------- */
 
 export default function NumberLineTool() {
-  const initial = useMemo(loadState, [])
+  const initial = useStored(STORE_KEY, DEFAULTS)
   const [input, setInput] = useState(initial.input)
   const [auto, setAuto] = useState(initial.auto)
   const [vmin, setVmin] = useState(initial.vmin)
   const [vmax, setVmax] = useState(initial.vmax)
   const [figW, setFigW] = useState(initial.figW)
   const [bg, setBg] = useState<BgKey>(initial.bg)
-
-  const [scale, setScale] = useState(1)
-  const [nat, setNat] = useState({ w: 0, h: 0 })
-  const [toast, setToast] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
 
   const stageRef = useRef<HTMLDivElement>(null)
   const shotRef = useRef<HTMLDivElement>(null)
@@ -208,14 +170,7 @@ export default function NumberLineTool() {
   for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-6; v += step)
     tickVals.push(Math.abs(v) < step * 1e-6 ? 0 : +v.toFixed(6))
 
-  /* persist */
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORE_KEY, JSON.stringify({ input, auto, vmin, vmax, figW, bg }))
-    } catch {
-      /* ignore */
-    }
-  }, [input, auto, vmin, vmax, figW, bg])
+  usePersist(STORE_KEY, { input, auto, vmin, vmax, figW, bg })
 
   useLayoutEffect(() => {
     const ta = inputRef.current
@@ -224,84 +179,16 @@ export default function NumberLineTool() {
     ta.style.height = `${Math.min(180, ta.scrollHeight)}px`
   }, [input])
 
-  /* preview scale */
-  const recompute = useCallback(() => {
-    const stage = stageRef.current
-    const shot = shotRef.current
-    if (!stage || !shot) return
-    const cs = getComputedStyle(stage)
-    const aw = stage.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
-    const ah = stage.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)
-    const w = shot.offsetWidth
-    const h = shot.offsetHeight
-    if (!w || !h) return
-    const s = Math.max(0.05, Math.min(1, aw / w, ah / h))
-    setNat((p) => (p.w !== w || p.h !== h ? { w, h } : p))
-    setScale((p) => (Math.abs(p - s) > 0.001 ? s : p))
-  }, [])
-  useLayoutEffect(() => {
-    recompute()
-  }, [recompute, figW, figH, bg, input])
-  useEffect(() => {
-    const stage = stageRef.current
-    const shot = shotRef.current
-    if (!stage || !shot) return
-    const ro = new ResizeObserver(recompute)
-    ro.observe(stage)
-    ro.observe(shot)
-    return () => ro.disconnect()
-  }, [recompute])
+  const { scale, nat } = useFitScale({
+    stageRef,
+    shotRef,
+    signature: `${figW}|${figH}|${bg}`,
+  })
 
-  const flash = (m: string) => {
-    setToast(m)
-    window.setTimeout(() => setToast(null), 1800)
-  }
-  const makeBlob = useCallback(async () => {
-    const node = shotRef.current
-    if (!node) return null
-    return toBlob(node, {
-      pixelRatio: 3,
-      skipFonts: true,
-      width: node.offsetWidth,
-      height: node.offsetHeight,
-      style: { transform: 'none', transformOrigin: 'top left' },
-    })
-  }, [])
-  const withExport = async (run: (b: Blob) => void | Promise<void>) => {
-    if (busy) return
-    setBusy(true)
-    try {
-      const b = await makeBlob()
-      if (!b) {
-        flash('이미지를 만들지 못했습니다')
-        return
-      }
-      await run(b)
-    } catch {
-      flash('내보내기 실패')
-    } finally {
-      setBusy(false)
-    }
-  }
-  const savePng = () =>
-    withExport((b) => {
-      const url = URL.createObjectURL(b)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'numberline.png'
-      a.click()
-      URL.revokeObjectURL(url)
-      flash('PNG로 저장했습니다')
-    })
-  const copyPng = () =>
-    withExport(async (b) => {
-      try {
-        await navigator.clipboard.write([new ClipboardItem({ 'image/png': b })])
-        flash('클립보드에 복사했습니다')
-      } catch {
-        flash('복사 실패 — 저장을 이용하세요')
-      }
-    })
+  const { savePng, copyPng, busy, toast } = usePngExport({
+    shotRef,
+    filename: 'numberline',
+  })
 
   const endpoint = (cx: number, cy: number, closed: boolean, color: string) => (
     <circle

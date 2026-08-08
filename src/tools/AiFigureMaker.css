@@ -137,6 +137,46 @@
   min-height: 0;
 }
 
+/* ---------- folding side panels ----------
+   Folded, a panel keeps just enough width for its own unfold button, so the
+   control never moves out of reach and the canvas takes the rest. */
+
+.scope-aifig .af-fold {
+  align-self: flex-end;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  font-weight: 900;
+  font-size: 0.78rem;
+  line-height: 1;
+  color: var(--af-line);
+  background: #fff;
+  border: 2px solid var(--af-line);
+  cursor: pointer;
+}
+
+.scope-aifig .af-fold:hover {
+  background: var(--af-panel-bg);
+}
+
+.scope-aifig .af-rail.is-collapsed,
+.scope-aifig .af-panel.is-collapsed {
+  flex-basis: 34px;
+  overflow: hidden;
+}
+
+.scope-aifig .af-rail.is-collapsed > *:not(.af-fold),
+.scope-aifig .af-panel.is-collapsed > *:not(.af-fold) {
+  display: none;
+}
+
+.scope-aifig .af-rail.is-collapsed .af-fold,
+.scope-aifig .af-panel.is-collapsed .af-fold {
+  align-self: center;
+}
+
 .scope-aifig .af-rail__body {
   flex: 1 1 auto;
   overflow-y: auto;
@@ -340,13 +380,24 @@
 
 .scope-aifig .af-panel {
   flex: 0 0 264px;
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
   background: var(--af-panel-bg);
   border-left: 3px solid var(--af-line);
   min-height: 0;
 }
 
+/* stays reachable however far the inspector is scrolled */
+.scope-aifig .af-panel > .af-fold {
+  position: sticky;
+  top: 4px;
+  z-index: 2;
+  margin: 4px 4px 0;
+}
+
 .scope-aifig .af-inspector {
+  flex: 1 0 auto;
   display: flex;
   flex-direction: column;
 }

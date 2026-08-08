@@ -1,13 +1,6 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, Text } from '@studio-baeks/funky-ui'
-import { toBlob } from 'html-to-image'
+import { useFitScale, usePersist, usePngExport, useStored } from './hooks'
 import katex from 'katex'
 import './LatexImager.css'
 
@@ -108,6 +101,12 @@ interface DocResult {
   error: boolean
 }
 
+/* Stand-in for an escaped `\$` while we scan for math delimiters, so a literal
+   dollar in prose never opens a formula. U+0001 cannot occur in real input.
+   Written as an escape (not a raw byte) so it survives copy-paste and shows up
+   in a diff; substitution uses split/join to keep it out of a regex. */
+const ESC_DOLLAR = '\u0001'
+
 // render the whole document (paragraphs split by blank lines)
 function renderDocument(src: string): DocResult {
   let hadError = false
@@ -130,7 +129,7 @@ function renderDocument(src: string): DocResult {
       .replace(/\\\]/g, () => '$$')
       .replace(/\\\(/g, () => '$')
       .replace(/\\\)/g, () => '$')
-      .replace(/\\\$/g, '')
+      .replace(/\\\$/g, ESC_DOLLAR)
 
     const re = /\$\$([\s\S]*?)\$\$|\$([^$]*)\$/g
     let out = ''
@@ -138,13 +137,13 @@ function renderDocument(src: string): DocResult {
     let m: RegExpExecArray | null
     while ((m = re.exec(text))) {
       if (m.index > last)
-        out += renderText(text.slice(last, m.index).replace(//g, '$'))
-      const body = (m[1] ?? m[2] ?? '').replace(//g, '\\$')
+        out += renderText(text.slice(last, m.index).split(ESC_DOLLAR).join('$'))
+      const body = (m[1] ?? m[2] ?? '').split(ESC_DOLLAR).join('\\$')
       out += katexHtml(body, m[1] !== undefined)
       last = re.lastIndex
     }
     if (last < text.length)
-      out += renderText(text.slice(last).replace(//g, '$'))
+      out += renderText(text.slice(last).split(ESC_DOLLAR).join('$'))
     return out
   }
 
@@ -167,38 +166,20 @@ interface Persisted {
   docUnlimited: boolean
 }
 
-function loadState(): Persisted {
-  const fallback: Persisted = {
-    mode: 'math',
-    latex: SAMPLE,
-    fontSize: 64,
-    color: 'ink',
-    bg: 'transparent',
-    docWidth: 560,
-    docUnlimited: false,
-  }
-  try {
-    const raw = localStorage.getItem(STORE_KEY)
-    if (!raw) return fallback
-    const saved = JSON.parse(raw) as Partial<Persisted>
-    return {
-      mode: saved.mode ?? fallback.mode,
-      latex: saved.latex ?? fallback.latex,
-      fontSize: saved.fontSize ?? fallback.fontSize,
-      color: saved.color ?? fallback.color,
-      bg: saved.bg ?? fallback.bg,
-      docWidth: saved.docWidth ?? fallback.docWidth,
-      docUnlimited: saved.docUnlimited ?? fallback.docUnlimited,
-    }
-  } catch {
-    return fallback
-  }
+const DEFAULTS: Persisted = {
+  mode: 'math',
+  latex: SAMPLE,
+  fontSize: 64,
+  color: 'ink',
+  bg: 'transparent',
+  docWidth: 560,
+  docUnlimited: false,
 }
 
 /* ---------- app ---------- */
 
 export default function LatexImagerTool() {
-  const initial = useMemo(loadState, [])
+  const initial = useStored(STORE_KEY, DEFAULTS)
   const [mode, setMode] = useState<Mode>(initial.mode)
   const [latex, setLatex] = useState(initial.latex)
   const [fontSize, setFontSize] = useState(initial.fontSize)
@@ -209,13 +190,6 @@ export default function LatexImagerTool() {
   // raw text of the width field — decoupled from docWidth so typing is free
   const [widthText, setWidthText] = useState(String(initial.docWidth))
 
-  // preview scale — fit the (full-size) equation into the stage; export ignores it
-  const [scale, setScale] = useState(1)
-  const [nat, setNat] = useState({ w: 0, h: 0 })
-
-  const [toast, setToast] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-
   const stageRef = useRef<HTMLDivElement>(null)
   const shotRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -223,25 +197,15 @@ export default function LatexImagerTool() {
   // avoids re-embedding the huge Pretendard subset set on every export.
   const fontCssRef = useRef<string | null>(null)
 
-  /* persist */
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        STORE_KEY,
-        JSON.stringify({
-          mode,
-          latex,
-          fontSize,
-          color,
-          bg,
-          docWidth,
-          docUnlimited,
-        }),
-      )
-    } catch {
-      /* ignore */
-    }
-  }, [mode, latex, fontSize, color, bg, docWidth, docUnlimited])
+  usePersist(STORE_KEY, {
+    mode,
+    latex,
+    fontSize,
+    color,
+    bg,
+    docWidth,
+    docUnlimited,
+  })
 
   /* render each line as its own KaTeX display equation, stacked vertically.
      Enter in the editor → a new line → a new equation block. */
@@ -295,47 +259,11 @@ export default function LatexImagerTool() {
   const bumpFont = (delta: number) =>
     setFontSize((s) => Math.min(FONT_MAX, Math.max(FONT_MIN, s + delta)))
 
-  /* ---- preview scale: fit the equation card into the stage ---- */
-  const recomputeScale = useCallback(() => {
-    const stage = stageRef.current
-    const shot = shotRef.current
-    if (!stage || !shot) return
-    const cs = getComputedStyle(stage)
-    const availW =
-      stage.clientWidth -
-      parseFloat(cs.paddingLeft) -
-      parseFloat(cs.paddingRight)
-    const availH =
-      stage.clientHeight -
-      parseFloat(cs.paddingTop) -
-      parseFloat(cs.paddingBottom)
-    const natW = shot.offsetWidth
-    const natH = shot.offsetHeight
-    if (natW === 0 || natH === 0) return
-    const s = Math.max(0.05, Math.min(1, availW / natW, availH / natH))
-    setNat((p) => (p.w !== natW || p.h !== natH ? { w: natW, h: natH } : p))
-    setScale((p) => (Math.abs(p - s) > 0.001 ? s : p))
-  }, [])
-
-  useLayoutEffect(() => {
-    recomputeScale()
-  }, [recomputeScale, mode, latex, fontSize, docWidth, docUnlimited])
-
-  useEffect(() => {
-    const stage = stageRef.current
-    const shot = shotRef.current
-    if (!stage || !shot) return
-    const ro = new ResizeObserver(recomputeScale)
-    ro.observe(stage)
-    ro.observe(shot)
-    return () => ro.disconnect()
-  }, [recomputeScale])
-
-  /* ---- flash a small toast ---- */
-  const flash = (msg: string) => {
-    setToast(msg)
-    window.setTimeout(() => setToast(null), 1800)
-  }
+  const { scale, nat } = useFitScale({
+    stageRef,
+    shotRef,
+    signature: `${mode}|${fontSize}|${docWidth}|${docUnlimited}`,
+  })
 
   /* build @font-face CSS containing only the KaTeX fonts, inlined as data URIs.
      html-to-image's default embedding would also inline funky-ui's Pretendard
@@ -384,69 +312,24 @@ export default function LatexImagerTool() {
     return css
   }, [])
 
-  /* ---- PNG export: rasterize the equation card at full resolution ---- */
-  const makeBlob = useCallback(async (): Promise<Blob | null> => {
-    const node = shotRef.current
-    if (!node) return null
-    const fontEmbedCSS = await buildKatexFontCss()
-    return toBlob(node, {
-      pixelRatio: 3, // equations look sharp scaled up on projectors
-      width: node.offsetWidth,
-      height: node.offsetHeight,
-      style: { transform: 'none', transformOrigin: 'top left' },
-      // use the prebuilt KaTeX-only font CSS; fall back to default embedding
-      // only if no KaTeX faces were found (keeps export correct either way)
-      ...(fontEmbedCSS ? { fontEmbedCSS } : {}),
-    })
-  }, [buildKatexFontCss])
-
-  const withExport = async (run: (blob: Blob) => void | Promise<void>) => {
-    if (busy) return
-    if (!hasContent) {
-      flash('먼저 수식을 입력하세요')
-      return
-    }
-    if (hasError) {
-      flash('수식 오류를 먼저 고쳐주세요')
-      return
-    }
-    setBusy(true)
-    try {
-      const blob = await makeBlob()
-      if (!blob) {
-        flash('이미지를 만들지 못했습니다')
-        return
-      }
-      await run(blob)
-    } catch {
-      flash('내보내기 실패')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const savePng = () =>
-    withExport((blob) => {
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'equation.png'
-      a.click()
-      URL.revokeObjectURL(url)
-      flash('PNG로 저장했습니다')
-    })
-
-  const copyPng = () =>
-    withExport(async (blob) => {
-      try {
-        await navigator.clipboard.write([
-          new ClipboardItem({ 'image/png': blob }),
-        ])
-        flash('클립보드에 복사했습니다')
-      } catch {
-        flash('복사 실패 — 저장을 이용하세요')
-      }
-    })
+  const { savePng, copyPng, busy, toast, flash } = usePngExport({
+    shotRef,
+    filename: 'equation',
+    // the KaTeX faces are embedded explicitly below, so skip the default sweep
+    skipFonts: false,
+    options: async () => {
+      const fontEmbedCSS = await buildKatexFontCss()
+      // fall back to default embedding if no KaTeX faces were found, so the
+      // export stays correct even when the filter comes up empty
+      return fontEmbedCSS ? { fontEmbedCSS } : {}
+    },
+    guard: () =>
+      !hasContent
+        ? '먼저 수식을 입력하세요'
+        : hasError
+          ? '수식 오류를 먼저 고쳐주세요'
+          : null,
+  })
 
   return (
     <div className="app">

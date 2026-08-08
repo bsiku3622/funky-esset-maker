@@ -18,12 +18,56 @@
   overflow-y: auto;
 }
 
+/* collapsed: an icon rail — every tool stays one click away */
+.fem__nav.is-collapsed {
+  flex-basis: 58px;
+  padding: 14px 8px;
+}
+
 .fem__brand {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 4px 6px 14px;
   border-bottom: 3px solid #222;
+}
+
+.fem__nav.is-collapsed .fem__brand {
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 0 12px;
+}
+
+.fem__toggle {
+  margin-left: auto;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  font-weight: 900;
+  font-size: 0.9rem;
+  line-height: 1;
+  color: #222;
+  background: #fff;
+  border: 2px solid #222;
+  cursor: pointer;
+  box-shadow: 3px 3px 0 0 rgba(0, 0, 0, 0.2);
+  transition: transform 0.1s ease-out, box-shadow 0.1s ease-out;
+}
+
+.fem__toggle:hover {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 0 rgba(0, 0, 0, 0.2);
+}
+
+.fem__toggle:active {
+  transform: translate(3px, 3px);
+  box-shadow: none;
+}
+
+.fem__nav.is-collapsed .fem__toggle {
+  margin-left: 0;
 }
 
 .fem__logo {
@@ -78,6 +122,41 @@
 .fem__item-desc {
   font-size: 0.72rem;
   opacity: 0.72;
+}
+
+/* the icon only carries the item once the labels are gone */
+.fem__item-icon {
+  display: none;
+  font-size: 1.05rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.fem__nav.is-collapsed .fem__name,
+.fem__nav.is-collapsed .fem__item-label,
+.fem__nav.is-collapsed .fem__item-desc,
+.fem__nav.is-collapsed .fem__credit,
+.fem__nav.is-collapsed .fem__gh-text {
+  display: none;
+}
+
+.fem__nav.is-collapsed .fem__item-icon {
+  display: block;
+}
+
+.fem__nav.is-collapsed .fem__item {
+  align-items: center;
+  padding: 10px 0;
+}
+
+.fem__nav.is-collapsed .fem__footer {
+  padding: 12px 0 4px;
+  align-items: center;
+}
+
+.fem__nav.is-collapsed .fem__gh {
+  padding: 6px 9px;
+  align-self: center;
 }
 
 /* footer pinned to the bottom of the sidebar */

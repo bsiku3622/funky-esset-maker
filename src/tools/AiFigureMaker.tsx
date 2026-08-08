@@ -16,11 +16,11 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
-  useReducer,
   useRef,
   useState,
 } from 'react'
 import { Button, Text } from '@studio-baeks/funky-ui'
+import { useLatest } from './hooks'
 import './AiFigureMaker.css'
 
 import type {
@@ -159,6 +159,10 @@ function starterDoc(): FigDoc {
   return doc
 }
 
+/** below this width the two side panels start folded — the canvas needs the
+ *  room more than the rails do */
+const AF_WIDE = 1280
+
 export default function AiFigureMaker() {
   const [doc, setDocState] = useState<FigDoc>(() => loadDoc() ?? starterDoc())
   const [selNodes, setSelNodes] = useState<string[]>([])
@@ -171,12 +175,23 @@ export default function AiFigureMaker() {
   const [marquee, setMarquee] = useState<Rect | null>(null)
   const [temp, setTemp] = useState<{ a: Pt; b: Pt; target: string | null } | null>(null)
   const [dragging, setDragging] = useState(false)
+  // pan gets its own flag so the canvas cursor is driven by state rather than
+  // by reading dragRef during render
+  const [panning, setPanning] = useState(false)
   const [rail, setRail] = useState<'shapes' | 'templates' | 'layers'>('shapes')
+  /* Both side panels are fixed-width, so on a narrow window they leave the
+     canvas almost nothing. Start them folded there; an explicit fold/unfold is
+     remembered for the session. */
+  const [railOpen, setRailOpen] = useState(() => window.innerWidth >= AF_WIDE)
+  const [panelOpen, setPanelOpen] = useState(() => window.innerWidth >= AF_WIDE)
   const [dpi, setDpi] = useState(600)
   const [trim, setTrim] = useState(true)
   const [busy, setBusy] = useState(false)
   const [dropping, setDropping] = useState(false)
-  const [, bump] = useReducer((x: number) => x + 1, 0)
+  /* The undo stacks live in a ref (pushing must not re-render mid-drag), so the
+     toolbar's two enabled flags are mirrored into state instead of read off the
+     ref during render. */
+  const [histState, setHistState] = useState({ canUndo: false, canRedo: false })
 
   const svgRef = useRef<SVGSVGElement>(null)
   const figRef = useRef<SVGGElement>(null)
@@ -186,14 +201,16 @@ export default function AiFigureMaker() {
   const clipRef = useRef<{ nodes: FigNode[]; edges: FigEdge[] } | null>(null)
   const pasteN = useRef(0)
 
+  /* docRef is the authority the mutating helpers read and write: commit / live
+     / undo / redo each set it *before* setDocState, so two edits in one tick
+     still build on each other. It is deliberately not a useLatest — that writes
+     after commit, which would be a frame too late here. */
   const docRef = useRef(doc)
-  docRef.current = doc
-  const viewRef = useRef(view)
-  viewRef.current = view
-  const selNodesRef = useRef(selNodes)
-  selNodesRef.current = selNodes
-  const selEdgesRef = useRef(selEdges)
-  selEdgesRef.current = selEdges
+
+  // read-only mirrors for handlers that are bound once
+  const viewRef = useLatest(view)
+  const selNodesRef = useLatest(selNodes)
+  const selEdgesRef = useLatest(selEdges)
 
   /* ---- MathJax: re-render once the glyphs are available.
      mathRev is threaded into the memoised node/edge views because their props
@@ -216,11 +233,20 @@ export default function AiFigureMaker() {
   const hist = useRef<{ past: FigDoc[]; future: FigDoc[] }>({ past: [], future: [] })
   const pending = useRef<FigDoc | null>(null)
 
-  const pushPast = (d: FigDoc) => {
-    hist.current.past.push(d)
-    if (hist.current.past.length > 120) hist.current.past.shift()
-    hist.current.future = []
-  }
+  /** publish the stacks' emptiness to the toolbar */
+  const syncHistory = useCallback(() => {
+    const h = hist.current
+    setHistState({ canUndo: h.past.length > 0, canRedo: h.future.length > 0 })
+  }, [])
+  const pushPast = useCallback(
+    (d: FigDoc) => {
+      hist.current.past.push(d)
+      if (hist.current.past.length > 120) hist.current.past.shift()
+      hist.current.future = []
+      syncHistory()
+    },
+    [syncHistory],
+  )
   /** Change the document and open a new undo step. */
   const commit = useCallback((next: FigDoc | ((d: FigDoc) => FigDoc)) => {
     const cur = docRef.current
@@ -229,7 +255,7 @@ export default function AiFigureMaker() {
     pushPast(cur)
     docRef.current = value
     setDocState(value)
-  }, [])
+  }, [pushPast])
   /** Change the document without touching history (drag frames). */
   const live = useCallback((next: FigDoc | ((d: FigDoc) => FigDoc)) => {
     const cur = docRef.current
@@ -244,7 +270,7 @@ export default function AiFigureMaker() {
     if (changed && pending.current && pending.current !== docRef.current)
       pushPast(pending.current)
     pending.current = null
-    bump()
+    syncHistory()
   }
   const undo = useCallback(() => {
     const h = hist.current
@@ -256,7 +282,8 @@ export default function AiFigureMaker() {
     setSelNodes([])
     setSelEdges([])
     setEditing(null)
-  }, [])
+    syncHistory()
+  }, [syncHistory])
   const redo = useCallback(() => {
     const h = hist.current
     const next = h.future.pop()
@@ -267,6 +294,14 @@ export default function AiFigureMaker() {
     setSelNodes([])
     setSelEdges([])
     setEditing(null)
+    syncHistory()
+  }, [syncHistory])
+
+  const flash = useCallback((m: string) => {
+    setToast(m)
+    // clear only our own message, so a later toast is not cut short by an
+    // earlier timer
+    window.setTimeout(() => setToast((t) => (t === m ? null : t)), 1800)
   }, [])
 
   /* ---- autosave ---- */
@@ -283,13 +318,7 @@ export default function AiFigureMaker() {
       if (ok) warnedQuota.current = false
     }, 400)
     return () => window.clearTimeout(id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc])
-
-  const flash = (m: string) => {
-    setToast(m)
-    window.setTimeout(() => setToast((t) => (t === m ? null : t)), 1800)
-  }
+  }, [doc, flash])
 
   /* ---- derived ---- */
   const nmap = useMemo(() => nodeMap(doc), [doc])
@@ -314,23 +343,30 @@ export default function AiFigureMaker() {
   const hoverNode = hoverId && !dragging ? (nmap.get(hoverId) ?? null) : null
 
   /* ---- coordinate helpers ---- */
-  const toWorld = useCallback((clientX: number, clientY: number): Pt => {
-    const rect = svgRef.current!.getBoundingClientRect()
-    const v = viewRef.current
-    return { x: (clientX - rect.left - v.x) / v.zoom, y: (clientY - rect.top - v.y) / v.zoom }
-  }, [])
+  const toWorld = useCallback(
+    (clientX: number, clientY: number): Pt => {
+      const rect = svgRef.current!.getBoundingClientRect()
+      const v = viewRef.current
+      return { x: (clientX - rect.left - v.x) / v.zoom, y: (clientY - rect.top - v.y) / v.zoom }
+    },
+    [viewRef],
+  )
 
-  const zoomAt = (clientX: number, clientY: number, next: number) => {
-    const rect = svgRef.current?.getBoundingClientRect()
-    if (!rect) return
-    const v = viewRef.current
-    const z = clampZoom(next)
-    const cx = clientX - rect.left
-    const cy = clientY - rect.top
-    const wx = (cx - v.x) / v.zoom
-    const wy = (cy - v.y) / v.zoom
-    setView({ x: cx - wx * z, y: cy - wy * z, zoom: z })
-  }
+  // stable: the wheel listener below is attached once and closes over it
+  const zoomAt = useCallback(
+    (clientX: number, clientY: number, next: number) => {
+      const rect = svgRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const v = viewRef.current
+      const z = clampZoom(next)
+      const cx = clientX - rect.left
+      const cy = clientY - rect.top
+      const wx = (cx - v.x) / v.zoom
+      const wy = (cy - v.y) / v.zoom
+      setView({ x: cx - wx * z, y: cy - wy * z, zoom: z })
+    },
+    [viewRef],
+  )
 
   const zoomBy = (f: number) => {
     const rect = svgRef.current?.getBoundingClientRect()
@@ -418,14 +454,14 @@ export default function AiFigureMaker() {
 
   /* ---- insertion ---- */
   /** viewCenter is used by handlers registered before it is declared */
-  const viewCenterRef = useRef<() => Pt>(() => ({ x: 0, y: 0 }))
   const viewCenter = (): Pt => {
     const el = stageRef.current
     const v = viewRef.current
     if (!el) return { x: doc.canvas.w / 2, y: doc.canvas.h / 2 }
     return { x: (el.clientWidth / 2 - v.x) / v.zoom, y: (el.clientHeight / 2 - v.y) / v.zoom }
   }
-  viewCenterRef.current = viewCenter
+  // the paste / drop handlers are bound once and need the current one
+  const viewCenterRef = useLatest(viewCenter)
 
   const insertShape = (kind: NodeKind) => {
     const c = viewCenter()
@@ -487,7 +523,7 @@ export default function AiFigureMaker() {
           : `이미지 ${nodes.length}개 추가`,
       )
     },
-    [commit],
+    [commit, flash],
   )
 
   const insertTemplate = (tplId: string) => {
@@ -574,6 +610,7 @@ export default function AiFigureMaker() {
     if (ev.button === 1 || spaceRef.current || ev.altKey) {
       dragRef.current = { t: 'pan', sx: ev.clientX, sy: ev.clientY, ox: view.x, oy: view.y }
       setDragging(true)
+      setPanning(true)
       return
     }
     if (ev.button !== 0) return
@@ -855,6 +892,7 @@ export default function AiFigureMaker() {
       const drag = dragRef.current
       dragRef.current = null
       setDragging(false)
+      setPanning(false)
       setGuides([])
       setMarquee(null)
       if (!drag) return
@@ -945,8 +983,7 @@ export default function AiFigureMaker() {
       el.removeEventListener('gesturestart', stopGesture)
       el.removeEventListener('gesturechange', stopGesture)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [viewRef, zoomAt])
 
   const onDoubleClick = (ev: React.MouseEvent) => {
     const el = ev.target as Element
@@ -1003,7 +1040,8 @@ export default function AiFigureMaker() {
 
       if (mod && K.toLowerCase() === 'z') {
         e.preventDefault()
-        e.shiftKey ? redo() : undo()
+        if (e.shiftKey) redo()
+        else undo()
         return
       }
       if (mod && K.toLowerCase() === 'y') {
@@ -1240,10 +1278,10 @@ export default function AiFigureMaker() {
         </Text>
 
         <div className="af-tgroup">
-          <IconBtn title="실행 취소 (⌘Z)" onClick={undo} disabled={!hist.current.past.length}>
+          <IconBtn title="실행 취소 (⌘Z)" onClick={undo} disabled={!histState.canUndo}>
             ↶
           </IconBtn>
-          <IconBtn title="다시 실행 (⇧⌘Z)" onClick={redo} disabled={!hist.current.future.length}>
+          <IconBtn title="다시 실행 (⇧⌘Z)" onClick={redo} disabled={!histState.canRedo}>
             ↷
           </IconBtn>
           <IconBtn title="복제 (⌘D)" onClick={duplicateSel} disabled={!selNodes.length}>
@@ -1409,7 +1447,16 @@ export default function AiFigureMaker() {
 
       <div className="af-body">
         {/* ---------- left rail ---------- */}
-        <aside className="af-rail">
+        <aside className={`af-rail${railOpen ? '' : ' is-collapsed'}`}>
+          <button
+            type="button"
+            className="af-fold"
+            onClick={() => setRailOpen((v) => !v)}
+            aria-expanded={railOpen}
+            title={railOpen ? '도형 패널 접기' : '도형 패널 펼치기'}
+          >
+            {railOpen ? '«' : '»'}
+          </button>
           <Seg
             value={rail}
             options={[
@@ -1448,7 +1495,7 @@ export default function AiFigureMaker() {
             className="af-canvas"
             onPointerDown={onPointerDown}
             onDoubleClick={onDoubleClick}
-            style={{ cursor: dragging && dragRef.current?.t === 'pan' ? 'grabbing' : 'default' }}
+            style={{ cursor: panning ? 'grabbing' : 'default' }}
           >
             <defs>
               <pattern id="af-grid" width={doc.canvas.grid} height={doc.canvas.grid} patternUnits="userSpaceOnUse">
@@ -1587,7 +1634,16 @@ export default function AiFigureMaker() {
         </div>
 
         {/* ---------- right panel ---------- */}
-        <aside className="af-panel">
+        <aside className={`af-panel${panelOpen ? '' : ' is-collapsed'}`}>
+          <button
+            type="button"
+            className="af-fold"
+            onClick={() => setPanelOpen((v) => !v)}
+            aria-expanded={panelOpen}
+            title={panelOpen ? '속성 패널 접기' : '속성 패널 펼치기'}
+          >
+            {panelOpen ? '»' : '«'}
+          </button>
           <Inspector
             doc={doc}
             nodes={selectedNodeObjs}

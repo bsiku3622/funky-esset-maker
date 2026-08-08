@@ -1,3 +1,4 @@
+import { CHART_PALETTE } from './palette'
 import './cores.css'
 
 /* Chart — display-only render core extracted from the Chart Maker tool.
@@ -28,15 +29,7 @@ export interface ChartProps {
   bg?: ChartBg
 }
 
-const PALETTE = [
-  '#ff4eba',
-  '#3decfd',
-  '#ffd500',
-  '#7828c8',
-  '#ff9100',
-  '#00c22a',
-  '#00c8ff',
-]
+const PALETTE = CHART_PALETTE
 const BG_HEX: Record<ChartBg, string | null> = {
   transparent: null,
   cream: '#fff5d1',

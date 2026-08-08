@@ -1,13 +1,6 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+import { useRef, useState } from 'react'
 import { Button, Text } from '@studio-baeks/funky-ui'
-import { toBlob } from 'html-to-image'
+import { useFitScale, usePersist, usePngExport, useStored } from './hooks'
 import './Tabler.css'
 
 /* ---------- model ---------- */
@@ -81,42 +74,26 @@ interface Persisted {
   align: Align
 }
 
-function loadState(): Persisted {
-  const fallback: Persisted = {
-    cells: SAMPLE.map((r) => [...r]),
-    fontSize: 30,
-    headerRow: true,
-    headerCol: false,
-    headerColor: 'cyan',
-    bodyBg: 'white',
-    align: 'left',
-  }
-  try {
-    const raw = localStorage.getItem(STORE_KEY)
-    if (!raw) return fallback
-    const saved = JSON.parse(raw) as Partial<Persisted>
-    const cells =
-      Array.isArray(saved.cells) && saved.cells.length
-        ? saved.cells
-        : fallback.cells
-    return {
-      cells,
-      fontSize: saved.fontSize ?? fallback.fontSize,
-      headerRow: saved.headerRow ?? fallback.headerRow,
-      headerCol: saved.headerCol ?? fallback.headerCol,
-      headerColor: saved.headerColor ?? fallback.headerColor,
-      bodyBg: saved.bodyBg ?? fallback.bodyBg,
-      align: saved.align ?? fallback.align,
-    }
-  } catch {
-    return fallback
-  }
+const DEFAULTS: Persisted = {
+  cells: SAMPLE.map((r) => [...r]),
+  fontSize: 30,
+  headerRow: true,
+  headerCol: false,
+  headerColor: 'cyan',
+  bodyBg: 'white',
+  align: 'left',
 }
 
 /* ---------- app ---------- */
 
 export default function TablerTool() {
-  const initial = useMemo(loadState, [])
+  const initial = useStored(STORE_KEY, DEFAULTS, (saved, defaults) => ({
+    ...defaults,
+    ...saved,
+    // an empty or non-array cells list would render a table with nothing in it
+    cells:
+      Array.isArray(saved.cells) && saved.cells.length ? saved.cells : defaults.cells,
+  }))
   const [cells, setCells] = useState<string[][]>(initial.cells)
   const [fontSize, setFontSize] = useState(initial.fontSize)
   const [headerRow, setHeaderRow] = useState(initial.headerRow)
@@ -125,38 +102,21 @@ export default function TablerTool() {
   const [bodyBg, setBodyBg] = useState<BodyKey>(initial.bodyBg)
   const [align, setAlign] = useState<Align>(initial.align)
 
-  // preview scale — fit the (full-size) table into the stage; export ignores it
-  const [scale, setScale] = useState(1)
-  const [nat, setNat] = useState({ w: 0, h: 0 })
-
-  const [toast, setToast] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-
   const stageRef = useRef<HTMLDivElement>(null)
   const shotRef = useRef<HTMLDivElement>(null)
 
   const rows = cells.length
   const cols = cells[0]?.length ?? 0
 
-  /* persist */
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        STORE_KEY,
-        JSON.stringify({
-          cells,
-          fontSize,
-          headerRow,
-          headerCol,
-          headerColor,
-          bodyBg,
-          align,
-        }),
-      )
-    } catch {
-      /* ignore */
-    }
-  }, [cells, fontSize, headerRow, headerCol, headerColor, bodyBg, align])
+  usePersist(STORE_KEY, {
+    cells,
+    fontSize,
+    headerRow,
+    headerCol,
+    headerColor,
+    bodyBg,
+    align,
+  })
 
   /* ---- table edits ---- */
   const setCell = (r: number, c: number, v: string) =>
@@ -176,101 +136,22 @@ export default function TablerTool() {
   const bumpFont = (delta: number) =>
     setFontSize((s) => Math.min(FONT_MAX, Math.max(FONT_MIN, s + delta)))
 
-  /* ---- preview scale: fit the table card into the stage ---- */
-  const recomputeScale = useCallback(() => {
-    const stage = stageRef.current
-    const shot = shotRef.current
-    if (!stage || !shot) return
-    const cs = getComputedStyle(stage)
-    const availW =
-      stage.clientWidth -
-      parseFloat(cs.paddingLeft) -
-      parseFloat(cs.paddingRight)
-    const availH =
-      stage.clientHeight -
-      parseFloat(cs.paddingTop) -
-      parseFloat(cs.paddingBottom)
-    const natW = shot.offsetWidth
-    const natH = shot.offsetHeight
-    if (natW === 0 || natH === 0) return
-    const s = Math.max(0.05, Math.min(1, availW / natW, availH / natH))
-    setNat((p) => (p.w !== natW || p.h !== natH ? { w: natW, h: natH } : p))
-    setScale((p) => (Math.abs(p - s) > 0.001 ? s : p))
-  }, [])
+  const { scale, nat } = useFitScale({
+    stageRef,
+    shotRef,
+    signature: `${rows}x${cols}|${fontSize}|${headerRow}|${headerCol}|${align}`,
+  })
 
-  useLayoutEffect(() => {
-    recomputeScale()
-  }, [recomputeScale, cells, fontSize, headerRow, headerCol, align])
-
-  useEffect(() => {
-    const stage = stageRef.current
-    const shot = shotRef.current
-    if (!stage || !shot) return
-    const ro = new ResizeObserver(recomputeScale)
-    ro.observe(stage)
-    ro.observe(shot)
-    return () => ro.disconnect()
-  }, [recomputeScale])
-
-  /* ---- flash a small toast ---- */
-  const flash = (msg: string) => {
-    setToast(msg)
-    window.setTimeout(() => setToast(null), 1800)
-  }
-
-  /* ---- PNG export: rasterize the table at full resolution ---- */
-  const makeBlob = useCallback(async (): Promise<Blob | null> => {
-    const node = shotRef.current
-    if (!node) return null
-    return toBlob(node, {
-      pixelRatio: 3, // crisp on projectors
-      cacheBust: true,
-      skipFonts: false, // keep the body font for the cell text
-      width: node.offsetWidth,
-      height: node.offsetHeight,
-      style: { transform: 'none', transformOrigin: 'top left' },
-    })
-  }, [])
-
-  const withExport = async (run: (blob: Blob) => void | Promise<void>) => {
-    if (busy) return
-    setBusy(true)
-    try {
-      const blob = await makeBlob()
-      if (!blob) {
-        flash('이미지를 만들지 못했습니다')
-        return
-      }
-      await run(blob)
-    } catch {
-      flash('내보내기 실패')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const savePng = () =>
-    withExport((blob) => {
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'table.png'
-      a.click()
-      URL.revokeObjectURL(url)
-      flash('PNG로 저장했습니다')
-    })
-
-  const copyPng = () =>
-    withExport(async (blob) => {
-      try {
-        await navigator.clipboard.write([
-          new ClipboardItem({ 'image/png': blob }),
-        ])
-        flash('클립보드에 복사했습니다')
-      } catch {
-        flash('복사 실패 — 저장을 이용하세요')
-      }
-    })
+  const { savePng, copyPng, busy, toast } = usePngExport({
+    shotRef,
+    filename: 'table',
+    /* Cell text renders in the app's body stack, whose first entry (Pretendard)
+       is served from a CDN. Embedding it meant html-to-image fetched and
+       base64'd every weight of a Korean webfont on each export — 30 s cold,
+       2–4 s warm, against 0.25 s for every other tool. The stack's fallbacks
+       (Apple SD Gothic Neo · Noto Sans KR · Malgun Gothic) render Korean fine,
+       so the PNG uses those instead; letterforms differ slightly from screen. */
+  })
 
   const isHeader = (r: number, c: number) =>
     (headerRow && r === 0) || (headerCol && c === 0)

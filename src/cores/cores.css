@@ -292,8 +292,14 @@
 
 /* ---------- Chart ---------- */
 
+/* The pie legend sits to the *right* of the plot, not under it: a wrapped row
+   of labels under a chart re-flows as soon as the host box narrows, and the
+   figure stops matching the exported PNG. */
 .fx-chart {
-  display: inline-block;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: max-content;
   font-family: 'Pretendard', system-ui, sans-serif;
 }
 .fx-chart svg {
@@ -301,28 +307,28 @@
 }
 .fx-chart__legend {
   list-style: none;
-  margin: 8px 0 0;
-  padding: 0 8px 6px;
+  margin: 0;
+  padding: 0 6px 0 0;
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px 18px;
-  font-size: 13px;
+  flex-direction: column;
+  gap: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.95rem;
 }
 .fx-chart__legend li {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 .fx-chart__box {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   border: 2px solid #222;
   flex: 0 0 auto;
 }
 .fx-chart__label {
-  font-weight: 600;
+  font-weight: 700;
 }
 .fx-chart__val {
-  font-weight: 800;
   opacity: 0.7;
 }

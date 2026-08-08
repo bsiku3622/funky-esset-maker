@@ -1,13 +1,6 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, Text } from '@studio-baeks/funky-ui'
-import { toBlob } from 'html-to-image'
+import { useFitScale, usePersist, usePngExport, useStored } from './hooks'
 import { parseInput } from './parse'
 import './DsVisualizer.css'
 
@@ -71,34 +64,18 @@ interface Persisted {
   showIndex: boolean
 }
 
-function loadState(): Persisted {
-  const fallback: Persisted = {
-    input: SAMPLE,
-    fontSize: 28,
-    accent: 'cyan',
-    bg: 'transparent',
-    showIndex: true,
-  }
-  try {
-    const raw = localStorage.getItem(STORE_KEY)
-    if (!raw) return fallback
-    const saved = JSON.parse(raw) as Partial<Persisted>
-    return {
-      input: saved.input ?? fallback.input,
-      fontSize: saved.fontSize ?? fallback.fontSize,
-      accent: saved.accent ?? fallback.accent,
-      bg: saved.bg ?? fallback.bg,
-      showIndex: saved.showIndex ?? fallback.showIndex,
-    }
-  } catch {
-    return fallback
-  }
+const DEFAULTS: Persisted = {
+  input: SAMPLE,
+  fontSize: 28,
+  accent: 'cyan',
+  bg: 'transparent',
+  showIndex: true,
 }
 
 /* ---------- app ---------- */
 
 export default function DsVisualizerTool() {
-  const initial = useMemo(loadState, [])
+  const initial = useStored(STORE_KEY, DEFAULTS)
   const [input, setInput] = useState(initial.input)
   const [fontSize, setFontSize] = useState(initial.fontSize)
   const [accent, setAccent] = useState<ColorKey>(initial.accent)
@@ -106,12 +83,6 @@ export default function DsVisualizerTool() {
   const [showIndex, setShowIndex] = useState(initial.showIndex)
 
   // preview scale — fit the (full-size) figure into the stage; export ignores it
-  const [scale, setScale] = useState(1)
-  const [nat, setNat] = useState({ w: 0, h: 0 })
-
-  const [toast, setToast] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-
   const stageRef = useRef<HTMLDivElement>(null)
   const shotRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -122,17 +93,7 @@ export default function DsVisualizerTool() {
   const accentText = ACCENT_TEXT[accent]
   const chromeText = bg === 'dark' ? '#f4f4f4' : '#222222'
 
-  /* persist */
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        STORE_KEY,
-        JSON.stringify({ input, fontSize, accent, bg, showIndex }),
-      )
-    } catch {
-      /* ignore */
-    }
-  }, [input, fontSize, accent, bg, showIndex])
+  usePersist(STORE_KEY, { input, fontSize, accent, bg, showIndex })
 
   /* editor auto-grow */
   useLayoutEffect(() => {
@@ -146,106 +107,17 @@ export default function DsVisualizerTool() {
   const bumpFont = (delta: number) =>
     setFontSize((s) => Math.min(FONT_MAX, Math.max(FONT_MIN, s + delta)))
 
-  /* preview scale: fit the figure into the stage */
-  const recomputeScale = useCallback(() => {
-    const stage = stageRef.current
-    const shot = shotRef.current
-    if (!stage || !shot) return
-    const cs = getComputedStyle(stage)
-    const availW =
-      stage.clientWidth -
-      parseFloat(cs.paddingLeft) -
-      parseFloat(cs.paddingRight)
-    const availH =
-      stage.clientHeight -
-      parseFloat(cs.paddingTop) -
-      parseFloat(cs.paddingBottom)
-    const natW = shot.offsetWidth
-    const natH = shot.offsetHeight
-    if (natW === 0 || natH === 0) return
-    const s = Math.max(0.05, Math.min(1, availW / natW, availH / natH))
-    setNat((p) => (p.w !== natW || p.h !== natH ? { w: natW, h: natH } : p))
-    setScale((p) => (Math.abs(p - s) > 0.001 ? s : p))
-  }, [])
+  const { scale, nat } = useFitScale({
+    stageRef,
+    shotRef,
+    signature: `${fontSize}|${showIndex}`,
+  })
 
-  useLayoutEffect(() => {
-    recomputeScale()
-  }, [recomputeScale, input, fontSize, showIndex])
-
-  useEffect(() => {
-    const stage = stageRef.current
-    const shot = shotRef.current
-    if (!stage || !shot) return
-    const ro = new ResizeObserver(recomputeScale)
-    ro.observe(stage)
-    ro.observe(shot)
-    return () => ro.disconnect()
-  }, [recomputeScale])
-
-  /* flash a small toast */
-  const flash = (msg: string) => {
-    setToast(msg)
-    window.setTimeout(() => setToast(null), 1800)
-  }
-
-  /* PNG export at full resolution */
-  const makeBlob = useCallback(async (): Promise<Blob | null> => {
-    const node = shotRef.current
-    if (!node) return null
-    return toBlob(node, {
-      pixelRatio: 3,
-      // figures use only system monospace — skip web-font embedding (the slow
-      // part: it would fetch + inline Pretendard on every export)
-      skipFonts: true,
-      width: node.offsetWidth,
-      height: node.offsetHeight,
-      style: { transform: 'none', transformOrigin: 'top left' },
-    })
-  }, [])
-
-  const withExport = async (run: (blob: Blob) => void | Promise<void>) => {
-    if (busy) return
-    if (!blocks.length) {
-      flash('먼저 입력하세요')
-      return
-    }
-    setBusy(true)
-    try {
-      const blob = await makeBlob()
-      if (!blob) {
-        flash('이미지를 만들지 못했습니다')
-        return
-      }
-      await run(blob)
-    } catch {
-      flash('내보내기 실패')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const savePng = () =>
-    withExport((blob) => {
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'ds.png'
-      a.click()
-      URL.revokeObjectURL(url)
-      flash('PNG로 저장했습니다')
-    })
-
-  const copyPng = () =>
-    withExport(async (blob) => {
-      try {
-        await navigator.clipboard.write([
-          new ClipboardItem({ 'image/png': blob }),
-        ])
-        flash('클립보드에 복사했습니다')
-      } catch {
-        flash('복사 실패 — 저장을 이용하세요')
-      }
-    })
+  const { savePng, copyPng, busy, toast } = usePngExport({
+    shotRef,
+    filename: 'ds',
+    guard: () => (blocks.length ? null : '먼저 입력하세요'),
+  })
 
   return (
     <div className="app">

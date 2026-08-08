@@ -7,10 +7,8 @@ import {
   useState,
 } from 'react'
 import { Button, Text } from '@studio-baeks/funky-ui'
-import { toBlob } from 'html-to-image'
-import Prism from 'prismjs'
-import 'prismjs/components/prism-python'
-import 'prismjs/components/prism-markdown'
+import { highlightCode } from '../cores/highlight'
+import { useFitScale, usePersist, usePngExport, useStored } from './hooks'
 import './Highlighter.css'
 
 /* ---------- model ---------- */
@@ -105,47 +103,31 @@ interface Persisted {
   cropHeight: number
 }
 
-function loadState(): Persisted {
-  const fallback: Persisted = {
-    version: SIZING_VERSION,
-    lang: 'python',
-    theme: 'dark',
-    fontSize: 18,
-    codes: { ...SAMPLE },
-    names: { ...FILE_NAME },
-    ...DEFAULTS,
-  }
-  try {
-    const raw = localStorage.getItem(STORE_KEY)
-    if (!raw) return fallback
-    const saved = JSON.parse(raw) as Partial<Persisted>
-    // older sizing schema → keep content, reset sizing to current defaults
-    const freshSizing = saved.version !== SIZING_VERSION
-    return {
-      version: SIZING_VERSION,
-      lang: saved.lang ?? fallback.lang,
-      theme: saved.theme ?? fallback.theme,
-      fontSize: saved.fontSize ?? fallback.fontSize,
-      codes: { ...fallback.codes, ...saved.codes },
-      names: { ...fallback.names, ...saved.names },
-      width: freshSizing ? DEFAULTS.width : saved.width ?? fallback.width,
-      wrap: freshSizing ? DEFAULTS.wrap : saved.wrap ?? fallback.wrap,
-      ratioW: freshSizing ? DEFAULTS.ratioW : saved.ratioW ?? fallback.ratioW,
-      ratioH: freshSizing ? DEFAULTS.ratioH : saved.ratioH ?? fallback.ratioH,
-      crop: freshSizing ? DEFAULTS.crop : saved.crop ?? fallback.crop,
-      cropHeight: freshSizing
-        ? DEFAULTS.cropHeight
-        : saved.cropHeight ?? fallback.cropHeight,
-    }
-  } catch {
-    return fallback
-  }
+const FALLBACK: Persisted = {
+  version: SIZING_VERSION,
+  lang: 'python',
+  theme: 'dark',
+  fontSize: 18,
+  codes: { ...SAMPLE },
+  names: { ...FILE_NAME },
+  ...DEFAULTS,
 }
 
 /* ---------- app ---------- */
 
 export default function HighlighterTool() {
-  const initial = useMemo(loadState, [])
+  const initial = useStored(STORE_KEY, FALLBACK, (saved, fallback) => {
+    // older sizing schema → keep the code buffers, reset sizing to defaults
+    const freshSizing = saved.version !== SIZING_VERSION
+    return {
+      ...fallback,
+      ...saved,
+      version: SIZING_VERSION,
+      codes: { ...fallback.codes, ...saved.codes },
+      names: { ...fallback.names, ...saved.names },
+      ...(freshSizing ? DEFAULTS : null),
+    }
+  })
   const [lang, setLang] = useState<Lang>(initial.lang)
   const [theme, setTheme] = useState<Theme>(initial.theme)
   const [fontSize, setFontSize] = useState(initial.fontSize)
@@ -166,14 +148,6 @@ export default function HighlighterTool() {
   // scroll offset for cropped / non-wrapped content (transform-based so the
   // PNG export captures the exact visible region)
   const [scroll, setScroll] = useState({ x: 0, y: 0 })
-
-  // preview scale — shrinks the (full-size) window to fit the stage; the PNG
-  // export ignores it and renders at full resolution
-  const [scale, setScale] = useState(1)
-  const [nat, setNat] = useState({ w: 0, h: 0 }) // natural (unscaled) shot size
-
-  const [toast, setToast] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
 
   const stageRef = useRef<HTMLDivElement>(null)
   const shotRef = useRef<HTMLDivElement>(null)
@@ -199,39 +173,22 @@ export default function HighlighterTool() {
   // while the input keeps showing whatever was typed
   const effectiveCropHeight = Math.max(CROP_HEIGHT_MIN, cropHeight)
 
-  /* keep the crop height locked to the ratio as width / ratio change
-     (and when crop is first turned on). manual edits to the crop height
-     survive until the next width / ratio change. */
-  useEffect(() => {
+  /* Snap the crop height back to the ratio whenever width / ratio change (and
+     when crop is first turned on). Manual edits survive until the next such
+     change. Done during render instead of in an effect so the new height is
+     part of the same commit — an effect would paint the old height first. */
+  const ratioKey = `${crop}|${width}|${ratioW}|${ratioH}`
+  const [lastRatioKey, setLastRatioKey] = useState<string | null>(null)
+  if (ratioKey !== lastRatioKey) {
+    setLastRatioKey(ratioKey)
     if (crop && minHeight > 0) {
       setCropHeight(minHeight)
       setCropHeightText(String(minHeight))
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [crop, width, ratioW, ratioH])
+  }
 
-  /* persist settings + buffers */
-  useEffect(() => {
-    const data: Persisted = {
-      version: SIZING_VERSION,
-      lang,
-      theme,
-      fontSize,
-      codes,
-      names,
-      width,
-      wrap,
-      ratioW,
-      ratioH,
-      crop,
-      cropHeight,
-    }
-    try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(data))
-    } catch {
-      /* ignore quota / private mode */
-    }
-  }, [
+  usePersist(STORE_KEY, {
+    version: SIZING_VERSION,
     lang,
     theme,
     fontSize,
@@ -243,18 +200,11 @@ export default function HighlighterTool() {
     ratioH,
     crop,
     cropHeight,
-  ])
+  } satisfies Persisted)
 
-  /* highlighted markup — recomputed only when code or language changes.
-     plain text skips Prism entirely; we just escape and render as-is. */
-  const highlighted = useMemo(() => {
-    const html =
-      lang === 'plain'
-        ? code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        : Prism.highlight(code, Prism.languages[lang], lang)
-    // trailing newline keeps the <pre> height in sync with the textarea
-    return html + '\n'
-  }, [code, lang])
+  /* highlighted markup — shared with the CodeBlock core so a snippet looks the
+     same here and wherever the core renders it */
+  const highlighted = useMemo(() => highlightCode(code, lang), [code, lang])
 
   /* ---- scroll bounds (vertical when cropped, horizontal when not wrapped) ---- */
   const bounds = useCallback(() => {
@@ -266,9 +216,14 @@ export default function HighlighterTool() {
     return { maxX, maxY }
   }, [crop, wrap])
 
-  // re-clamp the offset whenever the content or sizing changes
+  /* Re-clamp the pan offset whenever the content or sizing changes. The bound
+     comes from measuring the DOM, so it cannot be derived during render — and
+     it has to land before paint or a shrunk window shows blank space for a
+     frame. The updater returns the same object when nothing moved, so this
+     settles immediately instead of cascading. */
   useLayoutEffect(() => {
     const { maxX, maxY } = bounds()
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setScroll((s) => {
       const x = Math.min(s.x, maxX)
       const y = Math.min(s.y, maxY)
@@ -294,54 +249,24 @@ export default function HighlighterTool() {
   }, [bounds])
 
   /* ---- preview scale: fit the window into the stage ----
-     scale denominator uses the *cropped* (16:9) height so the zoom level stays
-     the same whether crop is on or off; the export is unaffected. */
-  const recomputeScale = useCallback(() => {
-    const stage = stageRef.current
-    const shot = shotRef.current
-    const box = boxRef.current
-    if (!stage || !shot || !box) return
-    const cs = getComputedStyle(stage)
-    const availW =
-      stage.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
-    const availH =
-      stage.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)
-    const natW = shot.offsetWidth // unaffected by the shot's own transform
-    const natH = shot.offsetHeight
-    const chromeV = natH - box.offsetHeight // bar + borders + shot padding
-    const targetH = chromeV + effectiveCropHeight // logical height as if cropped
-    const s = Math.max(
-      0.05,
-      Math.min(1, availW / natW, availH / targetH),
-    )
-    setNat((prev) => (prev.w !== natW || prev.h !== natH ? { w: natW, h: natH } : prev))
-    setScale((prev) => (Math.abs(prev - s) > 0.001 ? s : prev))
-  }, [effectiveCropHeight])
+     the denominator uses the *cropped* height so the zoom level stays put
+     whether crop is on or off; the export is unaffected either way. */
+  const targetHeight = useCallback(
+    (shot: HTMLElement) => {
+      const box = boxRef.current
+      if (!box) return shot.offsetHeight
+      const chromeV = shot.offsetHeight - box.offsetHeight // bar + borders + padding
+      return chromeV + effectiveCropHeight
+    },
+    [effectiveCropHeight],
+  )
 
-  useLayoutEffect(() => {
-    recomputeScale()
-  }, [
-    recomputeScale,
-    code,
-    lang,
-    fontSize,
-    width,
-    wrap,
-    crop,
-    effectiveCropHeight,
-    minHeight,
-    sizeOpen,
-  ])
-
-  useEffect(() => {
-    const stage = stageRef.current
-    const shot = shotRef.current
-    if (!stage || !shot) return
-    const ro = new ResizeObserver(recomputeScale)
-    ro.observe(stage)
-    ro.observe(shot)
-    return () => ro.disconnect()
-  }, [recomputeScale])
+  const { scale, nat } = useFitScale({
+    stageRef,
+    shotRef,
+    targetHeight,
+    signature: `${fontSize}|${width}|${wrap}|${crop}|${minHeight}|${sizeOpen}`,
+  })
 
   /* ---- font size ---- */
   const bumpFont = (delta: number) =>
@@ -362,11 +287,13 @@ export default function HighlighterTool() {
     })
   }
 
-  /* ---- flash a small toast ---- */
-  const flash = (msg: string) => {
-    setToast(msg)
-    window.setTimeout(() => setToast(null), 1800)
-  }
+  const { savePng, copyPng, busy, toast } = usePngExport({
+    shotRef,
+    // the window's title bar carries the file name — reuse it for the PNG
+    filename: () => name.replace(/\.[^.]+$/, '').trim() || 'code',
+    pixelRatio: 2, // already crisp: the shot is rendered at full size
+    cacheBust: true,
+  })
 
   const resetSize = () => {
     setWidth(DEFAULTS.width)
@@ -378,63 +305,6 @@ export default function HighlighterTool() {
     setCropHeightText(String(DEFAULTS.cropHeight))
     setScroll({ x: 0, y: 0 })
   }
-
-  /* ---- PNG export: rasterize the code window node ---- */
-  const makeBlob = useCallback(async (): Promise<Blob | null> => {
-    const node = shotRef.current
-    if (!node) return null
-    // offset size is the full (unscaled) layout size — render at that size with
-    // the preview transform neutralized so the PNG is full resolution
-    return toBlob(node, {
-      pixelRatio: 2, // crisp on hi-dpi / projectors
-      cacheBust: true,
-      skipFonts: true, // only system + monospace fonts are used
-      width: node.offsetWidth,
-      height: node.offsetHeight,
-      style: { transform: 'none', transformOrigin: 'top left' },
-    })
-  }, [])
-
-  const withExport = async (run: (blob: Blob) => void | Promise<void>) => {
-    if (busy) return
-    setBusy(true)
-    try {
-      const blob = await makeBlob()
-      if (!blob) {
-        flash('이미지를 만들지 못했습니다')
-        return
-      }
-      await run(blob)
-    } catch {
-      flash('내보내기 실패')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const savePng = () =>
-    withExport((blob) => {
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      const base = name.replace(/\.[^.]+$/, '').trim() || 'code'
-      a.href = url
-      a.download = `${base}.png`
-      a.click()
-      URL.revokeObjectURL(url)
-      flash('PNG로 저장했습니다')
-    })
-
-  const copyPng = () =>
-    withExport(async (blob) => {
-      try {
-        await navigator.clipboard.write([
-          new ClipboardItem({ 'image/png': blob }),
-        ])
-        flash('클립보드에 복사했습니다')
-      } catch {
-        flash('복사 실패 — 저장을 이용하세요')
-      }
-    })
 
   // numeric field helper — clamps to a minimum, keeps integers
   const numField = (

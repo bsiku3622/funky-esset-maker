@@ -1,15 +1,9 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Icon, Text } from '@studio-baeks/funky-ui'
-import { toBlob } from 'html-to-image'
 import { MathfieldElement } from 'mathlive'
 import 'mathlive'
+import { useFitScale, usePersist, usePngExport, useStored } from './hooks'
+import SharedNumField from './NumField'
 import './CartesianPlotter.css'
 
 // CDN에서 폰트 로드 (Vite가 node_modules 폰트를 자동 서빙하지 않음)
@@ -17,8 +11,10 @@ MathfieldElement.fontsDirectory =
   'https://cdn.jsdelivr.net/npm/mathlive@0.110.0/fonts/'
 MathfieldElement.soundsDirectory = null
 
-// math-field 웹 컴포넌트 JSX 타입 (React 19부터 JSX 네임스페이스가 React.JSX로 이동)
+// math-field 웹 컴포넌트 JSX 타입 (React 19부터 JSX 네임스페이스가 React.JSX로 이동).
+// IntrinsicElements를 넓히는 방법은 이 namespace 확장뿐이라 규칙을 끕니다.
 declare module 'react' {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace JSX {
     interface IntrinsicElements {
       'math-field': React.HTMLAttributes<MathfieldElement> & {
@@ -97,16 +93,6 @@ const DEFAULTS: Persisted = {
   figW: 640,
   figH: 480,
   bg: 'transparent',
-}
-
-function loadState(): Persisted {
-  try {
-    const raw = localStorage.getItem(STORE_KEY)
-    if (!raw) return DEFAULTS
-    return { ...DEFAULTS, ...(JSON.parse(raw) as Partial<Persisted>) }
-  } catch {
-    return DEFAULTS
-  }
 }
 
 /* ---------- LaTeX → JS expression ---------- */
@@ -194,7 +180,8 @@ function compile2d(expr: string): (x: number, y: number) => number {
   const body = preprocess(expr).replace(/\^/g, '**')
   if (/[^0-9+\-*/().,\s a-zA-Z_]/.test(body))
     throw new Error('허용되지 않는 문자')
-  // eslint-disable-next-line @typescript-eslint/no-implied-eval
+  // new Function은 위 화이트리스트를 통과한 문자만 받습니다 — 식별자·숫자·연산자뿐이라
+  // 문자열 리터럴도 프로퍼티 접근도 만들 수 없습니다
   const f = new Function(
     'x', 'y',
     ...FN_NAMES,
@@ -215,7 +202,7 @@ function compile(expr: string, varName = 'x'): (v: number) => number {
   const body = preprocess(expr).replace(/\^/g, '**')
   if (/[^0-9+\-*/().,\s a-zA-Z_]/.test(body))
     throw new Error('허용되지 않는 문자')
-  // eslint-disable-next-line @typescript-eslint/no-implied-eval
+  // 위 compile2d와 같은 화이트리스트 검증을 거친 뒤에만 도달합니다
   const f = new Function(
     varName,
     ...FN_NAMES,
@@ -322,36 +309,11 @@ function ticks(min: number, max: number): number[] {
 
 /* ---------- numeric field ---------- */
 
-function NumField({
-  value,
-  onCommit,
-  width = '5ch',
-}: {
+const NumField = (props: {
   value: number
   onCommit: (n: number) => void
   width?: string
-}) {
-  const [text, setText] = useState(String(value))
-  useEffect(() => setText(String(value)), [value])
-  return (
-    <input
-      className="cp-num"
-      type="text"
-      inputMode="decimal"
-      style={{ width }}
-      value={text}
-      onChange={(e) => setText(e.target.value)}
-      onBlur={() => {
-        const n = parseFloat(text)
-        if (Number.isFinite(n)) onCommit(n)
-        else setText(String(value))
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-      }}
-    />
-  )
-}
+}) => <SharedNumField width="5ch" {...props} className="cp-num" />
 
 /* ---------- icons ---------- */
 
@@ -471,7 +433,7 @@ function GraphRow({
 /* ---------- app ---------- */
 
 export default function CartesianPlotterTool() {
-  const initial = useMemo(loadState, [])
+  const initial = useStored(STORE_KEY, DEFAULTS)
   const [graphs, setGraphs] = useState<GraphEntry[]>(initial.graphs)
   const [xmin, setXmin] = useState(initial.xmin)
   const [xmax, setXmax] = useState(initial.xmax)
@@ -485,11 +447,6 @@ export default function CartesianPlotterTool() {
   const [figH, setFigH] = useState(initial.figH)
   const [bg, setBg] = useState<BgKey>(initial.bg)
 
-  const [scale, setScale] = useState(1)
-  const [nat, setNat] = useState({ w: 0, h: 0 })
-  const [toast, setToast] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-
   const stageRef = useRef<HTMLDivElement>(null)
   const shotRef = useRef<HTMLDivElement>(null)
 
@@ -498,19 +455,25 @@ export default function CartesianPlotterTool() {
   const hasPolar = items.some((i) => i.kind === 'polar')
   const thMax = thetaMaxPi * Math.PI
 
-  useEffect(() => {
-    if (hasPolar) setEqualAspect(true)
-  }, [hasPolar])
+  // A polar curve drawn on unequal axes is the wrong shape — a circle comes out
+  // an ellipse — so adding one forces equal aspect. Derived during render
+  // rather than in an effect so the very first frame is already correct.
+  const lockAspect = equalAspect || hasPolar
 
-  /* persist */
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        STORE_KEY,
-        JSON.stringify({ graphs, xmin, xmax, ymin, ymax, autoY, grid, equalAspect, thetaMaxPi, figW, figH, bg }),
-      )
-    } catch { /* ignore */ }
-  }, [graphs, xmin, xmax, ymin, ymax, autoY, grid, equalAspect, thetaMaxPi, figW, figH, bg])
+  usePersist(STORE_KEY, {
+    graphs,
+    xmin,
+    xmax,
+    ymin,
+    ymax,
+    autoY,
+    grid,
+    equalAspect,
+    thetaMaxPi,
+    figW,
+    figH,
+    bg,
+  })
 
   const PAD = 52
   const uxlo = Math.min(xmin, xmax)
@@ -567,12 +530,11 @@ export default function CartesianPlotterTool() {
     return [lo - pad, hi + pad] as const
   }, [autoY, ymin, ymax, items, uxlo, uxhi, thMax])
 
-  const eqAspect = equalAspect
-  let xlo = uxlo
-  let xhi = uxhi
+  const xlo = uxlo
+  const xhi = uxhi
   let ylo = baseLo
   let yhi = baseHi
-  if (eqAspect) {
+  if (lockAspect) {
     const pw = figW - 2 * PAD
     const ph = figH - 2 * PAD
     const xs = uxhi - uxlo
@@ -683,63 +645,15 @@ export default function CartesianPlotterTool() {
   const gridColor = bg === 'dark' ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.1)'
   const labelColor = bg === 'dark' ? '#cfcfd6' : '#555'
 
-  const recompute = useCallback(() => {
-    const stage = stageRef.current; const shot = shotRef.current
-    if (!stage || !shot) return
-    const cs = getComputedStyle(stage)
-    const aw = stage.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
-    const ah = stage.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)
-    const w = shot.offsetWidth; const h = shot.offsetHeight
-    if (!w || !h) return
-    const s = Math.max(0.05, Math.min(1, aw / w, ah / h))
-    setNat((p) => (p.w !== w || p.h !== h ? { w, h } : p))
-    setScale((p) => (Math.abs(p - s) > 0.001 ? s : p))
-  }, [])
-  useLayoutEffect(() => { recompute() }, [recompute, figW, figH, bg])
-  useEffect(() => {
-    const stage = stageRef.current; const shot = shotRef.current
-    if (!stage || !shot) return
-    const ro = new ResizeObserver(recompute)
-    ro.observe(stage); ro.observe(shot)
-    return () => ro.disconnect()
-  }, [recompute])
-
-  const flash = (m: string) => {
-    setToast(m); window.setTimeout(() => setToast(null), 1800)
-  }
-
-  const makeBlob = useCallback(async () => {
-    const node = shotRef.current
-    if (!node) return null
-    return toBlob(node, {
-      pixelRatio: 3, skipFonts: true,
-      width: node.offsetWidth, height: node.offsetHeight,
-      style: { transform: 'none', transformOrigin: 'top left' },
-    })
-  }, [])
-
-  const withExport = async (run: (b: Blob) => void | Promise<void>) => {
-    if (busy) return
-    setBusy(true)
-    try {
-      const b = await makeBlob()
-      if (!b) { flash('이미지를 만들지 못했습니다'); return }
-      await run(b)
-    } catch { flash('내보내기 실패') } finally { setBusy(false) }
-  }
-
-  const savePng = () => withExport((b) => {
-    const url = URL.createObjectURL(b)
-    const a = document.createElement('a')
-    a.href = url; a.download = 'plot.png'; a.click()
-    URL.revokeObjectURL(url); flash('PNG로 저장했습니다')
+  const { scale, nat } = useFitScale({
+    stageRef,
+    shotRef,
+    signature: `${figW}|${figH}|${bg}`,
   })
 
-  const copyPng = () => withExport(async (b) => {
-    try {
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': b })])
-      flash('클립보드에 복사했습니다')
-    } catch { flash('복사 실패 — 저장을 이용해주세요') }
+  const { savePng, copyPng, busy, toast } = usePngExport({
+    shotRef,
+    filename: 'plot',
   })
 
   const addGraph = () => {
@@ -793,8 +707,14 @@ export default function CartesianPlotterTool() {
           격자 {grid ? '켜짐' : '꺼짐'}
         </Button>
 
-        <Button variant={eqAspect ? 'secondary' : 'neutral'} size="sm" onClick={() => setEqualAspect((v) => !v)}>
-          등축 {eqAspect ? '켜짐' : '꺼짐'}
+        <Button
+          variant={lockAspect ? 'secondary' : 'neutral'}
+          size="sm"
+          disabled={hasPolar}
+          title={hasPolar ? '극좌표 그래프는 등축이 아니면 모양이 찌그러집니다' : undefined}
+          onClick={() => setEqualAspect((v) => !v)}
+        >
+          등축 {lockAspect ? '켜짐' : '꺼짐'}
         </Button>
 
         {hasPolar && (

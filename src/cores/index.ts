@@ -13,6 +13,8 @@ export type {
   DiagramColor,
 } from './Diagram'
 
+export { CHART_PALETTE } from './palette'
+
 export { default as Chart } from './Chart'
 export type {
   ChartProps,

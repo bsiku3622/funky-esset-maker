@@ -121,38 +121,8 @@
   transform-origin: top left;
 }
 
-.scope-chart .chart {
-  display: block;
-}
-
-/* pie legend */
-.scope-chart .cm-legend {
-  list-style: none;
-  margin: 0;
-  padding: 0 6px 0 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  font-family: var(--mono);
-  font-size: 0.95rem;
-}
-.scope-chart .cm-legend li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.scope-chart .cm-legend__box {
-  width: 16px;
-  height: 16px;
-  border: 2px solid #222;
-  flex: 0 0 auto;
-}
-.scope-chart .cm-legend__label {
-  font-weight: 700;
-}
-.scope-chart .cm-legend__val {
-  opacity: 0.7;
-}
+/* the plot and its pie legend now come from src/cores/Chart (.fx-chart*),
+   which carries their styles in cores.css */
 
 /* editor */
 .scope-chart .editor {

@@ -5,19 +5,19 @@ import {
   useState,
 } from 'react'
 import { Button, Text } from '@studio-baeks/funky-ui'
+import {
+  DIAGRAM_COLOR_HEX as COLOR_HEX,
+  DIAGRAM_TEXT_ON as TEXT_ON,
+  type DiagramColor,
+} from '../cores/palette'
+import { useLatest } from './hooks'
 import './Grapher.css'
 
 /* ---------- model ---------- */
 
-type ColorKey =
-  | 'surface'
-  | 'pink'
-  | 'purple'
-  | 'cyan'
-  | 'yellow'
-  | 'orange'
-  | 'sky'
-  | 'green'
+/* Node colors come from the cores palette, shared with the Diagram render core:
+   a figure arranged here has to keep its colors when a slide renders it. */
+type ColorKey = DiagramColor
 
 const COLORS: { key: ColorKey; label: string }[] = [
   { key: 'surface', label: 'White' },
@@ -30,27 +30,6 @@ const COLORS: { key: ColorKey; label: string }[] = [
   { key: 'green', label: 'Green' },
 ]
 
-// funky tokens (mirrored for canvas export)
-const COLOR_HEX: Record<ColorKey, string> = {
-  surface: '#ffffff',
-  pink: '#ff4eba',
-  purple: '#7828c8',
-  cyan: '#3decfd',
-  yellow: '#ffd500',
-  orange: '#ff9100',
-  sky: '#00c8ff',
-  green: '#00c22a',
-}
-const TEXT_ON: Record<ColorKey, string> = {
-  surface: '#222222',
-  pink: '#222222',
-  purple: '#ffffff',
-  cyan: '#222222',
-  yellow: '#222222',
-  orange: '#222222',
-  sky: '#222222',
-  green: '#222222',
-}
 const BG_HEX = '#fff5d1'
 const INK_HEX = '#222222'
 const EXPORT_FONT =
@@ -303,21 +282,21 @@ export default function GrapherTool() {
   const [transparentBg, setTransparentBg] = useState<boolean>(
     () => boot?.transparentBg ?? false,
   )
-  const [, bumpHistory] = useState(0) // re-render when undo/redo availability changes
+  /* The history stacks live in a ref (pushing must not re-render), but the two
+     booleans the toolbar needs are mirrored into state — reading the ref during
+     render would leave the buttons showing whatever the last render happened to
+     observe. */
+  const [histState, setHistState] = useState({ canUndo: false, canRedo: false })
 
   const canvasRef = useRef<HTMLDivElement>(null)
   const nodeRefs = useRef<Map<string, HTMLDivElement>>(new Map())
   const dragRef = useRef<Drag>(null)
-  const viewRef = useRef(view)
-  viewRef.current = view
 
   // refs mirror latest state so handlers set up once (or async) read fresh data
-  const nodesRef = useRef(nodes)
-  nodesRef.current = nodes
-  const edgesRef = useRef(edges)
-  edgesRef.current = edges
-  const snapRef = useRef(snap)
-  snapRef.current = snap
+  const viewRef = useLatest(view)
+  const nodesRef = useLatest(nodes)
+  const edgesRef = useLatest(edges)
+  const snapRef = useLatest(snap)
 
   // internal clipboard for copy/paste of nodes (+ edges between them)
   const clipboard = useRef<{ nodes: Node[]; edges: Edge[] } | null>(null)
@@ -355,11 +334,16 @@ export default function GrapherTool() {
     nodes: nodesRef.current,
     edges: edgesRef.current,
   })
+  /** publish the stacks' emptiness to the toolbar */
+  const syncHistory = () => {
+    const h = history.current
+    setHistState({ canUndo: h.past.length > 0, canRedo: h.future.length > 0 })
+  }
   const pushPast = (snap: Snapshot) => {
     history.current.past.push(snap)
     if (history.current.past.length > 100) history.current.past.shift()
     history.current.future = []
-    bumpHistory((n) => n + 1)
+    syncHistory()
   }
   // instantaneous actions: capture current state (= "before") then mutate
   const record = () => pushPast(snapshot())
@@ -385,17 +369,16 @@ export default function GrapherTool() {
     if (!h.past.length) return
     h.future.push(snapshot())
     restore(h.past.pop()!)
-    bumpHistory((n) => n + 1)
+    syncHistory()
   }
   const redo = () => {
     const h = history.current
     if (!h.future.length) return
     h.past.push(snapshot())
     restore(h.future.pop()!)
-    bumpHistory((n) => n + 1)
+    syncHistory()
   }
-  const canUndo = history.current.past.length > 0
-  const canRedo = history.current.future.length > 0
+  const { canUndo, canRedo } = histState
 
   const getSize = (id: string) => sizes[id] ?? DEFAULT_SIZE
   const getNode = (id: string) => nodes.find((n) => n.id === id)

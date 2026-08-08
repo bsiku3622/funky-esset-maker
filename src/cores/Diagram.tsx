@@ -1,4 +1,9 @@
 import { useLayoutEffect, useRef, useState } from 'react'
+import {
+  DIAGRAM_COLOR_HEX as COLOR_HEX,
+  DIAGRAM_TEXT_ON as TEXT_ON,
+  type DiagramColor,
+} from './palette'
 import './cores.css'
 
 /* Diagram — display-only render core extracted from the Grapher tool.
@@ -6,36 +11,7 @@ import './cores.css'
    edges. No editing / pan / zoom / export: just the static figure, rendered at
    the tool's native scale so a host (slide box) can scale it as a whole. */
 
-export type DiagramColor =
-  | 'surface'
-  | 'pink'
-  | 'purple'
-  | 'cyan'
-  | 'yellow'
-  | 'orange'
-  | 'sky'
-  | 'green'
-
-const COLOR_HEX: Record<DiagramColor, string> = {
-  surface: '#ffffff',
-  pink: '#ff4eba',
-  purple: '#7828c8',
-  cyan: '#3decfd',
-  yellow: '#ffd500',
-  orange: '#ff9100',
-  sky: '#00c8ff',
-  green: '#00c22a',
-}
-const TEXT_ON: Record<DiagramColor, string> = {
-  surface: '#222222',
-  pink: '#222222',
-  purple: '#ffffff',
-  cyan: '#222222',
-  yellow: '#222222',
-  orange: '#222222',
-  sky: '#222222',
-  green: '#222222',
-}
+export type { DiagramColor }
 
 export interface DiagramNode {
   id: string

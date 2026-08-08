@@ -1,7 +1,5 @@
 import { useMemo } from 'react'
-import Prism from 'prismjs'
-import 'prismjs/components/prism-python'
-import 'prismjs/components/prism-markdown'
+import { highlightCode } from './highlight'
 import './cores.css'
 
 /* CodeBlock — display-only render core extracted from the Highlighter tool.
@@ -25,10 +23,6 @@ export interface CodeBlockProps {
   wrap?: boolean
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
 export default function CodeBlock({
   code,
   lang = 'plain',
@@ -38,14 +32,7 @@ export default function CodeBlock({
   width,
   wrap = true,
 }: CodeBlockProps) {
-  const html = useMemo(() => {
-    const grammar = Prism.languages[lang]
-    const out =
-      lang === 'plain' || !grammar
-        ? escapeHtml(code)
-        : Prism.highlight(code, grammar, lang)
-    return out + '\n' // trailing newline keeps the last line height stable
-  }, [code, lang])
+  const html = useMemo(() => highlightCode(code, lang), [code, lang])
 
   return (
     <div className={`fx-frame fx-frame--${theme}`}>
