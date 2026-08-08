@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      # also type-checks: build runs `tsc -b` before vite
+      - name: Build
+        run: npm run build
+
+      # Five tools' CSS is generated from tool-sources and committed, so an edit
+      # made to the generated copy instead of the source would ship and then be
+      # silently reverted by the next gen:css. Only those five are checked —
+      # AiFigureMaker.css and ChartMaker.css are hand-authored.
+      - name: Check generated CSS is up to date
+        run: |
+          npm run gen:css
+          git diff --exit-code -- \
+            src/tools/Highlighter.css \
+            src/tools/LatexImager.css \
+            src/tools/Tabler.css \
+            src/tools/DsVisualizer.css \
+            src/tools/Grapher.css

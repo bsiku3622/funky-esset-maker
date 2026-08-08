@@ -1,5 +1,53 @@
 # 작업 기록
 
+## 2026-08-09 — 코드 평가 후 정리: 중복 제거 · 린트 0 · 테스트/CI 도입
+
+- 변경 파일: `src/tools/hooks.ts`·`NumField.tsx`(신규), 도구 8개 전부, `src/cores/*`, `src/tools/aifig/geometry.ts`, `src/App.{tsx,css}`, `tsconfig.{app,node}.json`, `.github/workflows/ci.yml`(신규), `README.md`
+- 요약: 저장소 전반을 평가하고 거기서 나온 항목을 전부 처리했습니다. 소스 약 900줄이 줄었고, 린트 43건 → 0건, 테스트·CI가 생겼습니다. 그 과정에서 **커넥터 대각선 버그**와 **Tabler 내보내기 30초 문제**를 찾아 고쳤습니다.
+
+### ⚠️ `dedupe`의 허용 오차를 다시 키우면 대각선이 재발합니다
+
+`geometry.ts`의 `dedupe`가 0.5px 이내로 붙은 두 점을 같은 점으로 보고 버리고 있었습니다. 문제는 그 0.5px가 **없어도 되는 오차가 아니라 실제로 필요한 이동**이라는 점입니다. 두 노드는 픽셀 단위로 정렬돼 있는 경우가 드물어서, ortho 경로에는 긴 가로 구간 두 개 사이에 0.25px짜리 세로 구간이 끼는 일이 흔합니다. 그 점을 버리면 오프셋이 사라지는 게 아니라 **양옆 구간으로 옮겨가고, 직각이어야 할 선이 대각선이 됩니다.**
+
+2026-08-07에 "대각선을 없앴다"고 기록했지만 이 경로로 남아 있었습니다. 그때는 `roundCorners`의 `continue` 버그만 잡았고, 그 앞단계인 `dedupe`는 보지 않았습니다. 허용 오차를 0.01px로 낮춰 미세 구간을 살립니다 — 짧은 구간은 `roundCorners`가 하드 코너로 처리하므로 눈에 보이지 않습니다.
+
+**이 버그는 눈으로 찾을 수 없습니다.** 노드 간격 4~220px를 훑는 3025개 조합 중 어긋나는 건 아주 좁은 간격 몇 개뿐이라, 한 쌍만 보면 멀쩡합니다. 그래서 스윕 테스트를 `geometry.test.ts`로 남겼습니다. 같은 스윕에서 코너의 89.4%가 온전한 반지름을 유지합니다(수정 전 88.8%).
+
+### ⚠️ Tabler는 PNG에 웹폰트를 심지 않습니다
+
+Tabler만 `skipFonts: false`였습니다 — 셀 글자에 본문 폰트를 유지하려던 의도인데, 대가가 컸습니다. 본문 스택의 첫 항목인 Pretendard는 CDN에서 오고, html-to-image가 그 CSS를 받아 **모든 웨이트(woff/woff2 18개, 한글이라 수십 MB)를 매 내보내기마다 base64로 인라인**했습니다. 캐시가 없는 첫 내보내기는 30초가 넘었고 그다음도 2~4초였습니다. 다른 도구는 0.25초입니다.
+
+LaTeX Imager가 쓰는 방법(필요한 폰트만 골라 인라인)을 그대로 쓸 수 없습니다. 그건 `document.styleSheets`를 순회하는데, **Pretendard는 cross-origin 시트라 규칙을 읽을 수 없습니다.** KaTeX는 same-origin이라 되는 것뿐입니다.
+
+폰트 스택의 폴백(Apple SD Gothic Neo · Noto Sans KR · Malgun Gothic)이 한글을 제대로 렌더하므로 시스템 폰트로 내보내기로 했습니다. 205ms / 102ms로 떨어졌습니다. 대가는 화면과 PNG의 자형이 미세하게 다르다는 것 — 자형을 정확히 맞춰야 하면 CDN CSS를 직접 fetch해 필요한 웨이트(400·700·800)만 인라인하는 방법이 남아 있습니다.
+
+### 공통 로직을 `hooks.ts`로
+
+도구 8개가 각각 독립 프로젝트였던 탓에 `loadState` / `withExport` / `flash` / preview fit / `savePng` / `copyPng`를 저마다 복제해 갖고 있었습니다. 실질 차이는 pixelRatio와 파일명뿐이라 `useStored` · `usePersist` · `useFitScale` · `usePngExport`로 묶었습니다. `NumField`(3개 도구에 복제)도 함께 뺐습니다. 소스 1170줄이 지워지고 273줄이 들어왔습니다.
+
+`usePngExport`에는 확장점 두 개를 뒀습니다 — `guard`(내보내기 전 거부 사유, LaTeX Imager·DS Visualizer가 사용)와 `options`(내보내기마다 계산되는 html-to-image 옵션, LaTeX Imager의 KaTeX 폰트 CSS).
+
+### ⚠️ AI Figure Maker의 `docRef`는 `useLatest`로 바꾸면 안 됩니다
+
+렌더 중 ref에 대입하던 곳(`docRef.current = doc` 등)을 정리하면서, `viewRef`·`selNodesRef` 같은 읽기 전용 미러는 `useLatest`(effect에서 대입)로 옮겼습니다. **`docRef`만 예외입니다.** `commit`/`live`/`undo`/`redo`가 `setDocState` 직전에 `docRef.current`를 직접 갱신하는데, 이게 있어야 같은 틱 안에서 이어지는 편집이 앞의 결과 위에 쌓입니다. `useLatest`는 커밋 이후에 쓰므로 한 프레임 늦고, 연속 편집이 서로를 덮어씁니다.
+
+undo/redo 버튼의 활성 상태는 렌더 중 `hist.current.past.length`를 읽고 있었습니다. Grapher도 같은 패턴이었고요. 두 곳 다 스택은 ref에 두되(드래그 중 push마다 리렌더하면 안 되므로) 버튼이 쓰는 boolean 두 개만 state로 미러링합니다.
+
+### cores는 3개 중 1개만 컴포넌트째로 붙습니다
+
+`src/cores/`(CodeBlock · Diagram · Chart)를 아무도 import하지 않아 검증 없이 표류하고 있었습니다. 앱에서 실제로 쓰기로 했는데, 붙여보니 **Chart만 됩니다.** Chart Maker의 렌더 부분은 순수 표시라 `<Chart/>`로 교체돼 608 → 289줄이 됐습니다. 반면 Diagram의 짝은 Grapher, CodeBlock의 짝은 Highlighter인데 **둘 다 편집기**입니다 — 노드마다 이벤트·선택·ref가 필요하고, 표시 전용 컴포넌트를 그렇게 확장하면 그건 이미 그 도구입니다.
+
+그래서 남은 둘은 **어긋나면 안 되는 부분만** 공유합니다: Prism 하이라이트 단계(`cores/highlight.ts` ← Highlighter)와 노드 팔레트(`cores/palette.ts` ← Grapher). 색이 갈리면 Grapher 편집 화면과 슬라이드에 렌더된 Diagram이 달라지는데, 이제 한 곳에서 옵니다. 팔레트를 컴포넌트 파일이 아니라 별도 파일에 둔 이유는 Fast Refresh입니다 — 컴포넌트와 상수를 같이 export하면 refresh 경계가 깨집니다.
+
+### 그 밖에
+
+- **`strict`가 아예 꺼져 있었습니다.** Vite 템플릿 기본값인데 tsconfig 어디에도 없었습니다. 켜고 돌려보니 **에러 0건** — 이미 strict를 만족하는 코드였고 플래그만 빠져 있었습니다.
+- 린트 43건은 대부분 `eslint-plugin-react-hooks` v7의 새 규칙이었습니다. `useMemo(loadState, [])` 8건은 훅 추출로 사라졌고, 렌더 중 ref 접근 15건은 위의 방식으로, prop→state 동기화 effect는 렌더 중 조정(공식 권장 패턴)으로 바꿨습니다. 억제 주석을 남긴 곳은 Highlighter의 스크롤 clamp 한 곳뿐입니다 — DOM 측정 결과라 렌더 중에 구할 수 없고 paint 전에 반영돼야 합니다.
+- 반응형: 미디어 쿼리가 0개였습니다. 앱 사이드바는 1100px 미만에서 아이콘 레일(58px)로, AI Figure Maker의 좌우 패널은 1280px 미만에서 접힌 채로 시작합니다. 접힘 상태는 접힌 패널이 자기 펼침 버튼 폭(34px)만 남기는 방식이라 컨트롤이 화면 밖으로 나가지 않습니다. 사이드바 선택은 `localStorage`에 남고, 명시적 선택이 폭 휴리스틱을 이깁니다.
+- CI(`.github/workflows/ci.yml`)는 lint → test → build 순으로 돌고, 마지막에 `gen:css`를 실행해 **생성된 CSS 5개**가 커밋본과 같은지 검사합니다. 생성물을 직접 고치면 다음 `gen:css`에 조용히 지워지는데, 그걸 CI가 잡습니다. `AiFigureMaker.css`와 `ChartMaker.css`는 손으로 쓰는 파일이라 검사 대상이 아닙니다.
+
+미해결로 남긴 것: `npm audit`에 postcss 관련 high 2건이 있습니다(빌드 도구 전이 의존성, 런타임 아님).
+
 ## 2026-08-07 — 저장소 하나로 정리 (독립 도구 5개 아카이브)
 
 - 대상: 로컬 `~/Projects/Main Projects/funky-essets/`, GitHub `bsiku3622/funky-essets-*` 5개
