@@ -460,11 +460,20 @@ function legsFit(pts: Pt[], radius: number): boolean {
   return true
 }
 
+/* Drop repeated points only when they are *actually* the same point.
+ *
+ * ⚠️ This tolerance must stay tiny. Two nodes are rarely aligned to the pixel,
+ * so an ortho route often contains a sub-pixel jog — a leg a quarter of a pixel
+ * long — between two long axis-aligned runs. Merging that jog away does not
+ * remove the offset; it moves it into the neighbouring legs, and they become
+ * diagonals in a route that is supposed to be square. A short leg is harmless
+ * (roundCorners keeps it as a hard corner and nobody can see a 0.25px step),
+ * so keep it. */
 function dedupe(pts: Pt[]): Pt[] {
   const out: Pt[] = []
   for (const p of pts) {
     const last = out[out.length - 1]
-    if (!last || Math.abs(last.x - p.x) > 0.5 || Math.abs(last.y - p.y) > 0.5)
+    if (!last || Math.abs(last.x - p.x) > 0.01 || Math.abs(last.y - p.y) > 0.01)
       out.push(p)
   }
   return out
