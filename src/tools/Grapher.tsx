@@ -1206,10 +1206,10 @@ export default function GrapherTool() {
         >
           → 가로 정렬
         </Button>
-        <Button variant="success" size="sm" onClick={savePng}>
+        <Button variant="success" size="sm" title="PNG로 저장 (⌘E)" onClick={savePng}>
           PNG 저장
         </Button>
-        <Button variant="info" size="sm" onClick={copyPng}>
+        <Button variant="info" size="sm" title="클립보드로 복사 (⌘⇧C)" onClick={copyPng}>
           복사
         </Button>
         <Button

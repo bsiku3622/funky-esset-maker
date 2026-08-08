@@ -1,0 +1,270 @@
+# Funky Esset Maker
+
+> Ten browser tools that turn text into a figure you can paste into a slide,
+> handout, or paper — code listings, equations, tables, data structures,
+> diagrams, plots, charts, number lines, truth tables, and model architecture
+> figures. Everything runs client-side; nothing is uploaded.
+
+This file is for an assistant helping someone use the app. The useful thing you
+can do here is **write a project file**: a small JSON the user opens in the app,
+which drops them straight into the right tool with their content already in it.
+
+## Writing a project file
+
+Every tool reads the same envelope. Save it as `something.json` and tell the
+user to open it — sidebar **열기** (⌘O), or just drag the file onto the window.
+The `tool` field is what selects the tool, so the user does not have to pick the
+right one first.
+
+```json
+{
+  "app": "funky-esset-maker",
+  "format": 1,
+  "tool": "<tool id from the table below>",
+  "data": { }
+}
+```
+
+- `data` is that tool's own state. Fields you leave out fall back to defaults,
+  so send only what you are setting.
+- `savedAt` (ISO string) and `name` are optional.
+- Opening replaces whatever the user had in that tool. Say so if their work
+  might still be in there.
+
+Values shared by most tools:
+
+- `bg`: `"transparent" | "cream" | "white" | "dark"` — transparent is best for
+  slides, and is the default nearly everywhere.
+- neon color names: `pink · purple · cyan · yellow · orange · sky · green`
+
+## Tools
+
+| `tool` | Makes | Content field |
+| --- | --- | --- |
+| `highlighter` | syntax-highlighted code | `codes` |
+| `latex` | equations, or prose with inline math | `latex` |
+| `tabler` | tables | `cells` |
+| `dsviz` | lists and dicts as tables | `input` |
+| `grapher` | boxes-and-arrows diagrams | `nodes` + `edges` |
+| `aifig` | model architecture figures for papers | `nodes` + `edges` |
+| `cartesian` | function / polar / implicit plots | `graphs` |
+| `chart` | bar, line, pie, scatter | `input` |
+| `numline` | number lines, intervals, inequalities | `input` |
+| `truth` | truth tables | `input` |
+
+### highlighter — code
+
+`codes` is keyed by language, and `lang` picks which one shows. `names` sets the
+window's title bar per language (it also becomes the PNG's filename).
+
+```json
+{"app":"funky-esset-maker","format":1,"tool":"highlighter","data":{
+  "lang":"python",
+  "codes":{"python":"def solve(n):\n    return n * 2"},
+  "names":{"python":"solve.py"},
+  "theme":"dark","fontSize":18
+}}
+```
+
+- `lang`: `"python" | "markdown" | "plain"` (unknown languages: use `plain`)
+- `theme`: `"light" | "dark"` · `fontSize`: px
+- `width`: px · `wrap`: bool · `crop`: bool with `cropHeight`, `ratioW`/`ratioH`
+
+### latex — equations and documents
+
+```json
+{"app":"funky-esset-maker","format":1,"tool":"latex","data":{
+  "mode":"math",
+  "latex":"e^{i\\pi} + 1 = 0",
+  "fontSize":64,"color":"ink","bg":"transparent"
+}}
+```
+
+- `mode`: `"math"` — one display equation per line (KaTeX).
+- `mode`: `"document"` — prose with `$…$` inline and `$$…$$` display math.
+  Supports `\textbf` `\textit` `\emph` `\texttt` `\underline`, `---` `--`,
+  quotes, `\quad`, and blank-line paragraphs. Not full LaTeX: no environments,
+  sectioning, or numbering. Set `docWidth` (px) or `docUnlimited: true`.
+- `color`: `ink · white · pink · purple · cyan · orange · sky · green`
+- Escape backslashes for JSON: `\\frac{a}{b}`.
+
+### tabler — tables
+
+`cells` is row-major; the first row is the header when `headerRow` is true.
+Rows may be ragged, but keeping them equal avoids gaps.
+
+```json
+{"app":"funky-esset-maker","format":1,"tool":"tabler","data":{
+  "cells":[["Model","Acc","Params"],["ResNet-50","76.1","25M"],["ViT-B/16","77.9","86M"]],
+  "headerRow":true,"headerCol":false,
+  "headerColor":"cyan","bodyBg":"white","align":"left","fontSize":30
+}}
+```
+
+- `align`: `"left" | "center" | "right"` · `bodyBg`: `"white" | "cream"`
+
+### dsviz — lists and dicts
+
+One declaration per line. A list renders as a single-row table, a dict as a
+two-column one. Nested brackets survive, so values may contain `(), [], {}`.
+
+```
+queue = [3, 1, 4, 1, 5]
+dist = {a: 0, b: 7, c: inf}
+```
+
+```json
+{"app":"funky-esset-maker","format":1,"tool":"dsviz","data":{
+  "input":"queue = [3, 1, 4, 1, 5]\ndist = {a: 0, b: 7, c: inf}",
+  "showIndex":true,"accent":"cyan","fontSize":28
+}}
+```
+
+`showIndex` puts positional indices above list cells.
+
+### grapher — diagrams
+
+Free-form boxes and arrows. `x`/`y` are top-left in canvas px; a box is about
+150×50 by default and grows with its text. Every `id` must be unique, and each
+edge's `source`/`target` must name a node.
+
+```json
+{"app":"funky-esset-maker","format":1,"tool":"grapher","data":{
+  "nodes":[
+    {"id":"a","x":220,"y":180,"text":"Input","color":"green"},
+    {"id":"b","x":220,"y":340,"text":"Encoder","color":"cyan"},
+    {"id":"c","x":220,"y":500,"text":"Output","color":"pink"}
+  ],
+  "edges":[{"id":"e1","source":"a","target":"b"},{"id":"e2","source":"b","target":"c"}],
+  "snap":true,"transparentBg":true
+}}
+```
+
+`color`: `surface` (white) plus the neon names. Space nodes ~160px apart
+vertically so the arrows have room.
+
+### aifig — paper figures
+
+The heavyweight one: vector SVG output, LaTeX in any label, and column-width
+presets. Its document is `{nodes, edges, canvas, paletteId}`, and missing
+per-node fields are filled in on load — so a sparse figure like this works.
+
+```json
+{"app":"funky-esset-maker","format":1,"tool":"aifig","data":{
+  "canvas":{"w":528,"h":327,"printWidthIn":5.5,"bg":"transparent"},
+  "paletteId":"muted",
+  "nodes":[
+    {"id":"x","kind":"rect","x":40,"y":140,"w":90,"h":44,"label":"$x$"},
+    {"id":"enc","kind":"trapezoid","x":180,"y":130,"w":110,"h":64,"label":"Encoder"},
+    {"id":"z","kind":"cuboid","x":340,"y":138,"w":80,"h":48,"label":"$z$"}
+  ],
+  "edges":[
+    {"id":"e1","from":{"node":"x","anchor":"auto"},"to":{"node":"enc","anchor":"auto"},"route":"ortho","endHead":"arrow"},
+    {"id":"e2","from":{"node":"enc","anchor":"auto"},"to":{"node":"z","anchor":"auto"},"route":"ortho","endHead":"arrow"}
+  ]
+}}
+```
+
+- `kind`: `rect · cuboid · ellipse · op · diamond · trapezoid · cylinder ·
+  stack · mlp · grid · brace · bracket · text · image · frame · curve ·
+  triangle · parallelogram`
+- `label` takes `$…$` inline LaTeX anywhere.
+- `route`: `straight · ortho · curve · arc` · `endHead`/`startHead`:
+  `none · arrow · open · dot · circle · diamond · bar`
+- `paletteId`: `tab10 · muted · gray · okabe · tol`  (the last two are
+  colour-vision-deficiency safe — prefer them for anything published)
+- `canvas.printWidthIn` drives the printed point size; the app warns under 6 pt.
+- The tool has 16 built-in templates (Transformer, ViT, U-Net, GAN, diffusion,
+  …). For a standard architecture, tell the user to pick the template rather
+  than generating one — it will be better laid out.
+
+### cartesian — plots
+
+Each entry's `expr` is **LaTeX** (the editor is MathLive). Escape backslashes.
+
+```json
+{"app":"funky-esset-maker","format":1,"tool":"cartesian","data":{
+  "graphs":[
+    {"id":"g1","expr":"y=x^{2}","enabled":true,"color":"#ff4eba"},
+    {"id":"g2","expr":"y=\\sin\\left(x\\right)","enabled":true,"color":"#7828c8"}
+  ],
+  "xmin":-5,"xmax":5,"autoY":true,"grid":true,"figW":640,"figH":480
+}}
+```
+
+Accepted forms: `y=f(x)` · implicit `x^{2}+y^{2}=9` · polar `r=f(theta)` ·
+a point `(1.5, 2.25) A` (trailing text labels it). Functions: `sin cos tan
+asin acos atan sinh cosh tanh exp log ln sqrt cbrt abs floor ceil round min
+max pow`, constants `pi e tau`. `^` is exponentiation. Set `autoY:false` with
+`ymin`/`ymax` to pin the vertical range; `equalAspect:true` for circles.
+
+### chart — bar / line / pie / scatter
+
+```json
+{"app":"funky-esset-maker","format":1,"tool":"chart","data":{
+  "type":"bar",
+  "input":"사과 = 30\n바나나 = 45\n체리 = 18",
+  "title":"과일 판매량","showValues":true,"accent":0,"figW":640,"figH":440
+}}
+```
+
+- `type`: `"bar" | "line" | "pie" | "scatter"`
+- bar/line/pie read `input`, one `label = value` per line.
+- scatter reads `scatterInput`, one `(x, y)` per line.
+- `accent` is a palette index (0–6) that rotates the series colors.
+
+### numline — number lines
+
+One item per line; each stacks into its own row above the axis.
+
+```
+x >= 2
+(-1, 3]
+[0, 4) 구간 A
+3
+open 5
+```
+
+```json
+{"app":"funky-esset-maker","format":1,"tool":"numline","data":{
+  "input":"x >= 2\n(-1, 3]\n5","auto":true,"figW":760,"bg":"transparent"
+}}
+```
+
+Inequalities `x >= a`, `x < a`; intervals `[a,b] (a,b) [a,b)` — bracket vs paren
+picks closed vs open; a bare number is a closed point, `open 5` an open one.
+Trailing text after an item labels it. `auto:false` with `vmin`/`vmax` pins the
+range.
+
+### truth — truth tables
+
+One expression per line; each becomes a result column. Variables are detected
+automatically (up to 12).
+
+```json
+{"app":"funky-esset-maker","format":1,"tool":"truth","data":{
+  "input":"p and q\np or not q\np -> q","useTF":true,"colorize":true,"header":"cyan"
+}}
+```
+
+Operators: `not ¬ !` · `and ∧ &` · `or ∨ |` · `xor ⊕ ^` · `implies → ->` ·
+`iff ↔ <->`, plus parentheses. `useTF:false` prints 1/0 instead of T/F.
+
+## Once it is open
+
+- **PNG** — ⌘E saves, ⌘⇧C copies to the clipboard. Transparent background by
+  default, so it drops onto any slide.
+- **AI Figure Maker** also exports vector SVG (physical width in mm, so
+  `\includegraphics` lands on the column width), PNG up to 2400 dpi, and
+  approximate TikZ.
+- **⌘S** saves the current tool back out as a project file.
+- Work is kept in `localStorage` per tool, so a reload does not lose it.
+
+## Getting it wrong gracefully
+
+- A malformed field is usually replaced by its default rather than rejected, so
+  a project can open looking subtly unlike what you intended — prefer sending
+  fewer fields you are sure of.
+- If `tool` is missing or unknown the app refuses the file and says so.
+- A file saved by a newer version than the user's app is refused; tell them to
+  reload the page.

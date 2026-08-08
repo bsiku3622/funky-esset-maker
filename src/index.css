@@ -24,3 +24,21 @@ body {
   color: var(--funky-ink);
   overflow: hidden;
 }
+
+/* Keyboard focus. The design system styles press and lift but not focus, so
+   without this a keyboard user cannot see where they are — and these tools are
+   dense with small controls. :focus-visible keeps it off mouse clicks.
+   Purple rather than the usual browser blue, offset so it reads as a ring
+   around the hard shadow instead of a second border. */
+:focus-visible {
+  outline: 3px solid #7828c8;
+  outline-offset: 2px;
+}
+
+/* Text fields already grow a shadow on focus (the "lift" archetype); a ring on
+   top of that is noise, so tighten it to the field's own edge. */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline-offset: 0;
+}

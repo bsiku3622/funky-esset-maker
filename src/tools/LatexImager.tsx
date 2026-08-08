@@ -451,10 +451,10 @@ export default function LatexImagerTool() {
 
         <div className="toolbar__spacer" />
 
-        <Button variant="success" size="sm" onClick={savePng} disabled={busy}>
+        <Button variant="success" size="sm" title="PNG로 저장 (⌘E)" onClick={savePng} disabled={busy}>
           PNG 저장
         </Button>
-        <Button variant="info" size="sm" onClick={copyPng} disabled={busy}>
+        <Button variant="info" size="sm" title="클립보드로 복사 (⌘⇧C)" onClick={copyPng} disabled={busy}>
           복사
         </Button>
       </div>

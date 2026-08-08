@@ -278,5 +278,23 @@ export function usePngExport({
     })
   }, [run, flash])
 
+  /* ⌘E export, ⌘⇧C copy — the same keys in every tool. ⇧ on copy keeps ⌘C free
+     for the text selection the user is probably making in the editor. */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return
+      const k = e.key.toLowerCase()
+      if (k === 'e' && !e.shiftKey) {
+        e.preventDefault()
+        savePng()
+      } else if (k === 'c' && e.shiftKey) {
+        e.preventDefault()
+        copyPng()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [savePng, copyPng])
+
   return { savePng, copyPng, busy, toast, flash }
 }

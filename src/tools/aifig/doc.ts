@@ -376,18 +376,15 @@ export function saveDoc(doc: FigDoc): boolean {
   }
 }
 
+/* Goes through normalizeDoc rather than trusting the stored shape. Opening a
+   project writes this slot and remounts the tool, so a hand-written or
+   AI-generated figure — which will be missing per-node defaults — arrives here
+   too, not only through a file picker. */
 export function loadDoc(): FigDoc | null {
   try {
     const raw = localStorage.getItem(STORE_KEY)
     if (!raw) return null
-    const d = JSON.parse(raw)
-    if (!Array.isArray(d?.nodes) || !Array.isArray(d?.edges)) return null
-    return {
-      nodes: d.nodes,
-      edges: d.edges,
-      canvas: { ...DEFAULT_CANVAS, ...(d.canvas ?? {}) },
-      paletteId: d.paletteId ?? 'muted',
-    }
+    return normalizeDoc(JSON.parse(raw))
   } catch {
     return null
   }

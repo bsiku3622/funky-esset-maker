@@ -19,6 +19,27 @@ A set of web tools for making visual assets you can drop straight into slides, h
 
 Most tools rasterise their result to PNG with `html-to-image`. **AI Figure Maker** is the exception: it draws its canvas as SVG and serialises that same DOM, so it can export true vector SVG, high-resolution PNG, and TikZ. The tool you used last is remembered in `localStorage` and reopens on your next visit.
 
+## Projects
+
+Every tool saves to the same JSON envelope, and the file says which tool it belongs to:
+
+```json
+{ "app": "funky-esset-maker", "format": 1, "tool": "tabler", "data": { } }
+```
+
+So opening is one command regardless of what made the file — **열기** (⌘O) in the sidebar, or drag the `.json` anywhere onto the window. The app switches to the owning tool and loads it. `data` is that tool's own state, and anything you leave out falls back to its default.
+
+| Shortcut | |
+| --- | --- |
+| `⌘O` | open a project |
+| `⌘S` | save the current tool as a project |
+| `⌘E` | export PNG |
+| `⌘⇧C` | copy PNG to the clipboard |
+
+### Written by an assistant
+
+Because a project is just JSON with defaults for everything unset, an assistant can write one for you — a table, a plot, a figure — and you open it. [`public/llms.txt`](./public/llms.txt) documents every tool's schema and input grammar for exactly that, and is served at `/llms.txt`. There is also a Claude Code skill under `.claude/skills/esset/`.
+
 ## Getting started
 
 ```bash
@@ -43,16 +64,23 @@ Opens at `http://localhost:5178`.
 
 ```
 src/
-  App.tsx          sidebar navigation + tool switching
+  App.tsx          sidebar navigation · tool switching · project open/save
+  project.ts       the project envelope, and each tool's storage key
   tools/           one file per tool (UI · toolbar · export) + generated scoped CSS
     hooks.ts       shared machinery: persistence, preview fit, PNG export
     NumField.tsx   numeric input that lets you finish typing before committing
     aifig/         AI Figure Maker modules (document model · shapes · routing · LaTeX · export)
   cores/           pure render components (CodeBlock · Diagram · Chart) + shared palette
+public/
+  llms.txt         tool schemas and input grammars, for an assistant
 tool-sources/      original App.css for five tools (source for the scoped CSS)
 scripts/
   gen-scoped-css.mjs   prefixes tool-sources CSS with a scope class into src/tools
 ```
+
+### Saving without touching the tools
+
+A tool's project payload *is* its localStorage state, so saving reads the key the tool already writes and loading writes it back and remounts the tool. No tool implements import or export, and none can drift out of step with the format. The keys in `project.ts` are therefore a compatibility surface: changing one orphans every saved file and everyone's in-progress work.
 
 ### Shared machinery
 

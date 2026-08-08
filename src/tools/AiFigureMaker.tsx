@@ -48,7 +48,6 @@ import {
   group as groupNodes,
   loadDoc,
   nodeMap,
-  normalizeDoc,
   patchEdgeStyle,
   patchEdges,
   patchNodeStyle,
@@ -1049,7 +1048,8 @@ export default function AiFigureMaker() {
         redo()
         return
       }
-      if (mod && K.toLowerCase() === 'c') {
+      // ⇧ variant is "copy the PNG", handled with the other export keys below
+      if (mod && K.toLowerCase() === 'c' && !e.shiftKey) {
         if (copySel()) e.preventDefault()
         return
       }
@@ -1218,12 +1218,6 @@ export default function AiFigureMaker() {
       flash('클립보드에 복사했습니다')
     })
 
-  const exportJson = () =>
-    withBusy(() => {
-      download(textBlob(JSON.stringify(docRef.current, null, 2), 'application/json'), 'figure.json')
-      flash('프로젝트를 저장했습니다')
-    })
-
   const exportTikz = () =>
     withBusy(async () => {
       const code = toTikz(docRef.current)
@@ -1236,22 +1230,25 @@ export default function AiFigureMaker() {
       }
     })
 
-  const openJson = (file: File) => {
-    const rd = new FileReader()
-    rd.onload = () => {
-      try {
-        const next = normalizeDoc(JSON.parse(String(rd.result)))
-        if (!next) throw new Error('bad file')
-        commit(next)
-        clearSel()
-        setTimeout(() => fitView(), 20)
-        flash('프로젝트를 불러왔습니다')
-      } catch {
-        flash('JSON을 읽지 못했습니다')
+  /* Same export keys as every other tool (⌘E / ⌘⇧C). Registered separately from
+     the editing shortcuts above because those are declared before the export
+     functions exist. */
+  const exportKeys = useLatest({ exportPng, copyPng })
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return
+      const k = e.key.toLowerCase()
+      if (k === 'e' && !e.shiftKey) {
+        e.preventDefault()
+        exportKeys.current.exportPng()
+      } else if (k === 'c' && e.shiftKey) {
+        e.preventDefault()
+        exportKeys.current.copyPng()
       }
     }
-    rd.readAsText(file)
-  }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [exportKeys])
 
   /* ---- label editing overlay ---- */
   const editNode = editing ? nmap.get(editing) : null
@@ -1409,33 +1406,44 @@ export default function AiFigureMaker() {
           </IconBtn>
         </div>
 
+        {/* opening and saving the project live in the sidebar, the same place
+            for every tool; this group is the figure-specific output only */}
         <div className="af-tgroup af-export">
-          <label className="af-open">
-            열기
-            <input
-              type="file"
-              accept="application/json,.json"
-              onChange={(e) => {
-                const f = e.target.files?.[0]
-                if (f) openJson(f)
-                e.target.value = ''
-              }}
-            />
-          </label>
-          <Button variant="secondary" size="sm" onClick={exportJson} disabled={busy}>
-            .json
-          </Button>
-          <Button variant="primary" size="sm" onClick={exportSvg} disabled={busy}>
+          <Button
+            variant="primary"
+            size="sm"
+            title="벡터 SVG로 저장 — 물리 크기를 mm로 기록해 단 폭에 정확히 맞습니다"
+            onClick={exportSvg}
+            disabled={busy}
+          >
             SVG
           </Button>
-          <Button variant="info" size="sm" onClick={exportPng} disabled={busy}>
+          <Button
+            variant="info"
+            size="sm"
+            title="PNG로 저장 (⌘E)"
+            onClick={exportPng}
+            disabled={busy}
+          >
             PNG
           </Button>
           <Num value={dpi} min={72} max={2400} step={100} onChange={setDpi} suffix="dpi" width={54} />
-          <Button variant="secondary" size="sm" onClick={copyPng} disabled={busy}>
+          <Button
+            variant="secondary"
+            size="sm"
+            title="클립보드로 복사 (⌘⇧C)"
+            onClick={copyPng}
+            disabled={busy}
+          >
             복사
           </Button>
-          <Button variant="secondary" size="sm" onClick={exportTikz} disabled={busy}>
+          <Button
+            variant="secondary"
+            size="sm"
+            title="TikZ 코드를 클립보드로 — 근사 변환입니다"
+            onClick={exportTikz}
+            disabled={busy}
+          >
             TikZ
           </Button>
           <label className="af-chk af-chk--tool">
