@@ -2,7 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Icon, Text } from '@studio-baeks/funky-ui'
 import { MathfieldElement } from 'mathlive'
 import 'mathlive'
-import { useFitScale, usePersist, usePngExport, useStored } from './hooks'
+import { useFitScale, useHistory, usePersist, useStored, useSvgExport } from './hooks'
+import BgPicker from './BgPicker'
+import { BG_HEX, type BgKey } from './bg'
+import { figColors, ptOf, printWidthIn as widthInOf } from './paper'
+import { UI_ONLY } from './svg'
+import { useTheme } from '../theme'
+import PrintBar from './PrintBar'
+import UndoRedo from './UndoRedo'
 import SharedNumField from './NumField'
 import './CartesianPlotter.css'
 
@@ -29,7 +36,6 @@ declare module 'react' {
 
 /* ---------- model ---------- */
 
-type BgKey = 'transparent' | 'cream' | 'white' | 'dark'
 
 const CURVE_COLORS = [
   '#ff4eba',
@@ -39,13 +45,6 @@ const CURVE_COLORS = [
   '#00b327',
   '#d6219b',
   '#0277b6',
-]
-
-const BGS: { key: BgKey; label: string; hex: string | null }[] = [
-  { key: 'transparent', label: '투명', hex: null },
-  { key: 'cream', label: '크림', hex: '#fff5d1' },
-  { key: 'white', label: '흰색', hex: '#ffffff' },
-  { key: 'dark', label: '어두움', hex: '#1e1e22' },
 ]
 
 interface GraphEntry {
@@ -78,6 +77,9 @@ interface Persisted {
   figW: number
   figH: number
   bg: BgKey
+  /** printed-width preset id; 'screen' means 1 px = 1/96 in */
+  widthId: string
+  dpi: number
 }
 
 const DEFAULTS: Persisted = {
@@ -93,6 +95,8 @@ const DEFAULTS: Persisted = {
   figW: 640,
   figH: 480,
   bg: 'transparent',
+  widthId: 'screen',
+  dpi: 600,
 }
 
 /* ---------- LaTeX → JS expression ---------- */
@@ -221,18 +225,22 @@ function compile(expr: string, varName = 'x'): (v: number) => number {
 
 /* ---------- parse plot items ---------- */
 
-type Item =
+type ItemBody =
   | { kind: 'fn'; expr: string; f: (x: number) => number; color: string }
   | { kind: 'polar'; expr: string; f: (theta: number) => number; color: string }
   | { kind: 'implicit'; expr: string; f: (x: number, y: number) => number; color: string }
   | { kind: 'point'; x: number; y: number; label?: string; color: string }
   | { kind: 'error'; raw: string; msg: string }
 
+/** Every drawn item remembers which graph row produced it, so clicking the
+ *  curve can select that row (and vice versa). */
+type Item = ItemBody & { id: string }
+
 const POLAR_RE = /^r\s*=\s*(.+)$/i
 const FN_RE = /^(?:y|[a-zA-Z]\w*\s*\(\s*x\s*\))\s*=\s*(.+)$/
 const PT_RE = /^\(?\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)?\s*(.*)$/
 
-function parseSingleLine(line: string, color: string): Item | null {
+function parseSingleLine(line: string, color: string): ItemBody | null {
   if (!line || line.startsWith('#')) return null
 
   const rm = POLAR_RE.exec(line)
@@ -283,7 +291,7 @@ function parseGraphs(graphs: GraphEntry[]): Item[] {
     if (!g.enabled) continue
     const expr = latexToExpr(g.expr).trim()
     const item = parseSingleLine(expr, g.color)
-    if (item) out.push(item)
+    if (item) out.push({ ...item, id: g.id })
   }
   return out
 }
@@ -348,10 +356,17 @@ function GraphRow({
   entry,
   onChange,
   onDelete,
+  /** colour as the current mode draws it — the row swatch must match the plot */
+  shown,
+  selected,
+  onSelect,
 }: {
   entry: GraphEntry
   onChange: (updated: GraphEntry) => void
   onDelete: () => void
+  shown: string
+  selected: boolean
+  onSelect: () => void
 }) {
   const mathfieldRef = useRef<MathfieldElement>(null)
 
@@ -389,7 +404,10 @@ function GraphRow({
   }
 
   return (
-    <div className={`graph-row${entry.enabled ? '' : ' graph-row--dim'}`}>
+    <div
+      className={`graph-row${entry.enabled ? '' : ' graph-row--dim'}${selected ? ' graph-row--selected' : ''}`}
+      onPointerDown={onSelect}
+    >
       <input
         type="checkbox"
         className="graph-row__check"
@@ -399,7 +417,7 @@ function GraphRow({
       />
       <button
         className="graph-row__color funky-pressable"
-        style={{ background: entry.color }}
+        style={{ background: shown }}
         onClick={cycleColor}
         title="색상 변경"
         aria-label="색상 변경"
@@ -433,6 +451,7 @@ function GraphRow({
 /* ---------- app ---------- */
 
 export default function CartesianPlotterTool() {
+  const theme = useTheme()
   const initial = useStored(STORE_KEY, DEFAULTS)
   const [graphs, setGraphs] = useState<GraphEntry[]>(initial.graphs)
   const [xmin, setXmin] = useState(initial.xmin)
@@ -446,12 +465,17 @@ export default function CartesianPlotterTool() {
   const [figW, setFigW] = useState(initial.figW)
   const [figH, setFigH] = useState(initial.figH)
   const [bg, setBg] = useState<BgKey>(initial.bg)
+  const [widthId, setWidthId] = useState(initial.widthId)
+  const [dpi, setDpi] = useState(initial.dpi)
+  /** id of the curve clicked in the plot, echoed in the graphs panel */
+  const [sel, setSel] = useState<string | null>(null)
 
   const stageRef = useRef<HTMLDivElement>(null)
   const shotRef = useRef<HTMLDivElement>(null)
+  const svgRef = useRef<SVGSVGElement>(null)
 
   const items = useMemo(() => parseGraphs(graphs), [graphs])
-  const bgHex = BGS.find((b) => b.key === bg)?.hex ?? null
+  const bgHex = BG_HEX[bg]
   const hasPolar = items.some((i) => i.kind === 'polar')
   const thMax = thetaMaxPi * Math.PI
 
@@ -460,7 +484,7 @@ export default function CartesianPlotterTool() {
   // rather than in an effect so the very first frame is already correct.
   const lockAspect = equalAspect || hasPolar
 
-  usePersist(STORE_KEY, {
+  const persisted = {
     graphs,
     xmin,
     xmax,
@@ -473,6 +497,26 @@ export default function CartesianPlotterTool() {
     figW,
     figH,
     bg,
+    widthId,
+    dpi,
+  }
+  usePersist(STORE_KEY, persisted)
+
+  const history = useHistory(persisted, (s) => {
+    setGraphs(s.graphs)
+    setXmin(s.xmin)
+    setXmax(s.xmax)
+    setYmin(s.ymin)
+    setYmax(s.ymax)
+    setAutoY(s.autoY)
+    setGrid(s.grid)
+    setEqualAspect(s.equalAspect)
+    setThetaMaxPi(s.thetaMaxPi)
+    setFigW(s.figW)
+    setFigH(s.figH)
+    setBg(s.bg)
+    setWidthId(s.widthId)
+    setDpi(s.dpi)
   })
 
   const PAD = 52
@@ -641,19 +685,46 @@ export default function CartesianPlotterTool() {
 
   const inXY = (x: number, y: number) => x >= xlo && x <= xhi && y >= ylo && y <= yhi
   const x0 = sx(0); const y0 = sy(0)
-  const axisColor = bg === 'dark' ? '#f4f4f4' : '#222'
-  const gridColor = bg === 'dark' ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.1)'
-  const labelColor = bg === 'dark' ? '#cfcfd6' : '#555'
+
+  const c = figColors(theme, bg === 'dark', CURVE_COLORS)
+  const paper = theme === 'paper'
+  const axisColor = c.ink
+  const gridColor = c.grid
+  const labelColor = c.muted
+
+  /* Curve colours are assigned by the tool, not typed by the author, so they
+     translate between modes: a palette entry becomes the same slot in the
+     other palette and anything hand-set is left alone. Storing the funky hex
+     and translating on the way out means switching modes is lossless. */
+  const shownColor = (hex: string) => {
+    const i = CURVE_COLORS.indexOf(hex)
+    return i >= 0 ? c.series[i % c.series.length] : paper && hex === '#222' ? c.ink : hex
+  }
+
+  /* Paper halves the strokes and shrinks the tick text — the funky numbers are
+     sized for a slide seen from across a room. */
+  const G = paper
+    ? { axis: 1, gridW: 0.7, curve: 1.4, dot: 3, tickFont: 10, labelFont: 11 }
+    : { axis: 2.5, gridW: 1, curve: 2.6, dot: 5, tickFont: 13, labelFont: 15 }
 
   const { scale, nat } = useFitScale({
     stageRef,
     shotRef,
-    signature: `${figW}|${figH}|${bg}`,
+    signature: `${figW}|${figH}|${bg}|${theme}`,
   })
 
-  const { savePng, copyPng, busy, toast } = usePngExport({
-    shotRef,
+  const printIn = widthInOf(widthId, figW)
+
+  const { saveSvg, savePng, copyPng, pixels, busy, toast } = useSvgExport({
+    svgRef,
     filename: 'plot',
+    printWidthIn: printIn,
+    figPxWidth: figW,
+    figPxHeight: figH,
+    bg: bgHex,
+    fontFamily: c.text,
+    dpi,
+    title: 'Made with Funky Esset Maker — Cartesian Plotter',
   })
 
   const addGraph = () => {
@@ -682,6 +753,8 @@ export default function CartesianPlotterTool() {
         <Text variant="heading" as="h1" className="toolbar__title">
           Cartesian Plotter
         </Text>
+
+        <UndoRedo history={history} />
 
         <div className="toolbar__group">
           <span className="toolbar__label">X</span>
@@ -733,17 +806,27 @@ export default function CartesianPlotterTool() {
           <NumField value={figH} onCommit={(n) => setFigH(Math.max(180, n))} />
         </div>
 
-        <div className="toolbar__group">
-          <span className="toolbar__label">배경</span>
-          {BGS.map((b) => (
-            <Button key={b.key} variant={bg === b.key ? 'secondary' : 'neutral'} size="sm" onClick={() => setBg(b.key)}>
-              {b.label}
-            </Button>
-          ))}
-        </div>
+        <PrintBar
+          widthId={widthId}
+          onWidth={(id, px) => {
+            setWidthId(id)
+            if (px) {
+              const ratio = figH / figW
+              setFigW(px)
+              setFigH(Math.round(px * ratio))
+            }
+          }}
+          dpi={dpi}
+          onDpi={setDpi}
+          labelPt={ptOf(G.tickFont, printIn, figW)}
+          pixels={pixels}
+        />
+
+        <BgPicker value={bg} onChange={setBg} />
 
         <div className="toolbar__spacer" />
 
+        <Button variant="warning" size="sm" title="벡터 SVG로 저장 (⌘⇧E)" onClick={saveSvg}>SVG</Button>
         <Button variant="success" size="sm" title="PNG로 저장 (⌘E)" onClick={savePng} disabled={busy}>PNG 저장</Button>
         <Button variant="info" size="sm" title="클립보드로 복사 (⌘⇧C)" onClick={copyPng} disabled={busy}>복사</Button>
       </div>
@@ -751,7 +834,16 @@ export default function CartesianPlotterTool() {
       <div className="stage" ref={stageRef}>
         <div className="fitbox" style={nat.w ? { width: nat.w * scale, height: nat.h * scale } : undefined}>
           <div className="shot" ref={shotRef} style={{ transform: `scale(${scale})`, ...(bgHex ? { background: bgHex } : null) }}>
-            <svg className="plot" width={figW} height={figH} viewBox={`0 0 ${figW} ${figH}`}>
+            <svg
+              ref={svgRef}
+              className="plot"
+              width={figW}
+              height={figH}
+              viewBox={`0 0 ${figW} ${figH}`}
+              onPointerDown={(e) => {
+                if (e.target === e.currentTarget) setSel(null)
+              }}
+            >
               <defs>
                 <marker id="cp-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                   <path d="M0 0 L10 5 L0 10 z" fill={axisColor} />
@@ -759,42 +851,75 @@ export default function CartesianPlotterTool() {
               </defs>
               {grid && (
                 <g>
-                  {xt.map((t, i) => <line key={`gx${i}`} x1={sx(t)} y1={PAD} x2={sx(t)} y2={figH - PAD} stroke={gridColor} strokeWidth={1} />)}
-                  {yt.map((t, i) => <line key={`gy${i}`} x1={PAD} y1={sy(t)} x2={figW - PAD} y2={sy(t)} stroke={gridColor} strokeWidth={1} />)}
+                  {xt.map((t, i) => <line key={`gx${i}`} x1={sx(t)} y1={PAD} x2={sx(t)} y2={figH - PAD} stroke={gridColor} strokeWidth={G.gridW} />)}
+                  {yt.map((t, i) => <line key={`gy${i}`} x1={PAD} y1={sy(t)} x2={figW - PAD} y2={sy(t)} stroke={gridColor} strokeWidth={G.gridW} />)}
                 </g>
               )}
               <g>
-                <line x1={PAD} y1={ylo <= 0 && yhi >= 0 ? y0 : figH - PAD} x2={figW - PAD} y2={ylo <= 0 && yhi >= 0 ? y0 : figH - PAD} stroke={axisColor} strokeWidth={2.5} markerEnd="url(#cp-arrow)" />
-                <line x1={xlo <= 0 && xhi >= 0 ? x0 : PAD} y1={figH - PAD} x2={xlo <= 0 && xhi >= 0 ? x0 : PAD} y2={PAD} stroke={axisColor} strokeWidth={2.5} markerEnd="url(#cp-arrow)" />
+                <line x1={PAD} y1={ylo <= 0 && yhi >= 0 ? y0 : figH - PAD} x2={figW - PAD} y2={ylo <= 0 && yhi >= 0 ? y0 : figH - PAD} stroke={axisColor} strokeWidth={G.axis} markerEnd="url(#cp-arrow)" />
+                <line x1={xlo <= 0 && xhi >= 0 ? x0 : PAD} y1={figH - PAD} x2={xlo <= 0 && xhi >= 0 ? x0 : PAD} y2={PAD} stroke={axisColor} strokeWidth={G.axis} markerEnd="url(#cp-arrow)" />
               </g>
-              <g fontSize={13} fill={labelColor} fontFamily="var(--mono)">
+              <g fontSize={G.tickFont} fill={labelColor} fontFamily={c.numeric}>
                 {xt.map((t, i) => t === 0 ? null : <text key={`tx${i}`} x={sx(t)} y={(ylo <= 0 && yhi >= 0 ? y0 : figH - PAD) + 16} textAnchor="middle">{fmt(t)}</text>)}
                 {yt.map((t, i) => t === 0 ? null : <text key={`ty${i}`} x={(xlo <= 0 && xhi >= 0 ? x0 : PAD) - 8} y={sy(t) + 4} textAnchor="end">{fmt(t)}</text>)}
                 {xlo <= 0 && xhi >= 0 && ylo <= 0 && yhi >= 0 && <text x={x0 - 8} y={y0 + 16} textAnchor="end">0</text>}
               </g>
               {items.map((it, i) =>
                 it.kind === 'fn' || it.kind === 'polar' || it.kind === 'implicit' ? (
-                  <path
-                    key={i}
-                    d={
-                      it.kind === 'fn' ? curvePath(it.f) :
-                      it.kind === 'polar' ? polarPath(it.f) :
-                      implicitPath(it.f)
-                    }
-                    fill="none"
-                    stroke={it.color}
-                    strokeWidth={2.6}
-                    strokeLinejoin="round"
-                    strokeLinecap="round"
-                  />
+                  <g key={i} onPointerDown={(e) => { e.stopPropagation(); setSel(it.id) }} style={{ cursor: 'pointer' }}>
+                    {/* a wide transparent copy of the path: a 1.4px paper curve
+                        is almost impossible to hit otherwise */}
+                    <path
+                      {...{ [UI_ONLY]: '1' }}
+                      d={
+                        it.kind === 'fn' ? curvePath(it.f) :
+                        it.kind === 'polar' ? polarPath(it.f) :
+                        implicitPath(it.f)
+                      }
+                      fill="none"
+                      stroke="transparent"
+                      strokeWidth={14}
+                    />
+                    {sel === it.id && (
+                      <path
+                        {...{ [UI_ONLY]: '1' }}
+                        d={
+                          it.kind === 'fn' ? curvePath(it.f) :
+                          it.kind === 'polar' ? polarPath(it.f) :
+                          implicitPath(it.f)
+                        }
+                        fill="none"
+                        stroke="#7828c8"
+                        strokeOpacity={0.35}
+                        strokeWidth={G.curve + 7}
+                        strokeLinejoin="round"
+                        strokeLinecap="round"
+                      />
+                    )}
+                    <path
+                      d={
+                        it.kind === 'fn' ? curvePath(it.f) :
+                        it.kind === 'polar' ? polarPath(it.f) :
+                        implicitPath(it.f)
+                      }
+                      fill="none"
+                      stroke={shownColor(it.color)}
+                      strokeWidth={G.curve}
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                    />
+                  </g>
                 ) : null,
               )}
               {items.map((it, i) =>
                 it.kind === 'point' && inXY(it.x, it.y) ? (
-                  <g key={`p${i}`}>
-                    <circle cx={sx(it.x)} cy={sy(it.y)} r={5} fill={bg === 'dark' ? '#fff' : '#222'} stroke={bg === 'dark' ? '#222' : '#fff'} strokeWidth={2} />
+                  <g key={`p${i}`} onPointerDown={(e) => { e.stopPropagation(); setSel(it.id) }} style={{ cursor: 'pointer' }}>
+                    {sel === it.id && (
+                      <circle {...{ [UI_ONLY]: '1' }} cx={sx(it.x)} cy={sy(it.y)} r={G.dot + 5} fill="none" stroke="#7828c8" strokeWidth={2} />
+                    )}
+                    <circle cx={sx(it.x)} cy={sy(it.y)} r={G.dot} fill={shownColor(it.color)} stroke={c.hole} strokeWidth={paper ? 0 : 2} />
                     {it.label && (
-                      <text x={sx(it.x) + 9} y={sy(it.y) - 8} fontSize={15} fontWeight={700} fill={axisColor} fontFamily="var(--mono)">{it.label}</text>
+                      <text x={sx(it.x) + 9} y={sy(it.y) - 8} fontSize={G.labelFont} fontWeight={c.bold} fill={axisColor} fontFamily={c.text}>{it.label}</text>
                     )}
                   </g>
                 ) : null,
@@ -802,6 +927,10 @@ export default function CartesianPlotterTool() {
             </svg>
           </div>
         </div>
+
+        {/* the toast lives in the stage so its offset does not depend on how
+            much chrome this particular tool puts below it */}
+        {toast && <div className="toast">{toast}</div>}
       </div>
 
       <div className="graphs-panel">
@@ -814,6 +943,9 @@ export default function CartesianPlotterTool() {
             <GraphRow
               key={g.id}
               entry={g}
+              shown={shownColor(g.color)}
+              selected={sel === g.id}
+              onSelect={() => setSel(g.id)}
               onChange={(updated) => updateGraph(g.id, updated)}
               onDelete={() => deleteGraph(g.id)}
             />
@@ -835,8 +967,6 @@ export default function CartesianPlotterTool() {
       <Text variant="chrome" muted className="hint">
         y = f(x) · 음함수 x²+y²=r² · 극좌표 r = f(theta) · 점 (x, y) 라벨 · ^ 거듭제곱 · sin·cos·sqrt·pi·e 가능
       </Text>
-
-      {toast && <div className="toast">{toast}</div>}
     </div>
   )
 }

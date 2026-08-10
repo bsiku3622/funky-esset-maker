@@ -8,7 +8,11 @@ import {
 } from 'react'
 import { Button, Text } from '@studio-baeks/funky-ui'
 import { highlightCode } from '../cores/highlight'
-import { useFitScale, usePersist, usePngExport, useStored } from './hooks'
+import { useFitScale, useHistory, usePersist, usePngExport, useStored } from './hooks'
+import { useTheme as useAppTheme } from '../theme'
+import UndoRedo from './UndoRedo'
+import { download, textBlob } from './svg'
+import { texListing } from './tex'
 import './Highlighter.css'
 
 /* ---------- model ---------- */
@@ -21,6 +25,13 @@ const LANGS: { key: Lang; label: string }[] = [
   { key: 'markdown', label: 'Markdown' },
   { key: 'plain', label: 'Plain Text' },
 ]
+
+/** what the `listings` package calls each language */
+const LST_LANG: Record<Lang, string | undefined> = {
+  python: 'Python',
+  markdown: undefined, // listings has no Markdown dialect
+  plain: undefined,
+}
 
 // default file label shown in the window title bar (per language, editable)
 const FILE_NAME: Record<Lang, string> = {
@@ -130,6 +141,10 @@ export default function HighlighterTool() {
   })
   const [lang, setLang] = useState<Lang>(initial.lang)
   const [theme, setTheme] = useState<Theme>(initial.theme)
+  /* Paper mode always renders the light frame. A dark listing is a slide
+     choice; the setting is kept so switching back restores it. */
+  const paper = useAppTheme() === 'paper'
+  const frameTheme: Theme = paper ? 'light' : theme
   const [fontSize, setFontSize] = useState(initial.fontSize)
   const [codes, setCodes] = useState<Record<Lang, string>>(initial.codes)
   const [names, setNames] = useState<Record<Lang, string>>(initial.names)
@@ -187,7 +202,7 @@ export default function HighlighterTool() {
     }
   }
 
-  usePersist(STORE_KEY, {
+  const persisted = {
     version: SIZING_VERSION,
     lang,
     theme,
@@ -200,7 +215,22 @@ export default function HighlighterTool() {
     ratioH,
     crop,
     cropHeight,
-  } satisfies Persisted)
+  } satisfies Persisted
+  usePersist(STORE_KEY, persisted)
+
+  const history = useHistory(persisted, (s) => {
+    setLang(s.lang)
+    setTheme(s.theme)
+    setFontSize(s.fontSize)
+    setCodes(s.codes)
+    setNames(s.names)
+    setWidth(s.width)
+    setWrap(s.wrap)
+    setRatioW(s.ratioW)
+    setRatioH(s.ratioH)
+    setCrop(s.crop)
+    setCropHeight(s.cropHeight)
+  })
 
   /* highlighted markup — shared with the CodeBlock core so a snippet looks the
      same here and wherever the core renders it */
@@ -332,6 +362,8 @@ export default function HighlighterTool() {
           Highlighter
         </Text>
 
+        <UndoRedo history={history} />
+
         <div className="toolbar__group" role="group" aria-label="언어">
           {LANGS.map((l) => (
             <Button
@@ -345,16 +377,22 @@ export default function HighlighterTool() {
           ))}
         </div>
 
-        <div className="toolbar__group" role="group" aria-label="테마">
+        <div
+          className="toolbar__group"
+          role="group"
+          aria-label="테마"
+          title={paper ? '논문 모드는 항상 밝은 프레임으로 그립니다' : undefined}
+          style={paper ? { opacity: 0.4 } : undefined}
+        >
           <Button
-            variant={theme === 'light' ? 'warning' : 'neutral'}
+            variant={frameTheme === 'light' ? 'warning' : 'neutral'}
             size="sm"
             onClick={() => setTheme('light')}
           >
             Light
           </Button>
           <Button
-            variant={theme === 'dark' ? 'ink' : 'neutral'}
+            variant={frameTheme === 'dark' ? 'ink' : 'neutral'}
             size="sm"
             onClick={() => setTheme('dark')}
           >
@@ -392,6 +430,25 @@ export default function HighlighterTool() {
 
         <div className="toolbar__spacer" />
 
+        <Button
+          variant="warning"
+          size="sm"
+          title="listings 환경으로 저장 — 논문에는 코드 이미지보다 소스가 낫습니다"
+          onClick={() =>
+            download(
+              textBlob(
+                texListing(code, {
+                  // listings has no 'plain'; leaving the key off is the plain case
+                  language: lang === 'plain' ? undefined : LST_LANG[lang],
+                  caption: name,
+                }),
+              ),
+              'listing.tex',
+            )
+          }
+        >
+          TeX
+        </Button>
         <Button variant="success" size="sm" title="PNG로 저장 (⌘E)" onClick={savePng} disabled={busy}>
           PNG 저장
         </Button>
@@ -484,7 +541,7 @@ export default function HighlighterTool() {
             ref={shotRef}
             style={{ transform: `scale(${scale})` }}
           >
-            <div className={`frame frame--${theme}`}>
+            <div className={`frame frame--${frameTheme}`}>
               <div className="frame__bar">
                 <span className="dot dot--pink" />
                 <span className="dot dot--yellow" />
@@ -540,14 +597,16 @@ export default function HighlighterTool() {
             </div>
           </div>
         </div>
+
+        {/* the toast lives in the stage so its offset does not depend on how
+            much chrome this particular tool puts below it */}
+        {toast && <div className="toast">{toast}</div>}
       </div>
 
       <Text variant="chrome" muted className="hint">
         가운데에 코드를 입력하면 자동으로 하이라이트됩니다 · Tab으로 들여쓰기 ·
         PNG 저장 / 복사로 슬라이드에 붙여넣기
       </Text>
-
-      {toast && <div className="toast">{toast}</div>}
     </div>
   )
 }

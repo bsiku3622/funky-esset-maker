@@ -21,6 +21,7 @@ import {
 } from 'react'
 import { Button, Text } from '@studio-baeks/funky-ui'
 import { useLatest } from './hooks'
+import { UndoArrow } from './UndoRedo'
 import './AiFigureMaker.css'
 
 import type {
@@ -1275,11 +1276,13 @@ export default function AiFigureMaker() {
         </Text>
 
         <div className="af-tgroup">
+          {/* the same inline arrows the other toolbars use — ↶ / ↷ are missing
+              from Pretendard and render as tofu */}
           <IconBtn title="실행 취소 (⌘Z)" onClick={undo} disabled={!histState.canUndo}>
-            ↶
+            <UndoArrow />
           </IconBtn>
           <IconBtn title="다시 실행 (⇧⌘Z)" onClick={redo} disabled={!histState.canRedo}>
-            ↷
+            <UndoArrow flip />
           </IconBtn>
           <IconBtn title="복제 (⌘D)" onClick={duplicateSel} disabled={!selNodes.length}>
             ⧉
@@ -1409,42 +1412,44 @@ export default function AiFigureMaker() {
         {/* opening and saving the project live in the sidebar, the same place
             for every tool; this group is the figure-specific output only */}
         <div className="af-tgroup af-export">
+          {/* the same colours as every other tool's export row: orange for the
+              vector/source path, green for PNG, cyan for the clipboard */}
           <Button
-            variant="primary"
+            variant="warning"
             size="sm"
-            title="벡터 SVG로 저장 — 물리 크기를 mm로 기록해 단 폭에 정확히 맞습니다"
+            title="벡터 SVG로 저장 (⌘⇧E) — 물리 크기를 mm로 기록해 단 폭에 정확히 맞습니다"
             onClick={exportSvg}
             disabled={busy}
           >
             SVG
           </Button>
           <Button
-            variant="info"
-            size="sm"
-            title="PNG로 저장 (⌘E)"
-            onClick={exportPng}
-            disabled={busy}
-          >
-            PNG
-          </Button>
-          <Num value={dpi} min={72} max={2400} step={100} onChange={setDpi} suffix="dpi" width={54} />
-          <Button
-            variant="secondary"
-            size="sm"
-            title="클립보드로 복사 (⌘⇧C)"
-            onClick={copyPng}
-            disabled={busy}
-          >
-            복사
-          </Button>
-          <Button
-            variant="secondary"
+            variant="warning"
             size="sm"
             title="TikZ 코드를 클립보드로 — 근사 변환입니다"
             onClick={exportTikz}
             disabled={busy}
           >
             TikZ
+          </Button>
+          <Num value={dpi} min={72} max={2400} step={100} onChange={setDpi} suffix="dpi" width={54} />
+          <Button
+            variant="success"
+            size="sm"
+            title="PNG로 저장 (⌘E)"
+            onClick={exportPng}
+            disabled={busy}
+          >
+            PNG 저장
+          </Button>
+          <Button
+            variant="info"
+            size="sm"
+            title="클립보드로 복사 (⌘⇧C)"
+            onClick={copyPng}
+            disabled={busy}
+          >
+            복사
           </Button>
           <label className="af-chk af-chk--tool">
             <input type="checkbox" checked={trim} onChange={(e) => setTrim(e.target.checked)} />
@@ -1630,15 +1635,6 @@ export default function AiFigureMaker() {
             </div>
           ) : null}
 
-          <div className="af-statusbar">
-            <span>
-              {doc.canvas.w} × {doc.canvas.h} px · {doc.canvas.printWidthIn.toFixed(2)}″ 폭 · 본문{' '}
-              {ptOf(doc.canvas.baseFont, doc.canvas).toFixed(1)} pt
-            </span>
-            <span className="af-status-hint">
-              드래그 이동 · 초록 점에서 끌면 연결 · 더블클릭 편집 · 이미지는 끌어다 놓거나 ⌘V
-            </span>
-          </div>
         </div>
 
         {/* ---------- right panel ---------- */}
@@ -1665,6 +1661,19 @@ export default function AiFigureMaker() {
             onPalette={(id) => commit((d) => applyPalette(d, id))}
           />
         </aside>
+      </div>
+
+      {/* the status line is the other tools' hint bar, with live canvas numbers
+          in it — a bar under the body rather than an overlay, so this tool ends
+          the same way every other one does */}
+      <div className="af-statusbar">
+        <span>
+          {doc.canvas.w} × {doc.canvas.h} px · {doc.canvas.printWidthIn.toFixed(2)}″ 폭 · 본문{' '}
+          {ptOf(doc.canvas.baseFont, doc.canvas).toFixed(1)} pt
+        </span>
+        <span className="af-status-hint">
+          드래그 이동 · 초록 점에서 끌면 연결 · 더블클릭 편집 · 이미지는 끌어다 놓거나 ⌘V
+        </span>
       </div>
 
       {toast ? <div className="af-toast">{toast}</div> : null}

@@ -11,6 +11,8 @@
  * and loading is just writing that key back and remounting. No tool has to grow
  * an import/export path of its own, and none can drift out of sync with one. */
 
+import type { Theme } from './theme'
+
 export const APP_ID = 'funky-esset-maker'
 /** envelope version — bump only when the wrapper changes, not the payloads */
 export const FORMAT = 1
@@ -36,6 +38,10 @@ export interface ProjectFile {
   savedAt: string
   /** free-text name; falls back to the tool's label when absent */
   name?: string
+  /** which look it was authored in. Optional and additive: a file without it
+   *  opens in whatever mode the app is already in, which is what every project
+   *  saved before paper mode existed should do. */
+  theme?: Theme
   /** the tool's persisted state, verbatim */
   data: unknown
 }
@@ -99,6 +105,7 @@ export function parseProject(text: string, fallbackTool?: ToolId): ParseResult {
         tool: obj.tool,
         savedAt: typeof obj.savedAt === 'string' ? obj.savedAt : '',
         name: typeof obj.name === 'string' ? obj.name : undefined,
+        theme: obj.theme === 'paper' || obj.theme === 'funky' ? obj.theme : undefined,
         data: obj.data,
       },
     }
@@ -124,7 +131,10 @@ export function parseProject(text: string, fallbackTool?: ToolId): ParseResult {
 
 /** Wrap whatever the tool has in localStorage right now. Returns null when the
  *  tool has never saved anything — there is nothing to export yet. */
-export function buildProject(tool: ToolId, name?: string): ProjectFile | null {
+export function buildProject(
+  tool: ToolId,
+  opts: { name?: string; theme?: Theme } = {},
+): ProjectFile | null {
   let data: unknown
   try {
     const raw = localStorage.getItem(STORE_KEYS[tool])
@@ -138,7 +148,8 @@ export function buildProject(tool: ToolId, name?: string): ProjectFile | null {
     format: FORMAT,
     tool,
     savedAt: new Date().toISOString(),
-    ...(name ? { name } : null),
+    ...(opts.name ? { name: opts.name } : null),
+    ...(opts.theme ? { theme: opts.theme } : null),
     data,
   }
 }

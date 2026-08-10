@@ -1,12 +1,17 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, Text } from '@studio-baeks/funky-ui'
-import { useFitScale, usePersist, usePngExport, useStored } from './hooks'
+import { useFitScale, useHistory, usePersist, usePngExport, useStored } from './hooks'
+import BgPicker from './BgPicker'
+import { BG_HEX, type BgKey } from './bg'
+import { useTheme } from '../theme'
+import UndoRedo from './UndoRedo'
+import { download, textBlob } from './svg'
+import { texBoolean, texTable } from './tex'
 import './TruthTable.css'
 
 /* ---------- model ---------- */
 
 type ColorKey = 'cyan' | 'pink' | 'purple' | 'yellow' | 'orange' | 'sky' | 'green'
-type BgKey = 'transparent' | 'cream' | 'white' | 'dark'
 
 const COLOR_HEX: Record<ColorKey, string> = {
   cyan: '#3decfd', pink: '#ff4eba', purple: '#7828c8', yellow: '#ffd500',
@@ -17,13 +22,6 @@ const HEADER_TEXT: Record<ColorKey, string> = {
   cyan: '#222', pink: '#222', purple: '#fff', yellow: '#222',
   orange: '#222', sky: '#222', green: '#222',
 }
-
-const BGS: { key: BgKey; label: string; hex: string | null }[] = [
-  { key: 'transparent', label: '투명', hex: null },
-  { key: 'cream', label: '크림', hex: '#fff5d1' },
-  { key: 'white', label: '흰색', hex: '#ffffff' },
-  { key: 'dark', label: '어두움', hex: '#1e1e22' },
-]
 
 const SAMPLE = `p and q
 p or not q
@@ -197,6 +195,7 @@ function build(input: string): Compiled {
 /* ---------- app ---------- */
 
 export default function TruthTableTool() {
+  const paper = useTheme() === 'paper'
   const initial = useStored(STORE_KEY, DEFAULTS)
   const [input, setInput] = useState(initial.input)
   const [useTF, setUseTF] = useState(initial.useTF)
@@ -210,7 +209,7 @@ export default function TruthTableTool() {
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
   const compiled = useMemo(() => build(input), [input])
-  const bgHex = BGS.find((b) => b.key === bg)?.hex ?? null
+  const bgHex = BG_HEX[bg]
 
   const rows = useMemo(() => {
     const { vars, exprs, error } = compiled
@@ -232,7 +231,28 @@ export default function TruthTableTool() {
 
   const show = (b: boolean) => (useTF ? (b ? 'T' : 'F') : b ? '1' : '0')
 
-  usePersist(STORE_KEY, { input, useTF, colorize, header, fontSize, bg })
+  /* Header cells go out as maths (p \land q), so the printed table reads as
+     logic rather than as the ASCII it was typed in. */
+  const asTex = () =>
+    texTable(
+      [
+        [...compiled.vars.map((v) => `$${v}$`), ...compiled.exprs.map((e) => texBoolean(e.text))],
+        ...rows.map((r) => [...r.vals, ...r.res].map(show)),
+      ],
+      { headerRow: true, align: 'center', raw: true },
+    )
+
+  const persisted = { input, useTF, colorize, header, fontSize, bg }
+  usePersist(STORE_KEY, persisted)
+
+  const history = useHistory(persisted, (s) => {
+    setInput(s.input)
+    setUseTF(s.useTF)
+    setColorize(s.colorize)
+    setHeader(s.header)
+    setFontSize(s.fontSize)
+    setBg(s.bg)
+  })
 
   useLayoutEffect(() => {
     const ta = inputRef.current
@@ -251,10 +271,15 @@ export default function TruthTableTool() {
     shotRef,
     filename: 'truthtable',
   })
-  const hHex = COLOR_HEX[header]
-  const hText = HEADER_TEXT[header]
-  const cellT = colorize ? (bg === 'dark' ? 'rgba(0,194,42,0.32)' : 'rgba(0,194,42,0.18)') : 'transparent'
-  const cellF = colorize ? (bg === 'dark' ? 'rgba(255,78,186,0.28)' : 'rgba(255,78,186,0.14)') : 'transparent'
+  /* Paper mode drops the fills rather than letting CSS fight them: these are
+     inline styles, so overriding would need !important, and a truth table in a
+     journal is black on white with rules — no header colour, no T/F tint. Both
+     settings are kept in the document so switching back restores them. */
+  const hHex = paper ? undefined : COLOR_HEX[header]
+  const hText = paper ? undefined : HEADER_TEXT[header]
+  const tint = colorize && !paper
+  const cellT = tint ? (bg === 'dark' ? 'rgba(0,194,42,0.32)' : 'rgba(0,194,42,0.18)') : 'transparent'
+  const cellF = tint ? (bg === 'dark' ? 'rgba(255,78,186,0.28)' : 'rgba(255,78,186,0.14)') : 'transparent'
 
   return (
     <div className="app">
@@ -262,6 +287,8 @@ export default function TruthTableTool() {
         <Text variant="heading" as="h1" className="toolbar__title">
           Truth Table
         </Text>
+
+        <UndoRedo history={history} />
 
         <div className="toolbar__group">
           <Button variant={useTF ? 'primary' : 'neutral'} size="sm" onClick={() => setUseTF(true)}>
@@ -272,11 +299,21 @@ export default function TruthTableTool() {
           </Button>
         </div>
 
-        <Button variant={colorize ? 'secondary' : 'neutral'} size="sm" onClick={() => setColorize((v) => !v)}>
+        <Button
+          variant={tint ? 'secondary' : 'neutral'}
+          size="sm"
+          onClick={() => setColorize((v) => !v)}
+          disabled={paper}
+          title={paper ? '논문 모드에서는 셀을 칠하지 않습니다' : undefined}
+        >
           색칠 {colorize ? '켜짐' : '꺼짐'}
         </Button>
 
-        <div className="toolbar__group">
+        <div
+          className="toolbar__group"
+          title={paper ? '논문 모드에서는 헤더를 칠하지 않습니다' : undefined}
+          style={paper ? { opacity: 0.4 } : undefined}
+        >
           <span className="toolbar__label">헤더</span>
           <div className="swatches">
             {COLORS.map((c) => (
@@ -301,17 +338,19 @@ export default function TruthTableTool() {
           </Button>
         </div>
 
-        <div className="toolbar__group">
-          <span className="toolbar__label">배경</span>
-          {BGS.map((b) => (
-            <Button key={b.key} variant={bg === b.key ? 'secondary' : 'neutral'} size="sm" onClick={() => setBg(b.key)}>
-              {b.label}
-            </Button>
-          ))}
-        </div>
+        <BgPicker value={bg} onChange={setBg} />
 
         <div className="toolbar__spacer" />
 
+        <Button
+          variant="warning"
+          size="sm"
+          title="booktabs LaTeX 표로 저장 — 연산자는 수식 기호로 변환됩니다"
+          disabled={rows.length === 0}
+          onClick={() => download(textBlob(asTex()), 'truthtable.tex')}
+        >
+          TeX
+        </Button>
         <Button variant="success" size="sm" title="PNG로 저장 (⌘E)" onClick={savePng} disabled={busy}>
           PNG 저장
         </Button>
@@ -376,6 +415,10 @@ export default function TruthTableTool() {
             )}
           </div>
         </div>
+
+        {/* the toast lives in the stage so its offset does not depend on how
+            much chrome this particular tool puts below it */}
+        {toast && <div className="toast">{toast}</div>}
       </div>
 
       <div className="editor">
@@ -396,8 +439,6 @@ export default function TruthTableTool() {
         연산자: not ¬ ! · and ∧ &amp; · or ∨ | · xor ⊕ ^ · implies → -&gt; · iff ↔
         &lt;-&gt; · 변수는 자동 감지 · 여러 줄이면 열이 늘어남
       </Text>
-
-      {toast && <div className="toast">{toast}</div>}
     </div>
   )
 }

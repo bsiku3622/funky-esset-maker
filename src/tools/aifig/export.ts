@@ -6,6 +6,7 @@
  * from it) land at the intended column width without guessing a scale factor. */
 
 import type { EndPoint, FigDoc, FigNode, Pt } from './types'
+import type { Framed } from '../svg'
 import { PX_PER_IN, hexToRgb } from './presets'
 import { nodeBounds, unionRect } from './geometry'
 import { nodeMap } from './doc'
@@ -28,12 +29,7 @@ const BG_HEX: Record<string, string | null> = {
   paper: '#fbfbf9',
 }
 
-export interface Framed {
-  svg: string
-  /** viewport size in px */
-  w: number
-  h: number
-}
+export type { Framed }
 
 /** Serialise the figure group into a standalone SVG document. */
 export function buildSvg(
@@ -89,120 +85,11 @@ export function buildSvg(
   return { svg, w, h }
 }
 
-/* ---------- PNG ---------- */
-
-/** Rasterise an SVG string at `dpi`. Text keeps the system fonts referenced in
- *  the markup, which is why the figure fonts are Times/Helvetica rather than a
- *  webfont — an <img>-loaded SVG cannot fetch external font files. */
-export async function svgToPng(
-  framed: Framed,
-  dpi: number,
-  printWidthIn: number,
-  canvasPxWidth: number,
-): Promise<Blob> {
-  // px in the viewBox → inches on paper → device pixels at the target dpi
-  const inPerPx = printWidthIn / canvasPxWidth
-  const scale = Math.max(0.1, (inPerPx * dpi))
-  const outW = Math.max(1, Math.round(framed.w * scale))
-  const outH = Math.max(1, Math.round(framed.h * scale))
-
-  const blob = new Blob([framed.svg], { type: 'image/svg+xml;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  try {
-    const img = new Image()
-    img.decoding = 'sync'
-    await new Promise<void>((res, rej) => {
-      img.onload = () => res()
-      img.onerror = () => rej(new Error('svg load failed'))
-      img.src = url
-    })
-    const canvas = document.createElement('canvas')
-    canvas.width = outW
-    canvas.height = outH
-    const ctx = canvas.getContext('2d')
-    if (!ctx) throw new Error('no 2d context')
-    ctx.drawImage(img, 0, 0, outW, outH)
-    const png = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'))
-    if (!png) throw new Error('encode failed')
-    return await tagSrgb(png)
-  } finally {
-    URL.revokeObjectURL(url)
-  }
-}
-
-/* PNG sRGB tagging — browser PNGs carry no colour profile, so on wide-gamut
-   displays some apps reinterpret the pixels and shift the colours. Splicing
-   sRGB/gAMA/cHRM in right after IHDR pins them. */
-
-const CRC_TABLE = (() => {
-  const t = new Uint32Array(256)
-  for (let n = 0; n < 256; n++) {
-    let c = n
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
-    t[n] = c >>> 0
-  }
-  return t
-})()
-
-const crc32 = (bytes: Uint8Array) => {
-  let c = 0xffffffff
-  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8)
-  return (c ^ 0xffffffff) >>> 0
-}
-
-function pngChunk(type: string, data: Uint8Array) {
-  const buf = new ArrayBuffer(12 + data.length)
-  const out = new Uint8Array(buf)
-  const dv = new DataView(buf)
-  dv.setUint32(0, data.length)
-  for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i)
-  out.set(data, 8)
-  dv.setUint32(8 + data.length, crc32(out.subarray(4, 8 + data.length)))
-  return out
-}
-
-function u32(...vals: number[]) {
-  const buf = new ArrayBuffer(vals.length * 4)
-  const a = new Uint8Array(buf)
-  const dv = new DataView(buf)
-  vals.forEach((v, i) => dv.setUint32(i * 4, v >>> 0))
-  return a
-}
-
-async function tagSrgb(png: Blob): Promise<Blob> {
-  const src = new Uint8Array(await png.arrayBuffer())
-  const ihdrEnd = 33
-  if (src.length < ihdrEnd) return png
-  const chunks = [
-    pngChunk('sRGB', new Uint8Array([0])),
-    pngChunk('gAMA', u32(45455)),
-    pngChunk('cHRM', u32(31270, 32900, 64000, 33000, 30000, 60000, 15000, 6000)),
-  ]
-  const extra = chunks.reduce((s, c) => s + c.length, 0)
-  const out = new Uint8Array(src.length + extra)
-  out.set(src.subarray(0, ihdrEnd), 0)
-  let off = ihdrEnd
-  for (const c of chunks) {
-    out.set(c, off)
-    off += c.length
-  }
-  out.set(src.subarray(ihdrEnd), off)
-  return new Blob([out], { type: 'image/png' })
-}
-
-/* ---------- download helpers ---------- */
-
-export function download(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
-}
-
-export const textBlob = (s: string, type = 'text/plain') =>
-  new Blob([s], { type: `${type};charset=utf-8` })
+/* PNG, sRGB tagging and the download helpers are shared with the other SVG
+   tools — see ../svg.ts. They are re-exported so this module stays the one
+   import an AI Figure Maker caller needs.
+ */
+export { svgToPng, download, textBlob } from '../svg'
 
 /* ---------- TikZ ---------- */
 

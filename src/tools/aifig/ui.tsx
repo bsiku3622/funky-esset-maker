@@ -100,6 +100,87 @@ export function Num({
 
 const round = (v: number) => Math.round(v * 100) / 100
 
+/* ---------- number list ---------- */
+
+/* A comma-separated list of counts — "4, 5, 3".
+ *
+ * Local text for the same reason `Num` keeps it: the field has to show what was
+ * typed, not a re-print of the parsed value. Parsing on every keystroke and
+ * feeding the array straight back in made the field impossible to edit — the
+ * separator you had just typed was dropped before it could be followed by a
+ * digit, and clearing the field snapped it back to a number.
+ *
+ * Unlike `Num` it reports while you type rather than on the way out. Blur
+ * arrives after the click that caused it has already moved the selection, so a
+ * deferred commit lands the number on whichever node was clicked next. */
+export function NumList({
+  value,
+  onChange,
+  min = 1,
+  max = 24,
+  maxItems = 12,
+  placeholder,
+}: {
+  value: number[]
+  onChange: (v: number[]) => void
+  min?: number
+  max?: number
+  maxItems?: number
+  placeholder?: string
+}) {
+  const joined = value.join(', ')
+  const [text, setText] = useState(joined)
+  const focused = useRef(false)
+  /* What the document is known to hold, in the field's own formatting. A ref
+     rather than the `value` prop so a keystroke can compare against the edit
+     before it without waiting for the re-render that would carry it back. */
+  const last = useRef(joined)
+  useEffect(() => {
+    last.current = joined
+    if (!focused.current) setText(joined)
+  }, [joined])
+
+  const type = (raw: string) => {
+    setText(raw)
+    const list = raw
+      .split(/[,\s]+/)
+      .map((v) => parseInt(v, 10))
+      .filter((v) => Number.isFinite(v))
+      .map((v) => Math.min(max, Math.max(min, v)))
+      .slice(0, maxItems)
+    /* An empty or unreadable field reports nothing, so the document keeps what
+       it had — clearing the field to retype is not a request for one layer.
+       Reporting only on a real change also keeps the undo stack to one step per
+       number instead of one per keystroke. */
+    const next = list.join(', ')
+    if (list.length && next !== last.current) {
+      last.current = next
+      onChange(list)
+    }
+  }
+  /* Leaving shows what the document actually holds: the kept value if the field
+     was left empty, the clamped one if a number was out of range. */
+  const normalise = () => {
+    focused.current = false
+    setText(last.current)
+  }
+  return (
+    <input
+      type="text"
+      className="af-input"
+      value={text}
+      placeholder={placeholder}
+      onFocus={() => (focused.current = true)}
+      onBlur={normalise}
+      onChange={(e) => type(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+        e.stopPropagation()
+      }}
+    />
+  )
+}
+
 /* ---------- segmented ---------- */
 
 export function Seg<T extends string>({

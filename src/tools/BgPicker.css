@@ -1,0 +1,11 @@
+/* The transparent swatch is a miniature of the stage checkerboard, at a pitch
+   small enough to read as a pattern at 24px. */
+.fx-bg--transparent {
+  background-color: #ffffff;
+  background-image: linear-gradient(45deg, #cfcfcf 25%, transparent 25%),
+    linear-gradient(-45deg, #cfcfcf 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #cfcfcf 75%),
+    linear-gradient(-45deg, transparent 75%, #cfcfcf 75%);
+  background-size: 10px 10px;
+  background-position: 0 0, 0 5px, 5px -5px, -5px 0;
+}

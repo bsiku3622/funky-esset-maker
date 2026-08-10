@@ -11,6 +11,7 @@ import {
   type DiagramColor,
 } from '../cores/palette'
 import { useLatest } from './hooks'
+import UndoRedo from './UndoRedo'
 import './Grapher.css'
 
 /* ---------- model ---------- */
@@ -1157,33 +1158,22 @@ export default function GrapherTool() {
   const worldTransform = `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`
 
   return (
-    <div className="editor">
+    <div className="app">
       {/* toolbar */}
       <div className="toolbar">
         <Text variant="heading" as="h1" className="toolbar__title">
           Grapher
         </Text>
-        <Button variant="primary" size="sm" onClick={() => addNode()}>
-          + Node
-        </Button>
-        <Button
-          variant="neutral"
-          size="sm"
-          onClick={undo}
-          disabled={!canUndo}
-          title="실행 취소 (⌘Z)"
-        >
-          ↶
-        </Button>
-        <Button
-          variant="neutral"
-          size="sm"
-          onClick={redo}
-          disabled={!canRedo}
-          title="다시 실행 (⌘⇧Z)"
-        >
-          ↷
-        </Button>
+        {/* this tool keeps its own history (it snapshots nodes+edges, not the
+            whole persisted object) but shares the buttons so the icon and the
+            shortcuts read the same everywhere */}
+        <UndoRedo history={{ undo, redo, canUndo, canRedo }} />
+
+        <div className="toolbar__group">
+          <Button variant="primary" size="sm" onClick={() => addNode()}>
+            + Node
+          </Button>
+        </div>
         <Button
           variant={snap ? 'warning' : 'neutral'}
           size="sm"
@@ -1220,12 +1210,10 @@ export default function GrapherTool() {
         >
           ▦ 투명 배경
         </Button>
-        <Text variant="chrome" muted className="toolbar__hint">
-          드래그 이동 · Shift+클릭 다중 선택 · 빈 곳 드래그로 화면 이동 · 휠 확대
-        </Text>
       </div>
 
-      {/* canvas */}
+      {/* canvas + the panels that float over it */}
+      <div className="canvasbox">
       <div
         className="canvas"
         ref={canvasRef}
@@ -1431,6 +1419,12 @@ export default function GrapherTool() {
 
       {/* toast */}
       {toast && <div className="toast">{toast}</div>}
+      </div>
+
+      <Text variant="chrome" muted className="hint">
+        드래그로 이동 · Shift+클릭 다중 선택 · 빈 곳 드래그로 화면 이동 · 휠로 확대 ·
+        더블클릭으로 노드 추가 · 포트에서 끌어 연결
+      </Text>
     </div>
   )
 }

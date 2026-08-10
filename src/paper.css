@@ -1,0 +1,254 @@
+/* Paper mode for the tools that draw their figure as HTML.
+ *
+ * Everything here is additive and keyed off [data-fem-theme='paper'] on the app
+ * root — the funky rules stay exactly as they were, and switching back is a
+ * class flip, not a rebuild. Only the *figure* is restyled: toolbars, editors
+ * and panels keep the app's look, because they are not what gets exported.
+ *
+ * What "paper" means concretely: booktabs rules instead of a grid (a horizontal
+ * rule above the table, one under the header, one at the bottom, and no
+ * verticals — the convention every LaTeX table package enforces), hairlines
+ * instead of 2–3px, serif labels, no fills behind text, and no drop shadows.
+ * A journal figure carries no chrome; anything that reads as "UI" reads as
+ * amateur once it is printed at 3.25 inches wide. */
+
+[data-fem-theme='paper'] {
+  --pp-ink: #000;
+  --pp-rule: #000;
+  --pp-hair: #666;
+  --pp-surface: #fff;
+  --pp-serif: 'Times New Roman', 'Nimbus Roman', 'Liberation Serif', Tinos, Times,
+    serif;
+  --pp-sans: Helvetica, 'Helvetica Neue', Arial, 'Liberation Sans', Arimo,
+    sans-serif;
+  --pp-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
+    'Liberation Mono', monospace;
+}
+
+/* ---------- Tabler ---------- */
+
+[data-fem-theme='paper'] .scope-tabler .tbl {
+  border: 0;
+  border-top: 1.5px solid var(--pp-rule);
+  border-bottom: 1.5px solid var(--pp-rule);
+  box-shadow: none;
+  background: var(--pp-surface);
+  font-family: var(--pp-serif);
+  color: var(--pp-ink);
+}
+
+[data-fem-theme='paper'] .scope-tabler .cell {
+  border: 0;
+  background: var(--pp-surface);
+  color: var(--pp-ink);
+}
+
+/* the mid rule. Tabler tags the row itself, because "first row" and "header
+   row" are not the same thing once the header *column* is the one turned on */
+[data-fem-theme='paper'] .scope-tabler .cell--midrule {
+  border-bottom: 0.8px solid var(--pp-rule);
+}
+
+[data-fem-theme='paper'] .scope-tabler .cell__input {
+  caret-color: var(--pp-ink);
+}
+
+[data-fem-theme='paper'] .scope-tabler .cell__sizer,
+[data-fem-theme='paper'] .scope-tabler .cell__input {
+  padding: 0.34em 0.75em;
+}
+
+/* ---------- Truth Table ---------- */
+
+[data-fem-theme='paper'] .scope-truth .tt {
+  border: 0;
+  border-top: 1.5px solid var(--pp-rule);
+  border-bottom: 1.5px solid var(--pp-rule);
+  box-shadow: none;
+  background: var(--pp-surface);
+  font-family: var(--pp-serif);
+  color: var(--pp-ink);
+}
+
+[data-fem-theme='paper'] .scope-truth .tt-h {
+  border: 0;
+  border-bottom: 0.8px solid var(--pp-rule);
+  font-weight: 700;
+  padding: 0.35em 0.85em;
+}
+
+[data-fem-theme='paper'] .scope-truth .tt-c {
+  border: 0;
+  font-weight: 400;
+  color: var(--pp-ink);
+  padding: 0.3em 0.85em;
+}
+
+[data-fem-theme='paper'] .scope-truth .tt-rc {
+  font-weight: 700;
+}
+
+/* ---------- DS Visualizer ---------- */
+
+/* An array diagram is one of the few figures where the cell grid *is* the
+   information, so the rules stay — they just become hairlines. */
+[data-fem-theme='paper'] .scope-dsviz .ds {
+  border: 0.9px solid var(--pp-rule);
+  box-shadow: none;
+  background: var(--pp-surface);
+}
+
+[data-fem-theme='paper'] .scope-dsviz .ds th,
+[data-fem-theme='paper'] .scope-dsviz .ds td {
+  border: 0.6px solid var(--pp-rule);
+  color: var(--pp-ink);
+  padding: 0.3em 0.7em;
+}
+
+[data-fem-theme='paper'] .scope-dsviz .cell {
+  background: var(--pp-surface);
+  font-weight: 400;
+}
+
+[data-fem-theme='paper'] .scope-dsviz .var {
+  font-family: var(--pp-serif);
+  font-style: italic;
+  font-weight: 400;
+}
+
+[data-fem-theme='paper'] .scope-dsviz .idx {
+  font-family: var(--pp-sans);
+  font-weight: 400;
+  color: var(--pp-hair);
+}
+
+/* ---------- Highlighter ---------- */
+
+[data-fem-theme='paper'] .scope-highlighter .frame {
+  border: 0.9px solid var(--pp-rule);
+  box-shadow: none;
+}
+
+/* Window chrome does not belong in a listing. The bar stays — it carries the
+   file name, which is information — but loses the traffic lights and the fill
+   so it reads as a caption strip. */
+[data-fem-theme='paper'] .scope-highlighter .dot {
+  display: none;
+}
+
+[data-fem-theme='paper'] .scope-highlighter .frame--light {
+  background: var(--pp-surface);
+}
+
+[data-fem-theme='paper'] .scope-highlighter .frame--light .frame__bar {
+  background: var(--pp-surface);
+  border-bottom: 0.6px solid var(--pp-rule);
+  padding: 6px 12px;
+}
+
+[data-fem-theme='paper'] .scope-highlighter .frame--light .frame__name {
+  font-family: var(--pp-serif);
+  font-style: italic;
+  color: var(--pp-ink);
+}
+
+[data-fem-theme='paper'] .scope-highlighter .frame--dark .frame__bar {
+  border-bottom: 0.6px solid #555;
+}
+
+/* Print-restrained syntax colours. Saturated screen hues (#ff4eba, #00c22a)
+   turn muddy in CMYK and vanish in a greyscale print; these keep their
+   relationship in both. Comments go grey, strings and keywords stay
+   distinguishable by lightness alone. */
+[data-fem-theme='paper'] .scope-highlighter .frame--light .code__pre {
+  color: #000;
+}
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.comment,
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.prolog,
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.doctype,
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.cdata {
+  color: #6a6a6a;
+  font-style: italic;
+}
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.punctuation,
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.operator {
+  color: #333;
+}
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.keyword,
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.atrule,
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.important,
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.deleted {
+  color: #0000a0;
+  font-weight: 700;
+}
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.string,
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.char,
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.attr-value,
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.regex,
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.inserted {
+  color: #7a2020;
+}
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.number,
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.boolean,
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.constant,
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.symbol {
+  color: #0a5a3c;
+}
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.function,
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.function-name,
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.class-name,
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.builtin,
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.namespace {
+  color: #000;
+  font-weight: 700;
+}
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.property,
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.tag,
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.attr-name,
+[data-fem-theme='paper'] .scope-highlighter .frame--light .token.selector {
+  color: #3a3a7a;
+}
+
+/* ---------- LaTeX Imager ---------- */
+
+/* KaTeX already sets Computer Modern, so an equation needs nothing. Prose
+   paragraphs pick up the same Times the rest of paper mode uses. */
+[data-fem-theme='paper'] .scope-latex .doc {
+  color: var(--pp-ink);
+}
+
+/* ---------- Grapher ---------- */
+
+/* Every neon node fill collapses to white with a hairline outline. The colour
+   still exists in the document — switching back to funky restores it — it just
+   is not what a printed diagram says. */
+[data-fem-theme='paper'] .scope-grapher .node {
+  background: var(--pp-surface) !important;
+  color: var(--pp-ink) !important;
+  border: 0.9px solid var(--pp-rule);
+  box-shadow: none;
+  font-family: var(--pp-serif);
+  padding: 9px 13px;
+}
+
+[data-fem-theme='paper'] .scope-grapher .node--selected {
+  border-width: 0.9px;
+  box-shadow: 0 0 0 2px #7828c8;
+}
+
+[data-fem-theme='paper'] .scope-grapher .edge-line {
+  stroke: var(--pp-rule);
+  stroke-width: 1.1;
+}
+
+/* ---------- shared stage chrome ---------- */
+
+/* The hard shadow under the preview card is stage decoration in the funky look
+   and a lie in paper mode: it is not in the export, and it makes the figure
+   look like it has a border it does not have. */
+[data-fem-theme='paper'] .scope-tabler .tbl,
+[data-fem-theme='paper'] .scope-truth .tt,
+[data-fem-theme='paper'] .scope-dsviz .ds,
+[data-fem-theme='paper'] .scope-highlighter .frame {
+  box-shadow: none;
+}

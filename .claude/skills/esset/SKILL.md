@@ -24,10 +24,18 @@ description: Funky Esset Maker용 프로젝트 JSON을 만든다. 코드 하이�
 ## 봉투
 
 ```json
-{ "app": "funky-esset-maker", "format": 1, "tool": "<도구 id>", "data": { } }
+{ "app": "funky-esset-maker", "format": 1, "tool": "<도구 id>", "theme": "funky", "data": { } }
 ```
 
 `data`에 없는 필드는 기본값으로 채워지므로 **확신하는 것만** 넣습니다.
+
+`theme`은 앱 전체 렌더 모드입니다.
+
+- `"funky"` (기본) — 네온·굵은 테두리. 슬라이드용.
+- `"paper"` — 가는 괘선·세리프·색각 이상 안전 팔레트, 표는 booktabs. 논문·보고서용.
+
+**논문·저널·학위논문·리포트라는 말이 나오면 `"theme": "paper"`를 넣습니다.** 색 지정은
+그대로 둬도 됩니다 — 논문 모드는 칠하지 않을 뿐 값은 문서에 남아, 펑키로 돌리면 복원됩니다.
 
 ## 도구 고르기
 
@@ -58,7 +66,17 @@ description: Funky Esset Maker용 프로젝트 JSON을 만든다. 코드 하이�
   한마디 합니다.
 - 좌표를 직접 넣는 도구(`grapher`·`aifig`)는 겹치기 쉽습니다. 세로로 쌓을 땐 160px 정도,
   가로는 박스 폭 + 60px 정도 띄웁니다.
+- **표·코드는 논문에 이미지로 넣지 않는 편이 낫습니다.** `tabler`·`truth`는 booktabs
+  `.tex`를, `highlighter`는 `listings` 블록을 내보냅니다 — 본문 폰트와 맞고 검색도 됩니다.
+  대상이 논문이면 이 경로를 먼저 권합니다.
+- `cartesian`·`chart`·`numline`에 단 폭(`widthId`)을 지정할 땐 **`figW`도 같이 픽셀로
+  맞춥니다** (1인치 = 96px). 안 그러면 760px 그림이 3.25인치로 인쇄되어 라벨이 4pt가 됩니다.
+  ICML 1단 → `figW: 312`, NeurIPS 본문 → `528`, Nature 2단 → `691`.
 
 ## 만든 뒤
 
-PNG는 ⌘E 저장 / ⌘⇧C 복사. AI Figure Maker는 벡터 SVG와 TikZ도 나옵니다.
+- PNG는 ⌘E 저장 / ⌘⇧C 복사, 실행 취소는 ⌘Z.
+- `cartesian`·`chart`·`numline`·`aifig`는 벡터 SVG(⌘⇧E)도 나옵니다 — 물리 크기가 mm로
+  들어가 `\includegraphics`가 단 폭에 정확히 앉습니다.
+- 값이 조금 어긋났으면 다시 만들 필요 없습니다. `cartesian`·`chart`·`numline`은 그림에서
+  항목을 클릭해 옆 패널에서 고칠 수 있다고 알려주세요.

@@ -1,6 +1,10 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, Text } from '@studio-baeks/funky-ui'
-import { useFitScale, usePersist, usePngExport, useStored } from './hooks'
+import { useFitScale, useHistory, usePersist, usePngExport, useStored } from './hooks'
+import BgPicker from './BgPicker'
+import { BG_HEX, type BgKey } from './bg'
+import { useTheme } from '../theme'
+import UndoRedo from './UndoRedo'
 import katex from 'katex'
 import './LatexImager.css'
 
@@ -16,7 +20,6 @@ type ColorKey =
   | 'sky'
   | 'green'
 
-type BgKey = 'transparent' | 'cream' | 'white' | 'dark'
 
 type Mode = 'math' | 'document'
 
@@ -41,13 +44,6 @@ const COLORS: ColorKey[] = [
   'orange',
   'sky',
   'green',
-]
-
-const BGS: { key: BgKey; label: string; hex: string | null }[] = [
-  { key: 'transparent', label: '투명', hex: null },
-  { key: 'cream', label: '크림', hex: '#fff5d1' },
-  { key: 'white', label: '흰색', hex: '#ffffff' },
-  { key: 'dark', label: '어두움', hex: '#1e1e22' },
 ]
 
 const FONT_MIN = 16
@@ -179,6 +175,7 @@ const DEFAULTS: Persisted = {
 /* ---------- app ---------- */
 
 export default function LatexImagerTool() {
+  const paper = useTheme() === 'paper'
   const initial = useStored(STORE_KEY, DEFAULTS)
   const [mode, setMode] = useState<Mode>(initial.mode)
   const [latex, setLatex] = useState(initial.latex)
@@ -187,6 +184,9 @@ export default function LatexImagerTool() {
   const [bg, setBg] = useState<BgKey>(initial.bg)
   const [docWidth, setDocWidth] = useState(initial.docWidth)
   const [docUnlimited, setDocUnlimited] = useState(initial.docUnlimited)
+  /* Paper mode prints black. The chosen colour stays in the document so
+     switching back to funky restores it. */
+  const inkHex = paper ? '#222222' : COLOR_HEX[color]
   // raw text of the width field — decoupled from docWidth so typing is free
   const [widthText, setWidthText] = useState(String(initial.docWidth))
 
@@ -197,14 +197,17 @@ export default function LatexImagerTool() {
   // avoids re-embedding the huge Pretendard subset set on every export.
   const fontCssRef = useRef<string | null>(null)
 
-  usePersist(STORE_KEY, {
-    mode,
-    latex,
-    fontSize,
-    color,
-    bg,
-    docWidth,
-    docUnlimited,
+  const persisted = { mode, latex, fontSize, color, bg, docWidth, docUnlimited }
+  usePersist(STORE_KEY, persisted)
+
+  const history = useHistory(persisted, (s) => {
+    setMode(s.mode)
+    setLatex(s.latex)
+    setFontSize(s.fontSize)
+    setColor(s.color)
+    setBg(s.bg)
+    setDocWidth(s.docWidth)
+    setDocUnlimited(s.docUnlimited)
   })
 
   /* render each line as its own KaTeX display equation, stacked vertically.
@@ -245,7 +248,7 @@ export default function LatexImagerTool() {
       ? lines.some((l) => l.kind === 'error')
       : doc?.error ?? false
 
-  const bgHex = BGS.find((b) => b.key === bg)?.hex ?? null
+  const bgHex = BG_HEX[bg]
 
   /* ---- editor auto-grow ---- */
   useLayoutEffect(() => {
@@ -339,6 +342,8 @@ export default function LatexImagerTool() {
           LaTeX Imager
         </Text>
 
+        <UndoRedo history={history} />
+
         <div className="toolbar__group" role="group" aria-label="모드">
           <Button
             variant={mode === 'math' ? 'primary' : 'neutral'}
@@ -376,7 +381,13 @@ export default function LatexImagerTool() {
           </Button>
         </div>
 
-        <div className="toolbar__group" role="group" aria-label="수식 색">
+        <div
+          className="toolbar__group"
+          role="group"
+          aria-label="수식 색"
+          title={paper ? '논문 모드는 검정으로 조판합니다' : undefined}
+          style={paper ? { opacity: 0.4 } : undefined}
+        >
           <span className="toolbar__label">색</span>
           <div className="swatches">
             {COLORS.map((c) => (
@@ -392,19 +403,7 @@ export default function LatexImagerTool() {
           </div>
         </div>
 
-        <div className="toolbar__group" role="group" aria-label="배경">
-          <span className="toolbar__label">배경</span>
-          {BGS.map((b) => (
-            <Button
-              key={b.key}
-              variant={bg === b.key ? 'secondary' : 'neutral'}
-              size="sm"
-              onClick={() => setBg(b.key)}
-            >
-              {b.label}
-            </Button>
-          ))}
-        </div>
+        <BgPicker value={bg} onChange={setBg} />
 
         {mode === 'document' && (
           <div className="toolbar__group" role="group" aria-label="폭">
@@ -481,13 +480,13 @@ export default function LatexImagerTool() {
                 className={`doc${docUnlimited ? ' doc--unlimited' : ''}`}
                 style={{
                   fontSize,
-                  color: COLOR_HEX[color],
+                  color: inkHex,
                   width: docUnlimited ? 'max-content' : docWidth,
                 }}
                 dangerouslySetInnerHTML={{ __html: doc?.html ?? '' }}
               />
             ) : (
-              <div className="eq" style={{ fontSize, color: COLOR_HEX[color] }}>
+              <div className="eq" style={{ fontSize, color: inkHex }}>
                 {lines.map((ln, i) =>
                   ln.kind === 'blank' ? (
                     <div key={i} className="eq__line eq__line--blank" />
@@ -507,6 +506,10 @@ export default function LatexImagerTool() {
             )}
           </div>
         </div>
+
+        {/* the toast lives in the stage so its offset does not depend on how
+            much chrome this particular tool puts below it */}
+        {toast && <div className="toast">{toast}</div>}
       </div>
 
       {/* editor */}
@@ -535,8 +538,6 @@ export default function LatexImagerTool() {
           ? '문서 모드 — 본문 텍스트 + $...$ 인라인 수식, \\textbf · 따옴표 · 빈 줄 단락 지원'
           : '수식 모드 — Enter로 여러 줄 수식 · 색 / 배경 / 크기 조절 후 투명 PNG로 저장'}
       </Text>
-
-      {toast && <div className="toast">{toast}</div>}
     </div>
   )
 }

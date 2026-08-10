@@ -1,6 +1,10 @@
 import { useRef, useState } from 'react'
 import { Button, Text } from '@studio-baeks/funky-ui'
-import { useFitScale, usePersist, usePngExport, useStored } from './hooks'
+import { useFitScale, useHistory, usePersist, usePngExport, useStored } from './hooks'
+import { useTheme } from '../theme'
+import UndoRedo from './UndoRedo'
+import { download, textBlob } from './svg'
+import { texTable } from './tex'
 import './Tabler.css'
 
 /* ---------- model ---------- */
@@ -87,6 +91,8 @@ const DEFAULTS: Persisted = {
 /* ---------- app ---------- */
 
 export default function TablerTool() {
+  const theme = useTheme()
+  const paper = theme === 'paper'
   const initial = useStored(STORE_KEY, DEFAULTS, (saved, defaults) => ({
     ...defaults,
     ...saved,
@@ -108,7 +114,7 @@ export default function TablerTool() {
   const rows = cells.length
   const cols = cells[0]?.length ?? 0
 
-  usePersist(STORE_KEY, {
+  const persisted = {
     cells,
     fontSize,
     headerRow,
@@ -116,6 +122,17 @@ export default function TablerTool() {
     headerColor,
     bodyBg,
     align,
+  }
+  usePersist(STORE_KEY, persisted)
+
+  const history = useHistory(persisted, (s) => {
+    setCells(s.cells)
+    setFontSize(s.fontSize)
+    setHeaderRow(s.headerRow)
+    setHeaderCol(s.headerCol)
+    setHeaderColor(s.headerColor)
+    setBodyBg(s.bodyBg)
+    setAlign(s.align)
   })
 
   /* ---- table edits ---- */
@@ -164,6 +181,8 @@ export default function TablerTool() {
           Tabler
         </Text>
 
+        <UndoRedo history={history} />
+
         <div className="toolbar__group" role="group" aria-label="행">
           <span className="toolbar__label">행</span>
           <Button variant="neutral" size="sm" onClick={addRow}>
@@ -211,7 +230,13 @@ export default function TablerTool() {
           </Button>
         </div>
 
-        <div className="toolbar__group" role="group" aria-label="헤더 색">
+        <div
+          className="toolbar__group"
+          role="group"
+          aria-label="헤더 색"
+          title={paper ? '논문 모드에서는 헤더를 칠하지 않습니다 — 펑키 모드에서 적용됩니다' : undefined}
+          style={paper ? { opacity: 0.4 } : undefined}
+        >
           <span className="toolbar__label">헤더색</span>
           <div className="swatches">
             {COLORS.map((c) => (
@@ -241,22 +266,24 @@ export default function TablerTool() {
           ))}
         </div>
 
+        {/* swatches rather than named buttons, like every other colour choice
+            in the app */}
         <div className="toolbar__group" role="group" aria-label="셀 배경">
           <span className="toolbar__label">셀</span>
-          <Button
-            variant={bodyBg === 'white' ? 'warning' : 'neutral'}
-            size="sm"
-            onClick={() => setBodyBg('white')}
-          >
-            흰색
-          </Button>
-          <Button
-            variant={bodyBg === 'cream' ? 'warning' : 'neutral'}
-            size="sm"
-            onClick={() => setBodyBg('cream')}
-          >
-            크림
-          </Button>
+          <div className="swatches">
+            {(['white', 'cream'] as BodyKey[]).map((k) => (
+              <button
+                key={k}
+                type="button"
+                title={k === 'white' ? '흰색' : '크림'}
+                aria-label={k === 'white' ? '흰색' : '크림'}
+                aria-pressed={bodyBg === k}
+                className={`swatch${bodyBg === k ? ' swatch--active' : ''}`}
+                style={{ background: BODY_HEX[k] }}
+                onClick={() => setBodyBg(k)}
+              />
+            ))}
+          </div>
         </div>
 
         <div className="toolbar__group" role="group" aria-label="폰트 크기">
@@ -281,6 +308,19 @@ export default function TablerTool() {
 
         <div className="toolbar__spacer" />
 
+        <Button
+          variant="warning"
+          size="sm"
+          title="booktabs LaTeX 표로 저장 — 표는 이미지보다 소스로 넣는 편이 낫습니다"
+          onClick={() =>
+            download(
+              textBlob(texTable(cells, { headerRow, headerCol, align })),
+              'table.tex',
+            )
+          }
+        >
+          TeX
+        </Button>
         <Button variant="success" size="sm" title="PNG로 저장 (⌘E)" onClick={savePng} disabled={busy}>
           PNG 저장
         </Button>
@@ -302,24 +342,35 @@ export default function TablerTool() {
           >
             <table
               className="tbl"
-              style={{ fontSize, ['--body-bg' as string]: BODY_HEX[bodyBg] }}
+              style={{
+                fontSize,
+                ['--body-bg' as string]: paper ? '#ffffff' : BODY_HEX[bodyBg],
+              }}
             >
               <tbody>
                 {cells.map((row, r) => (
                   <tr key={r}>
                     {row.map((val, c) => {
                       const head = isHeader(r, c)
-                      const style = head
-                        ? {
-                            background: COLOR_HEX[headerColor],
-                            color: HEADER_TEXT[headerColor],
-                            caretColor: HEADER_TEXT[headerColor],
-                          }
-                        : undefined
+                      /* Paper mode leaves the fill off entirely rather than
+                         letting CSS override it: an inline background would
+                         need !important to beat, and a booktabs table has no
+                         header fill at all. */
+                      const style =
+                        head && !paper
+                          ? {
+                              background: COLOR_HEX[headerColor],
+                              color: HEADER_TEXT[headerColor],
+                              caretColor: HEADER_TEXT[headerColor],
+                            }
+                          : undefined
+                      /* the mid rule goes under the header *row*; the header
+                         column is a different thing and gets no rule */
+                      const midrule = paper && headerRow && r === 0
                       return (
                         <td
                           key={c}
-                          className={`cell${head ? ' cell--header' : ''}`}
+                          className={`cell${head ? ' cell--header' : ''}${midrule ? ' cell--midrule' : ''}`}
                           style={style}
                         >
                           <div className="cell__box">
@@ -348,14 +399,16 @@ export default function TablerTool() {
             </table>
           </div>
         </div>
+
+        {/* the toast lives in the stage so its offset does not depend on how
+            much chrome this particular tool puts below it */}
+        {toast && <div className="toast">{toast}</div>}
       </div>
 
       <Text variant="chrome" muted className="hint">
         셀을 클릭해 편집 · 행 / 열 추가 · 헤더 · 정렬 조절 후 투명 PNG로 저장 ·
         복사로 슬라이드에 붙여넣기
       </Text>
-
-      {toast && <div className="toast">{toast}</div>}
     </div>
   )
 }

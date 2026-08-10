@@ -141,6 +141,23 @@ describe('parsing', () => {
     }
   })
 
+  /* `theme` was added after the format shipped, so it has to be optional in
+     both directions: an old file must open (in whatever mode the app is in)
+     and a new file must record which mode it was exported from. */
+  it('carries the render mode when there is one', () => {
+    localStorage.setItem(STORE_KEYS.tabler, JSON.stringify({ cells: [['a']] }))
+    expect(buildProject('tabler')?.theme).toBeUndefined()
+    expect(buildProject('tabler', { theme: 'paper' })?.theme).toBe('paper')
+
+    const r = parseProject(wrap({ theme: 'paper' }))
+    expect(r.ok && r.project.theme).toBe('paper')
+    expect(parseProject(wrap({})).ok && parseProject(wrap({})).ok).toBe(true)
+    const none = parseProject(wrap({}))
+    expect(none.ok && none.project.theme).toBeUndefined()
+    const junk = parseProject(wrap({ theme: 'neon' }))
+    expect(junk.ok && junk.project.theme).toBeUndefined()
+  })
+
   it('round-trips every tool id', () => {
     for (const id of TOOL_IDS) {
       const r = parseProject(wrap({ tool: id, data: { marker: id } }))

@@ -1,0 +1,36 @@
+/* Print controls — shared by the vector tools' toolbars. */
+
+.fx-print__select {
+  max-width: 17ch;
+  padding: 3px 6px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #222;
+  background: #fff;
+  border: 2px solid #222;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.fx-print__select--dpi {
+  max-width: 8ch;
+}
+
+.fx-print__readout {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+  opacity: 0.7;
+}
+
+/* Under 6 pt the figure is technically fine and practically unreadable, so the
+   readout has to be louder than a tooltip. */
+.fx-print__readout.is-warn {
+  padding: 2px 6px;
+  color: #fff;
+  background: #d11;
+  border: 2px solid #222;
+  opacity: 1;
+}

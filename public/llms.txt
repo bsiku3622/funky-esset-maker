@@ -21,6 +21,7 @@ right one first.
   "app": "funky-esset-maker",
   "format": 1,
   "tool": "<tool id from the table below>",
+  "theme": "funky",
   "data": { }
 }
 ```
@@ -31,11 +32,46 @@ right one first.
 - Opening replaces whatever the user had in that tool. Say so if their work
   might still be in there.
 
+### Render mode
+
+`theme` is app-level, not per-tool, and it changes how *every* tool draws:
+
+- `"funky"` (default) — neon fills, 2px black outlines, hard shadows. For
+  slides and handouts.
+- `"paper"` — hairline rules, serif labels, no fills behind text, and the
+  Okabe–Ito colour-vision-safe palette. Tables become booktabs (three
+  horizontal rules, no verticals). For papers and reports.
+
+Set `"theme": "paper"` whenever the user says the figure is for a paper,
+journal, thesis, or report. Leave it out to keep whatever mode they are in.
+
+Colour and fill choices are kept in `data` either way — paper mode simply does
+not paint them, so switching back restores the slide look. That means you can
+set `headerColor`, `accent` and the rest even for a paper figure; they just
+will not show until the user switches to funky.
+
 Values shared by most tools:
 
 - `bg`: `"transparent" | "cream" | "white" | "dark"` — transparent is best for
   slides, and is the default nearly everywhere.
 - neon color names: `pink · purple · cyan · yellow · orange · sky · green`
+
+### Print settings (`cartesian`, `chart`, `numline` only)
+
+These three draw as SVG and export true vector, so they also take:
+
+- `widthId` — how wide the figure prints. `"screen"` (default, 1 px = 1/96 in),
+  `"icml-col"` (3.25"), `"cvpr-col"`, `"acl-col"`, `"aaai-col"`,
+  `"neurips-col"` (5.5"), `"icml-full"`, `"cvpr-full"`, `"acl-full"`,
+  `"ieee-col"`, `"ieee-full"`, `"nature-1"` (89 mm), `"nature-2"` (183 mm),
+  `"science-2"`, `"elsevier-2"`, `"pnas-2"`, `"slide"`.
+- `dpi` — `150 | 300 | 600 | 1200`, for the PNG path only.
+
+⚠️ Setting `widthId` alone is not enough. A 760 px figure printed at 3.25 in
+has 4 pt labels. **Also set `figW` to the column width in pixels** — 96 px per
+inch, so `"icml-col"` wants `figW: 312`, `"neurips-col"` wants `figW: 528`,
+`"nature-2"` wants `figW: 691`. The app shows the resulting point size in the
+toolbar and turns it red under 6 pt.
 
 ## Tools
 
@@ -188,7 +224,8 @@ Each entry's `expr` is **LaTeX** (the editor is MathLive). Escape backslashes.
     {"id":"g1","expr":"y=x^{2}","enabled":true,"color":"#ff4eba"},
     {"id":"g2","expr":"y=\\sin\\left(x\\right)","enabled":true,"color":"#7828c8"}
   ],
-  "xmin":-5,"xmax":5,"autoY":true,"grid":true,"figW":640,"figH":480
+  "xmin":-5,"xmax":5,"autoY":true,"grid":true,"figW":640,"figH":480,
+  "widthId":"screen","dpi":600
 }}
 ```
 
@@ -204,7 +241,8 @@ max pow`, constants `pi e tau`. `^` is exponentiation. Set `autoY:false` with
 {"app":"funky-esset-maker","format":1,"tool":"chart","data":{
   "type":"bar",
   "input":"사과 = 30\n바나나 = 45\n체리 = 18",
-  "title":"과일 판매량","showValues":true,"accent":0,"figW":640,"figH":440
+  "title":"과일 판매량","showValues":true,"accent":0,"figW":640,"figH":440,
+  "widthId":"screen","dpi":600
 }}
 ```
 
@@ -227,14 +265,17 @@ open 5
 
 ```json
 {"app":"funky-esset-maker","format":1,"tool":"numline","data":{
-  "input":"x >= 2\n(-1, 3]\n5","auto":true,"figW":760,"bg":"transparent"
+  "input":"x >= 2\n(-1, 3]\n5","auto":true,"figW":760,"bg":"transparent",
+  "widthId":"screen","dpi":600
 }}
 ```
 
 Inequalities `x >= a`, `x < a`; intervals `[a,b] (a,b) [a,b)` — bracket vs paren
 picks closed vs open; a bare number is a closed point, `open 5` an open one.
 Trailing text after an item labels it. `auto:false` with `vmin`/`vmax` pins the
-range.
+range. A trailing `#rrggbb` sets that item's colour explicitly — leave it off
+and the item takes the mode's palette (neon in funky, Okabe–Ito in paper),
+which is usually what you want.
 
 ### truth — truth tables
 
@@ -254,11 +295,25 @@ Operators: `not ¬ !` · `and ∧ &` · `or ∨ |` · `xor ⊕ ^` · `implies �
 
 - **PNG** — ⌘E saves, ⌘⇧C copies to the clipboard. Transparent background by
   default, so it drops onto any slide.
-- **AI Figure Maker** also exports vector SVG (physical width in mm, so
-  `\includegraphics` lands on the column width), PNG up to 2400 dpi, and
-  approximate TikZ.
-- **⌘S** saves the current tool back out as a project file.
+- **Vector SVG** — ⌘⇧E in `cartesian`, `chart`, `numline` and `aifig`. The
+  physical width is written in millimetres, so `\includegraphics{fig.svg}`
+  lands on the column width with no scale factor. These four also rasterise
+  their PNG from that same SVG, at up to 1200 dpi (2400 in `aifig`).
+- **LaTeX source** — `tabler` and `truth` export a booktabs table, `highlighter`
+  a `listings` block, `aifig` approximate TikZ. For a paper this beats an
+  image: it matches the document's font and stays searchable. Suggest it
+  whenever the target is a paper.
+- **⌘S** saves the current tool back out as a project file, recording the
+  render mode with it. **⌘Z / ⌘⇧Z** undo and redo in every tool (inside a text
+  field the browser's own undo wins, which is the behaviour you want there).
 - Work is kept in `localStorage` per tool, so a reload does not lose it.
+
+## Editing after it opens
+
+`cartesian`, `chart` and `numline` let the user click a curve, bar, slice or
+interval in the figure and edit it in a side panel — value, label, endpoints,
+colour, delete. Worth mentioning when you hand over a file that is nearly but
+not quite right: adjusting one number is a click, not a re-generation.
 
 ## Getting it wrong gracefully
 

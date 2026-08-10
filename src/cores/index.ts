@@ -15,6 +15,9 @@ export type {
 
 export { CHART_PALETTE } from './palette'
 
+export { FONT, PAPER_SERIES, UI_ONLY, figColors } from './figure'
+export type { FigColors, FigureTheme } from './figure'
+
 export { default as Chart } from './Chart'
 export type {
   ChartProps,

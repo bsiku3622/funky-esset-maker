@@ -1,13 +1,16 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, Text } from '@studio-baeks/funky-ui'
-import { useFitScale, usePersist, usePngExport, useStored } from './hooks'
+import { useFitScale, useHistory, usePersist, usePngExport, useStored } from './hooks'
+import BgPicker from './BgPicker'
+import { BG_HEX, type BgKey } from './bg'
+import { useTheme } from '../theme'
+import UndoRedo from './UndoRedo'
 import { parseInput } from './parse'
 import './DsVisualizer.css'
 
 /* ---------- model ---------- */
 
 type ColorKey = 'pink' | 'purple' | 'cyan' | 'yellow' | 'orange' | 'sky' | 'green'
-type BgKey = 'transparent' | 'cream' | 'white' | 'dark'
 
 // funky neon palette for the accent (index cells / dict keys)
 const COLOR_HEX: Record<ColorKey, string> = {
@@ -39,13 +42,6 @@ const ACCENT_TEXT: Record<ColorKey, string> = {
   green: '#222222',
 }
 
-const BGS: { key: BgKey; label: string; hex: string | null }[] = [
-  { key: 'transparent', label: '투명', hex: null },
-  { key: 'cream', label: '크림', hex: '#fff5d1' },
-  { key: 'white', label: '흰색', hex: '#ffffff' },
-  { key: 'dark', label: '어두움', hex: '#1e1e22' },
-]
-
 const FONT_MIN = 14
 const FONT_MAX = 56
 const FONT_STEP = 2
@@ -75,6 +71,7 @@ const DEFAULTS: Persisted = {
 /* ---------- app ---------- */
 
 export default function DsVisualizerTool() {
+  const paper = useTheme() === 'paper'
   const initial = useStored(STORE_KEY, DEFAULTS)
   const [input, setInput] = useState(initial.input)
   const [fontSize, setFontSize] = useState(initial.fontSize)
@@ -88,12 +85,23 @@ export default function DsVisualizerTool() {
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
   const blocks = useMemo(() => parseInput(input), [input])
-  const bgHex = BGS.find((b) => b.key === bg)?.hex ?? null
-  const accentHex = COLOR_HEX[accent]
-  const accentText = ACCENT_TEXT[accent]
+  const bgHex = BG_HEX[bg]
+  /* Paper mode leaves the accent off: it is applied inline, so CSS could only
+     beat it with !important, and an index row in a printed figure is plain. */
+  const accentHex = paper ? undefined : COLOR_HEX[accent]
+  const accentText = paper ? undefined : ACCENT_TEXT[accent]
   const chromeText = bg === 'dark' ? '#f4f4f4' : '#222222'
 
-  usePersist(STORE_KEY, { input, fontSize, accent, bg, showIndex })
+  const persisted = { input, fontSize, accent, bg, showIndex }
+  usePersist(STORE_KEY, persisted)
+
+  const history = useHistory(persisted, (s) => {
+    setInput(s.input)
+    setFontSize(s.fontSize)
+    setAccent(s.accent)
+    setBg(s.bg)
+    setShowIndex(s.showIndex)
+  })
 
   /* editor auto-grow */
   useLayoutEffect(() => {
@@ -127,6 +135,8 @@ export default function DsVisualizerTool() {
           DS Visualizer
         </Text>
 
+        <UndoRedo history={history} />
+
         <div className="toolbar__group" role="group" aria-label="폰트 크기">
           <Button
             variant="neutral"
@@ -147,7 +157,13 @@ export default function DsVisualizerTool() {
           </Button>
         </div>
 
-        <div className="toolbar__group" role="group" aria-label="강조 색">
+        <div
+          className="toolbar__group"
+          role="group"
+          aria-label="강조 색"
+          title={paper ? '논문 모드에서는 강조색을 칠하지 않습니다' : undefined}
+          style={paper ? { opacity: 0.4 } : undefined}
+        >
           <span className="toolbar__label">강조</span>
           <div className="swatches">
             {COLORS.map((c) => (
@@ -171,19 +187,7 @@ export default function DsVisualizerTool() {
           인덱스 {showIndex ? '켜짐' : '꺼짐'}
         </Button>
 
-        <div className="toolbar__group" role="group" aria-label="배경">
-          <span className="toolbar__label">배경</span>
-          {BGS.map((b) => (
-            <Button
-              key={b.key}
-              variant={bg === b.key ? 'secondary' : 'neutral'}
-              size="sm"
-              onClick={() => setBg(b.key)}
-            >
-              {b.label}
-            </Button>
-          ))}
-        </div>
+        <BgPicker value={bg} onChange={setBg} />
 
         <div className="toolbar__spacer" />
 
@@ -303,6 +307,10 @@ export default function DsVisualizerTool() {
             })}
           </div>
         </div>
+
+        {/* the toast lives in the stage so its offset does not depend on how
+            much chrome this particular tool puts below it */}
+        {toast && <div className="toast">{toast}</div>}
       </div>
 
       {/* editor */}
@@ -326,8 +334,6 @@ export default function DsVisualizerTool() {
         리스트는 한 줄 표 · 딕셔너리는 두 칸 표로 시각화 · 색 / 배경 / 크기 조절
         후 투명 PNG로 저장 / 복사
       </Text>
-
-      {toast && <div className="toast">{toast}</div>}
     </div>
   )
 }

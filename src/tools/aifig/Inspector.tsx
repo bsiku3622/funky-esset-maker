@@ -28,7 +28,7 @@ import {
 } from './presets'
 import { ptOf } from './layout'
 import { dataUrlBytes, fileToImage, formatBytes } from './image'
-import { Chk, ColorBtn, Field, Group, Num, Sel, Seg } from './ui'
+import { Chk, ColorBtn, Field, Group, Num, NumList, Sel, Seg } from './ui'
 
 const DASHES: { key: DashKind; label: string }[] = [
   { key: 'solid', label: '───' },
@@ -464,19 +464,14 @@ function KindPanel({
       return (
         <Group title="MLP">
           <Field label="층 구성" wide>
-            <input
-              className="af-input"
-              value={(p.layers ?? [4, 5, 3]).join(', ')}
+            {/* 24 is the cap the shape itself clamps to, so the field and the
+                drawing agree on what a layer can hold */}
+            <NumList
+              value={p.layers ?? [4, 5, 3]}
+              max={24}
+              maxItems={12}
               placeholder="4, 5, 3"
-              onChange={(e) => {
-                const layers = e.target.value
-                  .split(/[,\s]+/)
-                  .map((v) => parseInt(v, 10))
-                  .filter((v) => Number.isFinite(v) && v > 0)
-                  .slice(0, 12)
-                onProps({ layers: layers.length ? layers : [1] })
-              }}
-              onKeyDown={(e) => e.stopPropagation()}
+              onChange={(layers) => onProps({ layers })}
             />
           </Field>
           <Field label="뉴런 반지름">

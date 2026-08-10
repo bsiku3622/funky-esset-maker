@@ -5,50 +5,6 @@
   --code-pad: 1.15em 1.4em;
 }
 
-/* ---------- shell ---------- */
-
-.app {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  width: 100%;
-}
-
-/* ---------- toolbar ---------- */
-
-.toolbar {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  padding: 14px 20px;
-  background: var(--funky-bg);
-  border-bottom: 3px solid var(--funky-border-color, #222);
-  flex: 0 0 auto;
-}
-
-.toolbar__title {
-  margin: 0 8px 0 0;
-}
-
-.toolbar__group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.toolbar__font {
-  min-width: 44px;
-  text-align: center;
-  font-family: var(--mono);
-  font-weight: 700;
-  font-size: 0.85rem;
-}
-
-.toolbar__spacer {
-  flex: 1 1 auto;
-}
-
 /* ---------- size settings row ---------- */
 
 .settings {
@@ -107,26 +63,8 @@
   margin-left: auto;
 }
 
-/* ---------- stage ---------- */
-
-.stage {
-  flex: 1 1 auto;
-  overflow: auto;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px;
-  background: var(--funky-bg);
-  background-image: radial-gradient(rgba(0, 0, 0, 0.07) 1.5px, transparent 1.5px);
-  background-size: 22px 22px;
-}
-
 /* occupies the *scaled* footprint in layout so the stage centers / scrolls
    around the shrunk preview, not the full-size node */
-.fitbox {
-  flex: 0 0 auto;
-}
-
 /* the exact node handed to html-to-image (transparent padding leaves room
    for the window's hard shadow in the PNG). scaled down for on-screen preview
    via transform — export overrides the transform to capture full resolution */
@@ -450,28 +388,4 @@
 }
 .token.italic {
   font-style: italic;
-}
-
-/* ---------- hint + toast ---------- */
-
-.hint {
-  flex: 0 0 auto;
-  padding: 10px 20px;
-  border-top: 2px solid var(--funky-border-color, #222);
-  background: var(--funky-bg);
-}
-
-.toast {
-  position: fixed;
-  left: 50%;
-  bottom: 64px;
-  transform: translateX(-50%);
-  background: #222;
-  color: #fff5d1;
-  font-weight: 700;
-  font-size: 0.9rem;
-  padding: 10px 18px;
-  border: 2px solid #222;
-  box-shadow: 4px 4px 0 0 rgba(0, 0, 0, 0.25);
-  z-index: 50;
 }

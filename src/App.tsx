@@ -15,7 +15,13 @@ import {
   pickJsonFile,
   type ToolId,
 } from './project'
+import { THEME_KEY, ThemeCtx, readTheme, type Theme } from './theme'
 import './App.css'
+/* The shared tool chrome. Imported here rather than from a tool because the
+   selectors match the per-tool ones and the later stylesheet wins — App is in
+   the main chunk, the tools are lazy, so this always lands first. */
+import './tools/shell.css'
+import './paper.css'
 
 type Tool = {
   id: ToolId
@@ -64,6 +70,21 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null)
   const [dropping, setDropping] = useState(false)
 
+  /* Render mode. App-level rather than per-tool: it answers "what am I making
+     today", and that does not change when you switch from the table to the
+     plot. Tools read it from context; the HTML-rendered ones are restyled by
+     paper.css off the attribute on the root. */
+  const [theme, setTheme] = useState<Theme>(readTheme)
+
+  const pickTheme = useCallback((next: Theme) => {
+    setTheme(next)
+    try {
+      localStorage.setItem(THEME_KEY, next)
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
   /* Collapsed sidebar: remembered across visits, and started collapsed on a
      narrow window so the tool gets the width. An explicit choice always wins
      over the width heuristic. */
@@ -106,14 +127,14 @@ export default function App() {
 
   const saveProject = useCallback(() => {
     const current = TOOLS.find((t) => t.id === active) ?? TOOLS[0]
-    const project = buildProject(current.id)
+    const project = buildProject(current.id, { theme })
     if (!project) {
       flash('저장할 내용이 아직 없습니다')
       return
     }
     downloadProject(project, current.file)
     flash(`${current.label} 프로젝트를 저장했습니다`)
-  }, [active, flash])
+  }, [active, theme, flash])
 
   /** Load from raw text — shared by the file picker and drag-and-drop. */
   const loadText = useCallback(
@@ -134,11 +155,14 @@ export default function App() {
         flash('불러오기 실패 — 저장 공간이 가득 찼습니다')
         return
       }
+      // a file saved before paper mode existed carries no theme; leave the
+      // app in whatever mode it is already in rather than guessing
+      if (project.theme) pickTheme(project.theme)
       choose(project.tool)
       setReloadNonce((n) => n + 1)
       flash(`${target.label}(으)로 불러왔습니다`)
     },
-    [active, choose, flash],
+    [active, choose, flash, pickTheme],
   )
 
   const openProject = useCallback(async () => {
@@ -195,6 +219,7 @@ export default function App() {
   return (
     <div
       className={`fem${dropping ? ' is-dropping' : ''}`}
+      data-fem-theme={theme}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
@@ -238,6 +263,38 @@ export default function App() {
             </button>
           ))}
         </nav>
+
+        {/* Render mode. Above the project actions because it changes what every
+            tool draws, and one switch beats ten toolbar toggles. */}
+        <div className="fem__mode">
+          <span className="fem__project-label">모드</span>
+          <div className="fem__modeswitch" role="group" aria-label="렌더 모드">
+            <button
+              type="button"
+              className={`fem__modebtn${theme === 'funky' ? ' is-on' : ''}`}
+              onClick={() => pickTheme('funky')}
+              aria-pressed={theme === 'funky'}
+              title="펑키 — 네온과 굵은 테두리, 슬라이드용"
+            >
+              <span className="fem__modebtn-icon" aria-hidden="true">
+                ◆
+              </span>
+              <span className="fem__modebtn-text">펑키</span>
+            </button>
+            <button
+              type="button"
+              className={`fem__modebtn${theme === 'paper' ? ' is-on' : ''}`}
+              onClick={() => pickTheme('paper')}
+              aria-pressed={theme === 'paper'}
+              title="논문 — 가는 괘선과 세리프, 색각 이상 안전 팔레트"
+            >
+              <span className="fem__modebtn-icon" aria-hidden="true">
+                ▤
+              </span>
+              <span className="fem__modebtn-text">논문</span>
+            </button>
+          </div>
+        </div>
 
         {/* project actions live here, not in each tool's toolbar, so they are
             in the same place whichever tool is open */}
@@ -297,7 +354,9 @@ export default function App() {
         <div className={`femtool ${tool.scope}`}>
           <Suspense fallback={<div className="fem__loading">로딩 중…</div>}>
             {/* keyed so loading a project remounts the tool */}
-            <ToolComponent key={`${tool.id}:${reloadNonce}`} />
+            <ThemeCtx value={theme}>
+              <ToolComponent key={`${tool.id}:${reloadNonce}`} />
+            </ThemeCtx>
           </Suspense>
         </div>
       </main>

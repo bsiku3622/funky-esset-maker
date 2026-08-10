@@ -165,7 +165,7 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 12px 6px 4px;
+  padding: 10px 6px 4px;
   border-top: 3px solid #222;
 }
 
@@ -201,15 +201,86 @@
   opacity: 0.6;
 }
 
-/* ---------- project actions ---------- */
+/* ---------- render mode ---------- */
 
-.fem__project {
+/* This is the block that pushes the rest of the sidebar down, so it owns the
+   auto margin — the project block below it sits flush underneath. */
+.fem__mode {
   margin-top: auto;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 12px 6px 10px;
+  gap: 5px;
+  padding: 10px 6px 8px;
   border-top: 3px solid #222;
+}
+
+.fem__modeswitch {
+  display: flex;
+  border: 2px solid #222;
+  box-shadow: 3px 3px 0 0 rgba(0, 0, 0, 0.2);
+}
+
+.fem__modebtn {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 7px 4px;
+  font: inherit;
+  font-weight: 800;
+  font-size: 0.8rem;
+  color: #222;
+  background: #fff;
+  border: 0;
+  cursor: pointer;
+}
+
+.fem__modebtn + .fem__modebtn {
+  border-left: 2px solid #222;
+}
+
+.fem__modebtn:hover {
+  background: #fff0b8;
+}
+
+.fem__modebtn.is-on {
+  background: #7828c8;
+  color: #fff;
+}
+
+.fem__modebtn-icon {
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.fem__nav.is-collapsed .fem__mode {
+  margin-top: auto;
+  padding: 10px 0;
+}
+
+.fem__nav.is-collapsed .fem__modeswitch {
+  flex-direction: column;
+}
+
+.fem__nav.is-collapsed .fem__modebtn + .fem__modebtn {
+  border-left: 0;
+  border-top: 2px solid #222;
+}
+
+.fem__nav.is-collapsed .fem__modebtn-text {
+  display: none;
+}
+
+/* ---------- project actions ---------- */
+
+.fem__project {
+  margin-top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 6px;
+  border-top: 0;
 }
 
 .fem__project-label {

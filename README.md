@@ -17,7 +17,36 @@ A set of web tools for making visual assets you can drop straight into slides, h
 | **Number Line** | Number lines, intervals, inequalities |
 | **Truth Table** | Truth tables |
 
-Most tools rasterise their result to PNG with `html-to-image`. **AI Figure Maker** is the exception: it draws its canvas as SVG and serialises that same DOM, so it can export true vector SVG, high-resolution PNG, and TikZ. The tool you used last is remembered in `localStorage` and reopens on your next visit.
+The tool you used last is remembered in `localStorage` and reopens on your next visit.
+
+## Two looks
+
+Everything has a **paper mode** alongside the funky one, switched in the sidebar and applied to every tool at once:
+
+| | funky | paper |
+| --- | --- | --- |
+| for | slides, handouts | papers, journals, reports |
+| lines | 2–3px black, hard shadows | hairlines, no shadow |
+| type | Pretendard, bold labels | Times / Helvetica, no bold data labels |
+| colour | neon | Okabe–Ito (colour-vision-safe) |
+| tables | full grid, coloured header | booktabs — three rules, no verticals |
+
+It is a *render* mode, not a second document. Colour choices stay in the file; paper mode just does not paint them, so switching back restores the slide look exactly. A saved project records which mode it was exported from.
+
+## Exporting
+
+Every tool exports PNG (`⌘E`) and copies to the clipboard (`⌘⇧C`), with a transparent background by default.
+
+Beyond that, each tool exports whatever its content actually is:
+
+| | also exports |
+| --- | --- |
+| Cartesian Plotter · Chart Maker · Number Line · AI Figure Maker | **vector SVG** (`⌘⇧E`) — physical width in millimetres, so `\includegraphics` lands on the column width. Their PNG is rasterised from that same SVG at up to 1200 dpi (2400 in AI Figure Maker) |
+| Tabler · Truth Table | **booktabs LaTeX** — a table belongs in a paper as source, not as a picture of a table |
+| Highlighter | **`listings` block** |
+| AI Figure Maker | approximate **TikZ** |
+
+The four SVG tools also carry a printed-width preset (ICML, CVPR, Nature, …) and show the resulting point size in the toolbar, turning red below 6 pt — the failure mode is otherwise invisible until the PDF comes back.
 
 ## Projects
 
@@ -34,7 +63,11 @@ So opening is one command regardless of what made the file — **열기** (⌘O)
 | `⌘O` | open a project |
 | `⌘S` | save the current tool as a project |
 | `⌘E` | export PNG |
+| `⌘⇧E` | export vector SVG (the SVG tools) |
 | `⌘⇧C` | copy PNG to the clipboard |
+| `⌘Z` / `⌘⇧Z` | undo / redo |
+
+Undo is deliberately not intercepted while a text field has focus: inside a textarea the browser's own undo is the one you mean. The toolbar buttons work either way.
 
 ### Written by an assistant
 
@@ -64,13 +97,23 @@ Opens at `http://localhost:5178`.
 
 ```
 src/
-  App.tsx          sidebar navigation · tool switching · project open/save
+  App.tsx          sidebar navigation · tool switching · project open/save · render mode
   project.ts       the project envelope, and each tool's storage key
+  theme.ts         the funky/paper mode and its context
+  paper.css        paper-mode restyle for the HTML-rendered tools
   tools/           one file per tool (UI · toolbar · export) + generated scoped CSS
-    hooks.ts       shared machinery: persistence, preview fit, PNG export
+    shell.css      the toolbar / stage / editor / hint / toast every tool wears
+    hooks.ts       shared machinery: persistence, undo/redo, preview fit, PNG + SVG export
+    svg.ts         serialise a live <svg> into a standalone file; rasterise it at any dpi
+    paper.ts       printed-width presets, dpi, px→pt
+    tex.ts         booktabs tables and listings blocks
+    Inspector.tsx  the shared property panel
+    PrintBar.tsx   printed width · dpi · point-size readout
+    UndoRedo.tsx   the undo/redo pair, same place in every toolbar
+    BgPicker.tsx   the background swatches (+ bg.ts for the constants)
     NumField.tsx   numeric input that lets you finish typing before committing
     aifig/         AI Figure Maker modules (document model · shapes · routing · LaTeX · export)
-  cores/           pure render components (CodeBlock · Diagram · Chart) + shared palette
+  cores/           pure render components (CodeBlock · Diagram · Chart) + figure tokens
 public/
   llms.txt         tool schemas and input grammars, for an assistant
 tool-sources/      original App.css for five tools (source for the scoped CSS)
@@ -82,9 +125,21 @@ scripts/
 
 A tool's project payload *is* its localStorage state, so saving reads the key the tool already writes and loading writes it back and remounts the tool. No tool implements import or export, and none can drift out of step with the format. The keys in `project.ts` are therefore a compatibility surface: changing one orphans every saved file and everyone's in-progress work.
 
+### Vector export
+
+A tool that draws SVG does not re-draw itself to export — `svg.ts` serialises the element on screen. A second renderer is a second thing that can disagree with what the user approved, which is the bug AI Figure Maker was built to avoid and the rest now inherit.
+
+⚠️ A standalone SVG has no stylesheet and no `:root`. Anything that resolved through a class or a custom property on screen is simply *absent* in the file — the plotters used to write `fontFamily="var(--mono)"` into their `<text>`, which looked right in the app and fell back to the browser's default serif in every exported file. Figure fonts are concrete stacks in `cores/figure.ts` for that reason, and nothing may put a CSS variable back into exported markup. Editor chrome (selection rings, fat invisible hit targets) is marked `data-ui` and stripped on the way out.
+
 ### Shared machinery
 
 The eight PNG tools each began as a separate project, so each carried its own copy of the same three mechanisms — restore state from `localStorage`, fit the preview into the stage, rasterise to PNG. They now share `src/tools/hooks.ts`; the copies differed only in a pixel ratio and a file name.
+
+The same was true of the chrome. Ten copies of a toolbar, a checkerboard stage, an editor strip, a hint line and a toast — already drifted (one stage had a dot grid, toasts sat at three different heights, one toolbar floated over its canvas). They live once in `src/tools/shell.css`, keyed off the `.femtool` wrapper; a tool's own stylesheet keeps only the artwork inside `.shot` and the controls no other tool has.
+
+⚠️ `shell.css` has to load *before* the per-tool CSS — the selectors have equal specificity, so the later one wins. It is imported from `App.tsx`, which is in the main chunk, while the tools are lazy-loaded. Importing it from a tool would silently invert the cascade.
+
+`.shot` carries no frame of its own, on purpose: it is the element that gets exported, so a border drawn there shows on screen and not in the file.
 
 ### Render cores
 

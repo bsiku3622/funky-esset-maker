@@ -1,8 +1,15 @@
+import type { Ref } from 'react'
 import { CHART_PALETTE } from './palette'
+import { UI_ONLY, figColors, type FigureTheme } from './figure'
 import './cores.css'
 
 /* Chart — display-only render core extracted from the Chart Maker tool.
-   Bar / line / pie / scatter as a self-contained SVG (+ pie legend). */
+   Bar / line / pie / scatter as a self-contained SVG (+ pie legend).
+
+   Two things here exist for the host tool rather than for display: `svgRef`,
+   because vector export serialises this element rather than re-drawing it, and
+   `onPick`/`selected`, because the tool lets you click a bar to edit it. Both
+   are optional and a plain host can ignore them. */
 
 export type ChartType = 'bar' | 'line' | 'pie' | 'scatter'
 export type ChartBg = 'transparent' | 'cream' | 'white' | 'dark'
@@ -27,16 +34,24 @@ export interface ChartProps {
   width?: number
   height?: number
   bg?: ChartBg
+  /** 'funky' neon on black outlines, or 'paper' hairline journal style */
+  theme?: FigureTheme
+  /** where the pie legend is drawn. 'svg' keeps it inside the exported file;
+   *  'html' is the original flow layout and stays the default for hosts that
+   *  were laying it out themselves. */
+  legend?: 'html' | 'svg'
+  svgRef?: Ref<SVGSVGElement>
+  /** index of the selected datum/point, for the editing host */
+  selected?: number | null
+  onPick?: (index: number) => void
 }
 
-const PALETTE = CHART_PALETTE
 const BG_HEX: Record<ChartBg, string | null> = {
   transparent: null,
   cream: '#fff5d1',
   white: '#ffffff',
   dark: '#1e1e22',
 }
-const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace'
 
 function niceStep(range: number, target = 6): number {
   const rough = range / target || 1
@@ -65,20 +80,31 @@ export default function Chart({
   width = 640,
   height = 440,
   bg = 'transparent',
+  theme = 'funky',
+  legend = 'html',
+  svgRef,
+  selected = null,
+  onPick,
 }: ChartProps) {
   const figW = width
   const figH = height
   const bgHex = BG_HEX[bg]
-  const ink = bg === 'dark' ? '#f4f4f4' : '#222'
-  const labelColor = bg === 'dark' ? '#cfcfd6' : '#555'
-  const grid = bg === 'dark' ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.1)'
-  const color = (i: number) => PALETTE[(accent + i) % PALETTE.length]
+  const paper = theme === 'paper'
+  const c = figColors(theme, bg === 'dark', CHART_PALETTE)
+  const color = (i: number) => c.series[(accent + i) % c.series.length]
 
-  const PADL = 56
-  const PADR = 24
-  const PADT = title ? 44 : 24
-  const PADB = 52
-  const plotW = figW - PADL - PADR
+  /* Paper thins every rule and stops outlining the fills; a bar chart in a
+     journal is flat colour against a hairline axis. */
+  const G = paper
+    ? { axis: 1, gridW: 0.7, out: 0.6, line: 1.6, dot: 3.2, titleFont: 13, tickFont: 10, labelFont: 10 }
+    : { axis: 2, gridW: 1, out: 2, line: 3, dot: 5, titleFont: 20, tickFont: 12, labelFont: 13 }
+
+  const PADL = paper ? 40 : 56
+  const PADR = paper ? 14 : 24
+  const PADT = title ? (paper ? 30 : 44) : paper ? 14 : 24
+  const PADB = paper ? 34 : 52
+  const legendW = legend === 'svg' && type === 'pie' ? Math.min(180, figW * 0.28) : 0
+  const plotW = figW - PADL - PADR - legendW
   const plotH = figH - PADT - PADB
   const x0 = PADL
   const yBase = figH - PADB
@@ -120,14 +146,42 @@ export default function Chart({
     return { d, i, path, frac, lx, ly }
   })
 
+  const pick = (i: number) => (e: React.PointerEvent) => {
+    if (!onPick) return
+    e.stopPropagation()
+    onPick(i)
+  }
+  const cursor = onPick ? 'pointer' : undefined
+
+  /** the purple ring is editor state, never part of the exported file */
+  const ring = (props: Record<string, string | number>) => (
+    <rect
+      {...{ [UI_ONLY]: '1' }}
+      {...props}
+      fill="none"
+      stroke="#7828c8"
+      strokeWidth={2}
+    />
+  )
+
   return (
-    <div
-      className="fx-chart"
-      style={bgHex ? { background: bgHex } : undefined}
-    >
-      <svg width={figW} height={figH} viewBox={`0 0 ${figW} ${figH}`}>
+    <div className="fx-chart" style={bgHex ? { background: bgHex } : undefined}>
+      <svg
+        ref={svgRef}
+        width={figW}
+        height={figH}
+        viewBox={`0 0 ${figW} ${figH}`}
+        fontFamily={c.text}
+      >
         {title && (
-          <text x={figW / 2} y={26} textAnchor="middle" fontSize={20} fontWeight={800} fill={ink}>
+          <text
+            x={(figW - legendW) / 2}
+            y={paper ? 20 : 26}
+            textAnchor="middle"
+            fontSize={G.titleFont}
+            fontWeight={paper ? 700 : 800}
+            fill={c.ink}
+          >
             {title}
           </text>
         )}
@@ -136,14 +190,14 @@ export default function Chart({
           <g>
             {vt.map((t, i) => (
               <g key={i}>
-                <line x1={PADL} y1={vy(t)} x2={figW - PADR} y2={vy(t)} stroke={grid} strokeWidth={1} />
-                <text x={PADL - 8} y={vy(t) + 4} textAnchor="end" fontSize={12} fill={labelColor} fontFamily={MONO}>
+                <line x1={PADL} y1={vy(t)} x2={figW - PADR} y2={vy(t)} stroke={c.grid} strokeWidth={G.gridW} />
+                <text x={PADL - 8} y={vy(t) + 4} textAnchor="end" fontSize={G.tickFont} fill={c.muted} fontFamily={c.numeric}>
                   {fmt(t)}
                 </text>
               </g>
             ))}
-            <line x1={PADL} y1={PADT} x2={PADL} y2={yBase} stroke={ink} strokeWidth={2} />
-            <line x1={PADL} y1={yBase} x2={figW - PADR} y2={yBase} stroke={ink} strokeWidth={2} />
+            <line x1={PADL} y1={PADT} x2={PADL} y2={yBase} stroke={c.ink} strokeWidth={G.axis} />
+            <line x1={PADL} y1={yBase} x2={figW - PADR} y2={yBase} stroke={c.ink} strokeWidth={G.axis} />
           </g>
         )}
 
@@ -155,14 +209,23 @@ export default function Chart({
             const bx = x0 + slot * i + (slot - bw) / 2
             const by = vy(d.value)
             return (
-              <g key={i}>
-                <rect x={bx} y={by} width={bw} height={yBase - by} fill={color(i)} stroke="#222" strokeWidth={2} />
+              <g key={i} onPointerDown={pick(i)} style={{ cursor }}>
+                <rect
+                  x={bx}
+                  y={by}
+                  width={bw}
+                  height={Math.max(0, yBase - by)}
+                  fill={color(i)}
+                  stroke={c.outline ?? undefined}
+                  strokeWidth={c.outline ? G.out : undefined}
+                />
+                {selected === i && ring({ x: bx - 3, y: by - 3, width: bw + 6, height: Math.max(0, yBase - by) + 6 })}
                 {showValues && (
-                  <text x={bx + bw / 2} y={by - 6} textAnchor="middle" fontSize={13} fontWeight={700} fill={ink}>
+                  <text x={bx + bw / 2} y={by - 6} textAnchor="middle" fontSize={G.labelFont} fontWeight={c.bold} fill={c.ink}>
                     {fmt(d.value)}
                   </text>
                 )}
-                <text x={bx + bw / 2} y={yBase + 18} textAnchor="middle" fontSize={13} fill={ink}>
+                <text x={bx + bw / 2} y={yBase + (paper ? 14 : 18)} textAnchor="middle" fontSize={G.labelFont} fill={c.ink}>
                   {d.label}
                 </text>
               </g>
@@ -175,20 +238,28 @@ export default function Chart({
               points={data.map((d, i) => `${x0 + (plotW / data.length) * (i + 0.5)},${vy(d.value)}`).join(' ')}
               fill="none"
               stroke={color(0)}
-              strokeWidth={3}
+              strokeWidth={G.line}
               strokeLinejoin="round"
             />
             {data.map((d, i) => {
               const cx = x0 + (plotW / data.length) * (i + 0.5)
               return (
-                <g key={i}>
-                  <circle cx={cx} cy={vy(d.value)} r={5} fill="#fff" stroke="#222" strokeWidth={2} />
+                <g key={i} onPointerDown={pick(i)} style={{ cursor }}>
+                  <circle
+                    cx={cx}
+                    cy={vy(d.value)}
+                    r={G.dot}
+                    fill={paper ? color(0) : c.hole}
+                    stroke={c.outline ?? undefined}
+                    strokeWidth={c.outline ? G.out : undefined}
+                  />
+                  {selected === i && ring({ x: cx - G.dot - 4, y: vy(d.value) - G.dot - 4, width: G.dot * 2 + 8, height: G.dot * 2 + 8 })}
                   {showValues && (
-                    <text x={cx} y={vy(d.value) - 10} textAnchor="middle" fontSize={13} fontWeight={700} fill={ink}>
+                    <text x={cx} y={vy(d.value) - 10} textAnchor="middle" fontSize={G.labelFont} fontWeight={c.bold} fill={c.ink}>
                       {fmt(d.value)}
                     </text>
                   )}
-                  <text x={cx} y={yBase + 18} textAnchor="middle" fontSize={13} fill={ink}>
+                  <text x={cx} y={yBase + (paper ? 14 : 18)} textAnchor="middle" fontSize={G.labelFont} fill={c.ink}>
                     {d.label}
                   </text>
                 </g>
@@ -199,42 +270,94 @@ export default function Chart({
 
         {type === 'pie' &&
           pieSlices.map((s) => (
-            <g key={s.i}>
-              <path d={s.path} fill={color(s.i)} stroke="#222" strokeWidth={2} />
+            <g key={s.i} onPointerDown={pick(s.i)} style={{ cursor }}>
+              <path
+                d={s.path}
+                fill={color(s.i)}
+                stroke={c.outline ?? (paper ? '#ffffff' : undefined)}
+                strokeWidth={c.outline ? G.out : paper ? 0.8 : undefined}
+              />
+              {selected === s.i && (
+                <path
+                  {...{ [UI_ONLY]: '1' }}
+                  d={s.path}
+                  fill="none"
+                  stroke="#7828c8"
+                  strokeWidth={2.5}
+                />
+              )}
               {showValues && s.frac > 0.04 && (
-                <text x={s.lx} y={s.ly} textAnchor="middle" fontSize={13} fontWeight={700} fill="#222">
+                <text x={s.lx} y={s.ly} textAnchor="middle" fontSize={G.labelFont} fontWeight={c.bold} fill={paper ? '#ffffff' : '#222'}>
                   {Math.round(s.frac * 100)}%
                 </text>
               )}
             </g>
           ))}
 
+        {/* pie legend, drawn inside the SVG so the export is one file */}
+        {type === 'pie' && legend === 'svg' && (
+          <g fontSize={G.labelFont} fill={c.ink}>
+            {data.map((d, i) => {
+              const ly = PADT + 6 + i * (G.labelFont + 8)
+              const lx = figW - legendW + 4
+              const box = G.labelFont
+              return (
+                <g key={i} onPointerDown={pick(i)} style={{ cursor }}>
+                  <rect
+                    x={lx}
+                    y={ly}
+                    width={box}
+                    height={box}
+                    fill={color(i)}
+                    stroke={c.outline ?? undefined}
+                    strokeWidth={c.outline ? G.out : undefined}
+                  />
+                  <text x={lx + box + 6} y={ly + box - 2} fontWeight={selected === i ? 700 : c.bold === 700 ? 700 : 400}>
+                    {d.label}
+                  </text>
+                </g>
+              )
+            })}
+          </g>
+        )}
+
         {type === 'scatter' && (
           <g>
             {syt.map((t, i) => (
               <g key={`sy${i}`}>
-                <line x1={PADL} y1={scY(t)} x2={figW - PADR} y2={scY(t)} stroke={grid} strokeWidth={1} />
-                <text x={PADL - 8} y={scY(t) + 4} textAnchor="end" fontSize={12} fill={labelColor} fontFamily={MONO}>
+                <line x1={PADL} y1={scY(t)} x2={figW - PADR} y2={scY(t)} stroke={c.grid} strokeWidth={G.gridW} />
+                <text x={PADL - 8} y={scY(t) + 4} textAnchor="end" fontSize={G.tickFont} fill={c.muted} fontFamily={c.numeric}>
                   {fmt(t)}
                 </text>
               </g>
             ))}
             {sxt.map((t, i) => (
-              <text key={`sx${i}`} x={scX(t)} y={yBase + 18} textAnchor="middle" fontSize={12} fill={labelColor} fontFamily={MONO}>
+              <text key={`sx${i}`} x={scX(t)} y={yBase + (paper ? 14 : 18)} textAnchor="middle" fontSize={G.tickFont} fill={c.muted} fontFamily={c.numeric}>
                 {fmt(t)}
               </text>
             ))}
-            <line x1={PADL} y1={PADT} x2={PADL} y2={yBase} stroke={ink} strokeWidth={2} />
-            <line x1={PADL} y1={yBase} x2={figW - PADR} y2={yBase} stroke={ink} strokeWidth={2} />
+            <line x1={PADL} y1={PADT} x2={PADL} y2={yBase} stroke={c.ink} strokeWidth={G.axis} />
+            <line x1={PADL} y1={yBase} x2={figW - PADR} y2={yBase} stroke={c.ink} strokeWidth={G.axis} />
             {points.map((p, i) => (
-              <circle key={i} cx={scX(p.x)} cy={scY(p.y)} r={6} fill={color(0)} stroke="#222" strokeWidth={2} />
+              <g key={i} onPointerDown={pick(i)} style={{ cursor }}>
+                <circle
+                  cx={scX(p.x)}
+                  cy={scY(p.y)}
+                  r={paper ? G.dot : 6}
+                  fill={color(0)}
+                  stroke={c.outline ?? undefined}
+                  strokeWidth={c.outline ? G.out : undefined}
+                />
+                {selected === i &&
+                  ring({ x: scX(p.x) - 9, y: scY(p.y) - 9, width: 18, height: 18 })}
+              </g>
             ))}
           </g>
         )}
       </svg>
 
-      {type === 'pie' && (
-        <ul className="fx-chart__legend" style={{ color: ink }}>
+      {type === 'pie' && legend === 'html' && (
+        <ul className="fx-chart__legend" style={{ color: c.ink }}>
           {data.map((d, i) => (
             <li key={i}>
               <span className="fx-chart__box" style={{ background: color(i) }} />

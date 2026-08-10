@@ -12,8 +12,9 @@ import { useState } from 'react'
 export interface NumFieldProps {
   value: number
   onCommit: (n: number) => void
-  /** tool-scoped class, e.g. 'nl-num' */
-  className: string
+  /** tool-scoped class, e.g. 'nl-num'. Omitted inside the shared Inspector,
+   *  which styles its own inputs. */
+  className?: string
   /** integers reject '1.5' rather than truncating it */
   integer?: boolean
   width?: string
