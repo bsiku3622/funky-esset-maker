@@ -46,6 +46,7 @@ import {
   duplicate,
   equalize,
   expandGroups,
+  fullyConnect,
   group as groupNodes,
   loadDoc,
   nodeMap,
@@ -175,6 +176,13 @@ export default function AiFigureMaker() {
   const [marquee, setMarquee] = useState<Rect | null>(null)
   const [temp, setTemp] = useState<{ a: Pt; b: Pt; target: string | null } | null>(null)
   const [dragging, setDragging] = useState(false)
+  /* Connector mode. Dragging out of a node's anchor dot was the only way to
+     make an edge, which is a 8px target that only exists while the node is
+     hovered — findable once you know, unusable if you don't. This is the
+     click-source-then-click-target alternative; the source stays armed so a
+     fan-out (one node to a whole column) is one click per edge. */
+  const [connecting, setConnecting] = useState(false)
+  const [connectFrom, setConnectFrom] = useState<string | null>(null)
   // pan gets its own flag so the canvas cursor is driven by state rather than
   // by reading dragRef during render
   const [panning, setPanning] = useState(false)
@@ -211,6 +219,8 @@ export default function AiFigureMaker() {
   const viewRef = useLatest(view)
   const selNodesRef = useLatest(selNodes)
   const selEdgesRef = useLatest(selEdges)
+  const connectFromRef = useLatest(connectFrom)
+  const connectingRef = useLatest(connecting)
 
   /* ---- MathJax: re-render once the glyphs are available.
      mathRev is threaded into the memoised node/edge views because their props
@@ -599,11 +609,74 @@ export default function AiFigureMaker() {
     clearSel()
   }
 
+  /* ---- connectors ---- */
+
+  const toggleConnect = useCallback(() => {
+    setConnecting((on) => {
+      if (on) {
+        setConnectFrom(null)
+        setTemp(null)
+      } else {
+        setSelNodes([])
+        setSelEdges([])
+      }
+      return !on
+    })
+  }, [])
+
+  /** Wire the selected layers together in one action.
+   *
+   *  Building a fully-connected figure by hand means one connector per synapse
+   *  — 4×5 alone is twenty drags. Selecting the units of two or more layers and
+   *  running this does the whole thing, and leaves the new edges selected so
+   *  their style is one click away. */
+  const connectSelection = useCallback(() => {
+    const ids = selNodesRef.current
+    if (ids.length < 2) {
+      flash('노드를 2개 이상 선택하세요')
+      return
+    }
+    const r = fullyConnect(docRef.current, ids)
+    if (!r.edgeIds.length) {
+      flash('좌우로 나뉜 두 열 이상을 선택해야 합니다')
+      return
+    }
+    commit(r.doc)
+    setSelNodes([])
+    setSelEdges(r.edgeIds)
+    flash(`${r.columns}개 층 · 연결선 ${r.edgeIds.length}개`)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [commit, flash])
+
   /* ---- pointer interaction ---- */
 
   const gridSnap = (v: number) => {
     const c = docRef.current.canvas
     return c.snap ? Math.round(v / c.grid) * c.grid : v
+  }
+
+  /* Hover is decided by geometry, not by which DOM element happens to be on
+   * top.
+   *
+   * It used to come from pointerenter/leave on each node's hit rect. The anchor
+   * dots that hover puts on the border are painted in a different layer and
+   * take pointer events, so the moment you touched one the rect below it fired
+   * pointerleave — which unmounted the very dot you were reaching for. It
+   * reappeared as soon as the pointer fell through to the rect again, so the
+   * dots flickered and could not be grabbed at all. Hit-testing the document
+   * keeps the node hovered wherever the pointer is near it, dots included. */
+  const onHoverMove = (ev: React.PointerEvent) => {
+    if (dragRef.current) return
+    const w = toWorld(ev.clientX, ev.clientY)
+    // the dots straddle the border and stick out by their radius, so the hover
+    // region has to reach past the box or they drop out from under the pointer
+    const tol = 9 / viewRef.current.zoom
+    const hit = docRef.current.nodes
+      .slice()
+      .reverse()
+      .find((n) => !n.hidden && !n.locked && pointInNode(w, n, tol))
+    const id = hit?.id ?? null
+    setHoverId((h) => (h === id ? h : id))
   }
 
   const onPointerDown = (ev: React.PointerEvent) => {
@@ -617,6 +690,28 @@ export default function AiFigureMaker() {
     const el = ev.target as Element
     const world = toWorld(ev.clientX, ev.clientY)
     const d = docRef.current
+
+    // 0) connector mode: click the source, then click the target. The source
+    //    stays armed afterwards, so wiring one node to a whole column costs one
+    //    click per edge instead of one drag per edge.
+    if (connecting) {
+      const hit = el.getAttribute?.('data-hit-node')
+      const n = hit ? nmap.get(hit) : null
+      if (!n) {
+        setConnectFrom(null)
+        setTemp(null)
+        return
+      }
+      if (!connectFrom) {
+        setConnectFrom(n.id)
+        setTemp({ a: rectCenter(n), b: world, target: null })
+        return
+      }
+      if (n.id !== connectFrom) {
+        commit((cur) => connectNodes(cur, connectFrom, n.id).doc)
+      }
+      return
+    }
 
     // 1) transform handles
     const handle = el.getAttribute?.('data-handle')
@@ -740,7 +835,21 @@ export default function AiFigureMaker() {
   useEffect(() => {
     const onMove = (ev: PointerEvent) => {
       const drag = dragRef.current
-      if (!drag) return
+      if (!drag) {
+        // connector mode trails a line from the armed source even though no
+        // button is down, which is what tells you the click was registered
+        const from = connectFromRef.current
+        if (!from) return
+        const w = toWorld(ev.clientX, ev.clientY)
+        const over = docRef.current.nodes
+          .slice()
+          .reverse()
+          .find((n) => !n.hidden && pointInNode(w, n, 4))
+        setTemp((t) =>
+          t ? { ...t, b: w, target: over && over.id !== from ? over.id : null } : t,
+        )
+        return
+      }
       const world = toWorld(ev.clientX, ev.clientY)
 
       if (drag.t === 'pan') {
@@ -1098,7 +1207,28 @@ export default function AiFigureMaker() {
       }
       if (K === 'Escape') {
         setEditing(null)
+        // step out of connector mode one stage at a time: disarm the source
+        // first, leave the mode only on a second press
+        if (connectFromRef.current) {
+          setConnectFrom(null)
+          setTemp(null)
+          return
+        }
+        if (connectingRef.current) {
+          setConnecting(false)
+          return
+        }
         clearSel()
+        return
+      }
+      if (!mod && K.toLowerCase() === 'c') {
+        e.preventDefault()
+        toggleConnect()
+        return
+      }
+      if (!mod && K.toLowerCase() === 'l') {
+        e.preventDefault()
+        connectSelection()
         return
       }
       if ((K === 'Enter' || K === 'F2') && selNodesRef.current.length === 1) {
@@ -1131,7 +1261,7 @@ export default function AiFigureMaker() {
       window.removeEventListener('keyup', onKeyUp)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [undo, redo, fitView])
+  }, [undo, redo, fitView, toggleConnect, connectSelection])
 
   /* ---- clipboard: images beat the internal node clipboard ---- */
   useEffect(() => {
@@ -1289,6 +1419,23 @@ export default function AiFigureMaker() {
           </IconBtn>
           <IconBtn title="삭제 (Delete)" onClick={deleteSel} disabled={!selNodes.length && !selEdges.length}>
             ✕
+          </IconBtn>
+        </div>
+
+        <div className="af-tgroup">
+          <IconBtn
+            title="연결 모드 (C) — 시작 노드를 누르고 도착 노드를 누릅니다"
+            active={connecting}
+            onClick={toggleConnect}
+          >
+            ↗
+          </IconBtn>
+          <IconBtn
+            title="선택한 층 전결합 (L) — 좌우로 나뉜 열끼리 모두 잇습니다"
+            disabled={selNodes.length < 2}
+            onClick={connectSelection}
+          >
+            ⁂
           </IconBtn>
         </div>
 
@@ -1507,8 +1654,10 @@ export default function AiFigureMaker() {
             ref={svgRef}
             className="af-canvas"
             onPointerDown={onPointerDown}
+            onPointerMove={onHoverMove}
+            onPointerLeave={() => setHoverId(null)}
             onDoubleClick={onDoubleClick}
-            style={{ cursor: panning ? 'grabbing' : 'default' }}
+            style={{ cursor: panning ? 'grabbing' : connecting ? 'crosshair' : 'default' }}
           >
             <defs>
               <pattern id="af-grid" width={doc.canvas.grid} height={doc.canvas.grid} patternUnits="userSpaceOnUse">
@@ -1577,9 +1726,7 @@ export default function AiFigureMaker() {
                       transform={n.rotation ? `rotate(${n.rotation} ${n.x + n.w / 2} ${n.y + n.h / 2})` : undefined}
                       fill="transparent"
                       data-hit-node={n.id}
-                      onPointerEnter={() => setHoverId(n.id)}
-                      onPointerLeave={() => setHoverId((h) => (h === n.id ? null : h))}
-                      style={{ cursor: n.locked ? 'default' : 'move' }}
+                      style={{ cursor: connecting ? 'crosshair' : n.locked ? 'default' : 'move' }}
                     />
                   )
                 })}
@@ -1672,7 +1819,11 @@ export default function AiFigureMaker() {
           {ptOf(doc.canvas.baseFont, doc.canvas).toFixed(1)} pt
         </span>
         <span className="af-status-hint">
-          드래그 이동 · 초록 점에서 끌면 연결 · 더블클릭 편집 · 이미지는 끌어다 놓거나 ⌘V
+          {connecting
+            ? connectFrom
+              ? '도착 노드를 클릭하세요 · 시작점은 그대로 남아 연속 연결됩니다 · Esc 취소'
+              : '연결 모드 — 시작 노드를 클릭하세요 · Esc로 나가기'
+            : '드래그 이동 · C 연결 모드 · 여러 층 선택 후 L 전결합 · 더블클릭 편집 · 이미지는 끌어다 놓거나 ⌘V'}
         </span>
       </div>
 

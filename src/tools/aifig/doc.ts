@@ -316,6 +316,92 @@ export function connect(
   return { doc: { ...doc, edges: [...doc.edges, e] }, id: e.id }
 }
 
+/* ---------- bulk connect ---------- */
+
+/** Does `a` enclose `b`, and is it the bigger of the two? */
+const encloses = (a: Rect, b: Rect) =>
+  a.x <= b.x &&
+  a.y <= b.y &&
+  a.x + a.w >= b.x + b.w &&
+  a.y + a.h >= b.y + b.h &&
+  a.w * a.h > b.w * b.h
+
+/** Split nodes into left-to-right columns.
+ *
+ *  A new column starts wherever the gap between neighbouring centres is wider
+ *  than a typical node in the set — units inside one layer sit on the same x,
+ *  so any real gap is a layer boundary. */
+export function columnsOf(nodes: FigNode[]): FigNode[][] {
+  if (!nodes.length) return []
+  const pts = nodes
+    .map((n) => {
+      const b = nodeBounds(n)
+      return { n, cx: b.x + b.w / 2, cy: b.y + b.h / 2, w: b.w }
+    })
+    .sort((p, q) => p.cx - q.cx)
+  const widths = pts.map((p) => p.w).sort((a, b) => a - b)
+  const tol = Math.max(24, widths[widths.length >> 1] * 0.75)
+  const cols: (typeof pts)[] = [[pts[0]]]
+  for (let i = 1; i < pts.length; i++) {
+    if (pts[i].cx - pts[i - 1].cx > tol) cols.push([])
+    cols[cols.length - 1].push(pts[i])
+  }
+  return cols.map((c) => c.sort((p, q) => p.cy - q.cy).map((p) => p.n))
+}
+
+/** Wire every node of each column to every node of the next.
+ *
+ *  Selecting the layers of an MLP and running this once is the whole point —
+ *  the alternative is dragging a connector per synapse, which is what makes
+ *  hand-built network figures unbearable.
+ *
+ *  A node that encloses another selected node is dropped first: a layer's
+ *  container box comes along with a marquee selection but is not one of the
+ *  units being wired. */
+export function fullyConnect(
+  doc: FigDoc,
+  ids: string[],
+): { doc: FigDoc; edgeIds: string[]; columns: number } {
+  const picked = selectedNodes(doc, ids).filter((n) => !n.hidden)
+  const boxes = picked.map(nodeBounds)
+  const units = picked.filter(
+    (_, i) => !picked.some((_, j) => j !== i && encloses(boxes[i], boxes[j])),
+  )
+  const cols = columnsOf(units)
+  if (cols.length < 2) return { doc, edgeIds: [], columns: cols.length }
+
+  const p = paletteById(doc.paletteId)
+  const style = baseEdgeStyle(p, Math.max(9, doc.canvas.baseFont - 2))
+  const edges: FigEdge[] = []
+  for (let i = 0; i < cols.length - 1; i++)
+    for (const a of cols[i])
+      for (const b of cols[i + 1])
+        edges.push({
+          id: uid('e'),
+          from: { node: a.id, anchor: 'auto' },
+          to: { node: b.id, anchor: 'auto' },
+          route: 'straight',
+          waypoints: [],
+          startHead: 'none',
+          // plain lines: an arrowhead per synapse is unreadable at this
+          // density, and no published network figure draws them
+          endHead: 'none',
+          label: '',
+          labelT: 0.5,
+          labelDx: 0,
+          labelDy: 0,
+          bow: 24,
+          style: { ...style },
+          locked: false,
+          hidden: false,
+        })
+  return {
+    doc: { ...doc, edges: [...doc.edges, ...edges] },
+    edgeIds: edges.map((e) => e.id),
+    columns: cols.length,
+  }
+}
+
 /* ---------- palette swap ---------- */
 
 /** Re-map an existing figure onto another palette by nearest-hue matching, so

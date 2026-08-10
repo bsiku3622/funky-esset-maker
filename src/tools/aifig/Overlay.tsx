@@ -144,10 +144,10 @@ export default function Overlay({
                 key={a}
                 cx={p.x}
                 cy={p.y}
-                r={4 * k}
+                r={5.5 * k}
                 fill="#00c22a"
                 stroke="#fff"
-                strokeWidth={1.2 * k}
+                strokeWidth={1.4 * k}
                 pointerEvents="all"
                 data-anchor={a}
                 data-anchor-node={hoverNode.id}

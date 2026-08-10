@@ -536,6 +536,49 @@ const mlpOnly: Template['build'] = (p, font) => {
   return b.out()
 }
 
+/* Layers of individual units, each in its own container.
+ *
+ * The `mlp` shape draws a whole network as one glyph, which is right for a
+ * schematic and useless the moment you want to touch a single unit — colour one
+ * neuron, wire two layers by hand, drop a unit out. These are ordinary nodes:
+ * one rounded box per layer, one ellipse per unit, grouped so a layer still
+ * moves as a piece. Select the units and hit L to wire them. */
+const neuronLayers =
+  (counts: number[]): Template['build'] =>
+  (p, font) => {
+    const b = new Builder(p, font)
+    const D = 46 // unit diameter
+    const GAP = 30 // between units in a layer
+    const PAD = 15 // container padding
+    const PITCH = 200 // between layers
+    const boxH = (n: number) => n * D + (n - 1) * GAP + PAD * 2
+    const tall = boxH(Math.max(...counts))
+    counts.forEach((n, li) => {
+      const g = uid('g')
+      const x = li * PITCH
+      const y = (tall - boxH(n)) / 2
+      const box = b.n(`box${li}`, 'rect', x, y, D + PAD * 2, boxH(n), '', {
+        ci: 2,
+        radius: 20,
+      })
+      box.group = g
+      for (let k = 0; k < n; k++) {
+        const u = b.n(
+          `u${li}_${k}`,
+          'ellipse',
+          x + PAD,
+          y + PAD + k * (D + GAP),
+          D,
+          D,
+          '',
+          { ci: 1 },
+        )
+        u.group = g
+      }
+    })
+    return b.out()
+  }
+
 const tensorFlow3d: Template['build'] = (p, font) => {
   const b = new Builder(p, font)
   const sizes: [number, number, number][] = [
@@ -582,7 +625,9 @@ export const TEMPLATES: Template[] = [
   { id: 'diffusion', label: 'Diffusion 과정', group: '아키텍처', note: 'forward / reverse chain', build: diffusion },
   { id: 'deeponet', label: 'DeepONet', group: '연산자 학습', note: 'branch / trunk → 내적', build: deeponet },
   { id: 'pinn', label: 'PINN', group: '연산자 학습', note: 'autodiff → PDE residual', build: pinn },
-  { id: 'mlp', label: 'MLP 다이어그램', group: '기본', note: '완전연결 층', build: mlpOnly },
+  { id: 'mlp', label: 'MLP 다이어그램', group: '기본', note: '완전연결 층 (한 덩어리)', build: mlpOnly },
+  { id: 'units3', label: '뉴런 층 3개 (3·4·4)', group: '기본', note: '낱개 뉴런 — 선택 후 L로 전결합', build: neuronLayers([3, 4, 4]) },
+  { id: 'units1', label: '뉴런 층 1개 (4)', group: '기본', note: '층 하나만 추가', build: neuronLayers([4]) },
   { id: 'tensor3d', label: '3D 텐서 체인', group: '기본', note: 'feature map 축소', build: tensorFlow3d },
   { id: 'training', label: '학습 루프', group: '기본', note: '데이터 → 손실 → 옵티마이저', build: trainingLoop },
   { id: 'panel', label: '정성 비교 패널', group: '기본', note: 'Input / Ours / GT', build: comparisonPanel },
