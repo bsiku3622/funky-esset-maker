@@ -374,7 +374,20 @@ export const SHAPES: ShapeSpec[] = [
     group: 'AI',
     w: 150,
     h: 110,
-    icon: 'M6 5v0M6 12v0M6 19v0M18 8v0M18 16v0',
+    /* ⚠️ This was five zero-length segments — `M6 5v0` and friends — meaning
+       "put a dot here". Nothing drew: the icons are stroked with the default
+       butt cap, which gives a segment of length zero no width to show. Drawn
+       as a fan of real lines between real circles instead, so it does not
+       depend on a cap setting to exist. */
+    /* Four links, not the full six: at 22px every crossing is a blob, and the
+       rest of the rail is line art with air in it. */
+    icon:
+      'M8 5L16 8.5M8 12L16 8.5M8 12L16 15.5M8 19L16 15.5' +
+      'M4 5a2 2 0 1 0 4 0a2 2 0 1 0-4 0' +
+      'M4 12a2 2 0 1 0 4 0a2 2 0 1 0-4 0' +
+      'M4 19a2 2 0 1 0 4 0a2 2 0 1 0-4 0' +
+      'M16 8.5a2 2 0 1 0 4 0a2 2 0 1 0-4 0' +
+      'M16 15.5a2 2 0 1 0 4 0a2 2 0 1 0-4 0',
     props: { layers: [4, 5, 3], showEdges: true, neuronR: 6 },
     labelText: '',
     style: { fill: '#ffffff', strokeWidth: 1 },
