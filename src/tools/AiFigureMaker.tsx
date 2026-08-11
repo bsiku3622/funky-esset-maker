@@ -79,6 +79,7 @@ import {
   unionRect,
   type Guide,
   type MovedSides,
+  type Sticky,
 } from './aifig/geometry'
 import { NodeView } from './aifig/shapes'
 import {
@@ -117,6 +118,8 @@ type Drag =
       orig: Map<string, Pt>
       box: Rect
       moved: boolean
+      /** which alignment each axis locked onto, so it stays locked */
+      sticky: Sticky
     }
   | {
       t: 'resize'
@@ -928,7 +931,15 @@ export default function AiFigureMaker() {
         if (!box) return
         beginDrag()
         setDragging(true)
-        dragRef.current = { t: 'move', ids: [...orig.keys()], start: world, orig, box, moved: false }
+        dragRef.current = {
+          t: 'move',
+          ids: [...orig.keys()],
+          start: world,
+          orig,
+          box,
+          moved: false,
+          sticky: { x: null, y: null },
+        }
         return
       }
     }
@@ -994,8 +1005,9 @@ export default function AiFigureMaker() {
         const moving = { x: drag.box.x + dx, y: drag.box.y + dy, w: drag.box.w, h: drag.box.h }
         const others = d.nodes.filter((n) => !drag.ids.includes(n.id) && !n.hidden).map(inkRect)
         const snap = free
-          ? { dx: 0, dy: 0, hitX: false, hitY: false, guides: [] as Guide[] }
-          : snapGuides(moving, others, SNAP_PX / viewRef.current.zoom)
+          ? { dx: 0, dy: 0, hitX: false, hitY: false, guides: [] as Guide[], atX: null, atY: null }
+          : snapGuides(moving, others, SNAP_PX / viewRef.current.zoom, drag.sticky)
+        drag.sticky = { x: snap.atX, y: snap.atY }
         /* Positions land on half cells — the corners *and* the middles of the
            checker, which is what lets an odd box centre itself on the lattice
            and an even one sit flush. Quantising the selection's box rather than

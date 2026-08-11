@@ -678,6 +678,85 @@ export interface SnapResult {
   hitX: boolean
   hitY: boolean
   guides: Guide[]
+  /** the coordinate each axis locked onto; feed it back next frame as `sticky` */
+  atX: number | null
+  atY: number | null
+}
+
+/** What the previous frame locked onto, so the choice does not change hands
+ *  while the pointer jitters between two alignments that both nearly fit. */
+export interface Sticky {
+  x: number | null
+  y: number | null
+}
+
+/** One possible alignment: shifting the moving box by `d` puts its edge or
+ *  centre exactly on `at`, a coordinate belonging to `ref`. */
+interface Align {
+  d: number
+  at: number
+  ref: Rect
+}
+
+/* Deltas this close count as the same alignment. Node coordinates are rounded
+ * to whole pixels, so two edges that are "the same" routinely differ by a
+ * fraction; anything tighter would split them into rival answers. */
+const TIE = 0.75
+
+/* Pick the shift for one axis.
+ *
+ * ⚠️ Not "the nearest single match" — that is what made the guides flicker.
+ * Drag a copy of a block alongside the original and its top and bottom line up
+ * at the same time, but the two deltas differ by a fraction of a pixel because
+ * the boxes are not pixel-identical. Taking the nearest one made the winner
+ * flip between them as the pointer moved, so the guide jumped from the top edge
+ * to the bottom and back several times a second, and only ever one of the two
+ * was drawn.
+ *
+ * So: cluster the candidate deltas and take the cluster the *most* of them
+ * agree on. Alignments that hold at several places beat a lone closer one,
+ * which is also the better answer — lining a block up with a block should win
+ * over clipping one edge to a passing neighbour. */
+/* How much closer a rival alignment has to be before it takes over from the one
+ * already in force. Two alignments that cannot both hold — a block a pixel
+ * taller than its neighbour can match the top or the bottom, never both — sit
+ * either side of a midpoint the pointer wanders across, and without this the
+ * answer changes hands every time it does. */
+const STICKY = 2.5
+
+function axisAlign(
+  mCoords: number[],
+  others: Rect[],
+  coordsOf: (r: Rect) => number[],
+  threshold: number,
+  sticky: number | null,
+): { d: number; hits: Align[]; at: number } | null {
+  const cands: Align[] = []
+  for (const o of others) {
+    const oc = coordsOf(o)
+    for (const a of mCoords)
+      for (const b of oc) {
+        const d = b - a
+        if (Math.abs(d) <= threshold) cands.push({ d, at: b, ref: o })
+      }
+  }
+  if (!cands.length) return null
+
+  // sweep the sorted deltas for the widest agreement, nearest cluster winning ties
+  cands.sort((p, q) => p.d - q.d)
+  let best: { d: number; hits: Align[]; at: number; cost: number } | null = null
+  let lo = 0
+  for (let hi = 0; hi < cands.length; hi++) {
+    while (cands[hi].d - cands[lo].d > TIE) lo++
+    const hits = cands.slice(lo, hi + 1)
+    // within a cluster, snap to the member that needs the smallest move
+    const pick = hits.reduce((m, c) => (Math.abs(c.d) < Math.abs(m.d) ? c : m), hits[0])
+    const held = sticky !== null && hits.some((h) => Math.abs(h.at - sticky) < 0.01)
+    const cost = Math.abs(pick.d) - (held ? STICKY : 0)
+    if (!best || hits.length > best.hits.length || (hits.length === best.hits.length && cost < best.cost))
+      best = { d: pick.d, hits, at: pick.at, cost }
+  }
+  return best
 }
 
 /** Nudge a moving bbox so its edges/centres line up with static ones.
@@ -686,50 +765,63 @@ export function snapGuides(
   moving: Rect,
   others: Rect[],
   threshold: number,
+  sticky: Sticky = { x: null, y: null },
 ): SnapResult {
-  const mx = [moving.x, moving.x + moving.w / 2, moving.x + moving.w]
-  const my = [moving.y, moving.y + moving.h / 2, moving.y + moving.h]
-  let bestX: { d: number; at: number; ref: Rect } | null = null
-  let bestY: { d: number; at: number; ref: Rect } | null = null
+  const x = axisAlign(
+    [moving.x, moving.x + moving.w / 2, moving.x + moving.w],
+    others,
+    (o) => [o.x, o.x + o.w / 2, o.x + o.w],
+    threshold,
+    sticky.x,
+  )
+  const y = axisAlign(
+    [moving.y, moving.y + moving.h / 2, moving.y + moving.h],
+    others,
+    (o) => [o.y, o.y + o.h / 2, o.y + o.h],
+    threshold,
+    sticky.y,
+  )
+  const dx = x?.d ?? 0
+  const dy = y?.d ?? 0
+  const shifted = { x: moving.x + dx, y: moving.y + dy, w: moving.w, h: moving.h }
 
-  for (const o of others) {
-    const ox = [o.x, o.x + o.w / 2, o.x + o.w]
-    const oy = [o.y, o.y + o.h / 2, o.y + o.h]
-    for (const a of mx)
-      for (const b of ox) {
-        const d = b - a
-        if (Math.abs(d) <= threshold && (!bestX || Math.abs(d) < Math.abs(bestX.d)))
-          bestX = { d, at: b, ref: o }
+  /* Draw every line the chosen shift actually lands on, not just the one that
+     won. Two lines meaning "these two blocks agree top and bottom" is the whole
+     point; one line that keeps changing its mind is noise.
+
+     Guides are keyed by coordinate so several references sharing an edge give
+     one line, spanning all of them. */
+  const byKey = new Map<string, Guide>()
+  const add = (axis: 'x' | 'y', hits: Align[] | undefined, d: number) => {
+    for (const h of hits ?? []) {
+      if (Math.abs(h.d - d) > TIE) continue
+      const key = `${axis}${h.at.toFixed(1)}`
+      const lo =
+        axis === 'x' ? Math.min(shifted.y, h.ref.y) : Math.min(shifted.x, h.ref.x)
+      const hi =
+        axis === 'x'
+          ? Math.max(shifted.y + shifted.h, h.ref.y + h.ref.h)
+          : Math.max(shifted.x + shifted.w, h.ref.x + h.ref.w)
+      const cur = byKey.get(key)
+      if (cur) {
+        cur.from = Math.min(cur.from, lo - 12)
+        cur.to = Math.max(cur.to, hi + 12)
+      } else {
+        byKey.set(key, { axis, at: h.at, from: lo - 12, to: hi + 12 })
       }
-    for (const a of my)
-      for (const b of oy) {
-        const d = b - a
-        if (Math.abs(d) <= threshold && (!bestY || Math.abs(d) < Math.abs(bestY.d)))
-          bestY = { d, at: b, ref: o }
-      }
+    }
   }
+  add('x', x?.hits, dx)
+  add('y', y?.hits, dy)
 
-  const guides: Guide[] = []
-  if (bestX)
-    guides.push({
-      axis: 'x',
-      at: bestX.at,
-      from: Math.min(moving.y, bestX.ref.y) - 12,
-      to: Math.max(moving.y + moving.h, bestX.ref.y + bestX.ref.h) + 12,
-    })
-  if (bestY)
-    guides.push({
-      axis: 'y',
-      at: bestY.at,
-      from: Math.min(moving.x, bestY.ref.x) - 12,
-      to: Math.max(moving.x + moving.w, bestY.ref.x + bestY.ref.w) + 12,
-    })
   return {
-    dx: bestX?.d ?? 0,
-    dy: bestY?.d ?? 0,
-    hitX: !!bestX,
-    hitY: !!bestY,
-    guides,
+    dx,
+    dy,
+    hitX: !!x,
+    hitY: !!y,
+    guides: [...byKey.values()],
+    atX: x?.at ?? null,
+    atY: y?.at ?? null,
   }
 }
 
