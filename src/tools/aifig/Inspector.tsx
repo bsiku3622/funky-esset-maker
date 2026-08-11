@@ -7,6 +7,7 @@
 import { useMemo } from 'react'
 import type {
   AlignKind,
+  Anchor,
   CanvasCfg,
   DashKind,
   FigDoc,
@@ -58,6 +59,21 @@ const ROUTES: { key: RouteKind; label: string }[] = [
   { key: 'ortho', label: '직각' },
   { key: 'curve', label: '곡선' },
   { key: 'arc', label: '호' },
+]
+
+/* Which side of a node a connector leaves from and lands on.
+ *
+ * The routing geometry has supported all nine anchors from the start, but
+ * nothing exposed them: dragging out of an anchor dot fixed the *start* side
+ * and the end was hardcoded to `auto`, so "out of the right, into the top" —
+ * the ordinary L a side branch wants — could not be expressed at all. Only the
+ * four sides are offered; corners route badly and `auto` covers the rest. */
+const ANCHORS: { key: Anchor; label: string }[] = [
+  { key: 'auto', label: '자동' },
+  { key: 'n', label: '위' },
+  { key: 'e', label: '오른쪽' },
+  { key: 's', label: '아래' },
+  { key: 'w', label: '왼쪽' },
 ]
 
 const OPS: { key: string; label: string }[] = [
@@ -698,6 +714,22 @@ function EdgePanel({
       <Group title={edges.length > 1 ? `연결선 ${edges.length}개` : '연결선'}>
         <Field label="경로">
           <Seg value={e.route} options={ROUTES} onChange={(route) => onEdge(() => ({ route }))} />
+        </Field>
+        <Field label="붙는 위치">
+          <Sel
+            value={'node' in e.from ? e.from.anchor : 'auto'}
+            options={ANCHORS.map((a) => ({ key: a.key, label: `시작: ${a.label}` }))}
+            onChange={(anchor) =>
+              onEdge((cur) => ('node' in cur.from ? { from: { ...cur.from, anchor } } : {}))
+            }
+          />
+          <Sel
+            value={'node' in e.to ? e.to.anchor : 'auto'}
+            options={ANCHORS.map((a) => ({ key: a.key, label: `끝: ${a.label}` }))}
+            onChange={(anchor) =>
+              onEdge((cur) => ('node' in cur.to ? { to: { ...cur.to, anchor } } : {}))
+            }
+          />
         </Field>
         {e.route === 'arc' ? (
           <Field label="휨">
