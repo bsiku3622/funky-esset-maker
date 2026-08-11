@@ -110,6 +110,10 @@ export interface NodeProps {
   natH?: number
   /* curve */
   fn?: 'relu' | 'sigmoid' | 'tanh' | 'gelu' | 'loss' | 'sine' | 'step'
+  /* text */
+  /** box tracks the glyphs instead of the other way round. Absent on nodes
+   *  saved before it existed, which keeps their layout frozen. */
+  autoFit?: boolean
   /* trapezoid */
   taper?: number // 0..0.9, how much the short side shrinks
   /* frame */
@@ -171,6 +175,9 @@ export interface EdgeStyle {
   fontFamily: FontKind
   fontSize: number
   textColor: string
+  /** Which side of the label's anchor the text sits on, and the ragged edge of
+   *  a multi-line one. Absent on edges saved before it existed: centred. */
+  align?: AlignKind
   /** label background plate — keeps text readable over crossing lines */
   labelBg: string // 'none' to disable
 }

@@ -222,12 +222,21 @@ function CanvasPanel({
           />
         </Field>
         <Field label="그리드">
-          <Chk checked={c.showGrid} onChange={(showGrid) => onCanvas({ showGrid })} label="표시" />
+          <Chk
+            checked={c.showGrid}
+            onChange={(showGrid) => onCanvas({ showGrid })}
+            label="점 표시"
+          />
           <Chk checked={c.snap} onChange={(snap) => onCanvas({ snap })} label="스냅" />
         </Field>
         <Field label="간격">
           <Num value={c.grid} min={2} max={64} onChange={(grid) => onCanvas({ grid })} suffix="px" width={52} />
         </Field>
+        <p className="af-note">
+          투명 배경의 체크무늬 한 칸이 이 간격입니다 — 보이는 칸 모서리가 곧 스냅 지점이에요. 점은
+          칸 가운데 표시일 뿐이라 체크무늬가 보일 때는 그리지 않고, 흰색·종이 배경에서만 대신
+          나옵니다.
+        </p>
         <Field label="기본 글자">
           <Num
             value={c.baseFont}
@@ -548,6 +557,22 @@ function KindPanel({
           </Field>
         </Group>
       )
+    case 'text':
+      return (
+        <Group title="텍스트">
+          <Field label="크기" wide>
+            <Chk
+              checked={p.autoFit === true}
+              onChange={(autoFit) => onProps({ autoFit })}
+              label="내용에 맞춤"
+            />
+          </Field>
+          <p className="af-note">
+            켜면 상자가 글자를 따라가서 정렬·스냅이 글자 기준으로 맞습니다. 핸들로 크기를 바꾸면
+            자동으로 꺼집니다.
+          </p>
+        </Group>
+      )
     case 'curve':
       return (
         <Group title="곡선">
@@ -791,6 +816,15 @@ function EdgePanel({
           <span className="af-hint-inline">보정</span>
           <Num value={e.labelDx} onChange={(labelDx) => onEdge(() => ({ labelDx }))} width={44} />
           <Num value={e.labelDy} onChange={(labelDy) => onEdge(() => ({ labelDy }))} width={44} />
+        </Field>
+        <Field label="정렬">
+          <Seg
+            compact
+            value={s.align ?? 'center'}
+            options={ALIGNS}
+            onChange={(align) => onEdgeStyle({ align })}
+          />
+          <span className="af-hint-inline">기준점 대비</span>
         </Field>
         <Field label="글자">
           <Num

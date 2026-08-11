@@ -503,6 +503,7 @@ export const SHAPES: ShapeSpec[] = [
     h: 26,
     icon: 'M5 6h14M12 6v13',
     labelText: '$\\mathcal{L}_{\\mathrm{data}}$',
+    props: { autoFit: true },
     style: { fill: 'none', stroke: 'none', fontSize: 15 },
   },
   {

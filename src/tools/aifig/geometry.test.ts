@@ -139,6 +139,29 @@ describe('orthogonal routing', () => {
     }
   })
 
+  /* A residual/skip connection leaves and arrives on the *same* side, so the
+     target sits behind the stub. The detour lanes straddle both endpoints, and
+     the one the router used to pick reached the far side by crossing back over
+     the block it had just left — see logs.md, 2026-08-11. */
+  it('routes a same-side skip connection outside both boxes', () => {
+    const src = node(100, 90, 300, 95)
+    const dst = node(188, 477, 80, 80)
+    const segs = route(
+      'ortho',
+      anchorPoint(src, 'w', center(dst)),
+      anchorPoint(dst, 'w', center(src)),
+      [],
+      0,
+      RADIUS,
+    )
+    const inside = (p: { x: number; y: number }, n: FigNode) =>
+      p.x > n.x + 1 && p.x < n.x + n.w - 1 && p.y > n.y + 1 && p.y < n.y + n.h - 1
+    for (const p of pathInfo(segs).pts) {
+      expect(inside(p, src)).toBe(false)
+      expect(inside(p, dst)).toBe(false)
+    }
+  })
+
   it('does not round a collinear point into a curve', () => {
     // horizontally aligned neighbours: a straight shot, no corners at all
     const segs = ortho(node(0, 0), node(400, 0))

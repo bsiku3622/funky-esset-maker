@@ -1,9 +1,10 @@
 /* Turn an edge's endpoints into concrete path geometry. Pure, so the editor
  * (hit testing, overlay handles) and the renderer share one answer. */
 
-import type { EndPoint, FigEdge, FigNode, Pt } from './types'
+import type { EndPoint, FigEdge, FigNode, Pt, Rect } from './types'
 import {
   anchorPoint,
+  nodeBounds,
   pathInfo,
   route,
   trimPath,
@@ -53,7 +54,17 @@ export function resolveEdge(
   const b = endPointOf(e.to, nodes, towardB)
   if (!a || !b) return null
 
-  const segs = route(e.route, a, b, e.waypoints, e.bow)
+  /* An 'auto' anchor already faces the other end, so it never routes back over
+     itself; a hand-picked side can, which is what makes an ortho skip
+     connection cut through the block it leaves. Hand the router the two boxes
+     so it can rule those candidates out. */
+  const boxes: Rect[] = []
+  for (const ep of [e.from, e.to]) {
+    if ('free' in ep) continue
+    const n = nodes.get(ep.node)
+    if (n && ep.anchor !== 'c') boxes.push(nodeBounds(n))
+  }
+  const segs = route(e.route, a, b, e.waypoints, e.bow, undefined, boxes)
   const info = pathInfo(segs)
 
   const sw = e.style.strokeWidth

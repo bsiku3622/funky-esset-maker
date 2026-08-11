@@ -281,6 +281,8 @@ export function route(
   waypoints: Pt[],
   bow: number,
   radius = 8,
+  /** boxes an orthogonal route should not run through — the endpoint shapes */
+  avoid: Rect[] = [],
 ): PathSeg[] {
   const pts = [a.p, ...waypoints, b.p]
 
@@ -314,7 +316,7 @@ export function route(
   }
 
   // orthogonal
-  return roundCorners(orthoPoints(a, b, waypoints, radius), radius)
+  return roundCorners(orthoPoints(a, b, waypoints, radius, avoid), radius)
 }
 
 const len2 = (p: Pt) => p.x * p.x + p.y * p.y > 1e-6
@@ -352,6 +354,7 @@ function orthoPoints(
   b: AnchorPoint,
   waypoints: Pt[],
   radius: number,
+  avoid: Rect[],
 ): Pt[] {
   if (waypoints.length) {
     // route through the waypoints with axis-aligned dog-legs
@@ -416,10 +419,17 @@ function orthoPoints(
   const cands: Pt[][] = []
   if (horizA && horizB) {
     if (agrees(s, e, a.dir, true) && agrees(e, s, b.dir, true)) cands.push(zx((s.x + e.x) / 2))
+    /* Both stubs point the same way and the target is behind us — the skip
+       connection case. Run down the lane the stub already opened and come in
+       along the target's row: one bend, and it stays outside both shapes. Try
+       this before the detour lanes, which straddle the endpoints and can only
+       reach the far side by crossing back over the node they left. */
+    cands.push(zy(e.y))
     for (const my of near(laneY, (s.y + e.y) / 2)) cands.push(zy(my))
     cands.push(zx(s.x + a.dir.x * D))
   } else if (!horizA && !horizB) {
     if (agrees(s, e, a.dir, false) && agrees(e, s, b.dir, false)) cands.push(zy((s.y + e.y) / 2))
+    cands.push(zx(e.x))
     for (const mx of near(laneX, (s.x + e.x) / 2)) cands.push(zx(mx))
     cands.push(zy(s.y + a.dir.y * D))
   } else if (horizA) {
@@ -433,11 +443,38 @@ function orthoPoints(
     for (const mx of near(laneX, s.x)) cands.push(zx(mx))
   }
 
-  for (const mids of cands) {
-    const pts = dedupe([a.p, s, ...mids, e, b.p])
-    if (legsFit(pts, radius)) return pts
+  /* Two passes: first insist the route stays out of the shapes it connects,
+     then take the best-fitting one regardless. Without the second pass a
+     cramped layout would lose its rounded corners rather than its overlap,
+     and a corner is the cheaper thing to give up. */
+  for (const strict of [true, false]) {
+    for (const mids of cands) {
+      const pts = dedupe([a.p, s, ...mids, e, b.p])
+      if (!legsFit(pts, radius)) continue
+      if (strict && !clearOf(pts, avoid)) continue
+      return pts
+    }
   }
   return dedupe([a.p, s, ...cands[0], e, b.p])
+}
+
+/** Does an axis-aligned leg run through `r`? The margin keeps a stub that
+ *  starts on the outline — every stub does — from counting as a crossing. */
+function segInRect(p: Pt, q: Pt, r: Rect) {
+  const m = 1.5
+  return (
+    Math.max(p.x, q.x) > r.x + m &&
+    Math.min(p.x, q.x) < r.x + r.w - m &&
+    Math.max(p.y, q.y) > r.y + m &&
+    Math.min(p.y, q.y) < r.y + r.h - m
+  )
+}
+
+function clearOf(pts: Pt[], rects: Rect[]) {
+  if (!rects.length) return true
+  for (let i = 1; i < pts.length; i++)
+    for (const r of rects) if (segInRect(pts[i - 1], pts[i], r)) return false
+  return true
 }
 
 /** Can every leg host the fillets of the corners at its ends, and does the
@@ -581,6 +618,11 @@ export interface Guide {
 export interface SnapResult {
   dx: number
   dy: number
+  /* Whether an alignment was found at all, which "dx === 0" cannot answer: a
+     node already lined up returns a zero delta, and the caller has to tell that
+     apart from "nothing to align with" or it will grid-snap the alignment away. */
+  hitX: boolean
+  hitY: boolean
   guides: Guide[]
 }
 
@@ -628,5 +670,82 @@ export function snapGuides(
       from: Math.min(moving.x, bestY.ref.x) - 12,
       to: Math.max(moving.x + moving.w, bestY.ref.x + bestY.ref.w) + 12,
     })
-  return { dx: bestX?.d ?? 0, dy: bestY?.d ?? 0, guides }
+  return {
+    dx: bestX?.d ?? 0,
+    dy: bestY?.d ?? 0,
+    hitX: !!bestX,
+    hitY: !!bestY,
+    guides,
+  }
+}
+
+/** Which sides a resize handle is dragging. */
+export interface MovedSides {
+  l?: boolean
+  r?: boolean
+  t?: boolean
+  b?: boolean
+}
+
+/** The resize counterpart of `snapGuides`: line the edge under the cursor up
+ *  with a neighbour's edge or centre. Only the dragged sides move — snapping
+ *  the whole box would resize the side the user is holding still. */
+export function snapSides(
+  rect: Rect,
+  sides: MovedSides,
+  others: Rect[],
+  threshold: number,
+): { rect: Rect; guides: Guide[] } {
+  const guides: Guide[] = []
+  const out = { ...rect }
+
+  /** Nearest of the three alignment coordinates each neighbour offers. */
+  const pull = (v: number, axis: 'x' | 'y') => {
+    let best: { at: number; ref: Rect } | null = null
+    for (const o of others) {
+      const cs = axis === 'x' ? [o.x, o.x + o.w / 2, o.x + o.w] : [o.y, o.y + o.h / 2, o.y + o.h]
+      for (const c of cs)
+        if (Math.abs(c - v) <= threshold && (!best || Math.abs(c - v) < Math.abs(best.at - v)))
+          best = { at: c, ref: o }
+    }
+    return best
+  }
+  const guideFor = (axis: 'x' | 'y', at: number, ref: Rect) => {
+    const lo = axis === 'x' ? Math.min(rect.y, ref.y) : Math.min(rect.x, ref.x)
+    const hi =
+      axis === 'x'
+        ? Math.max(rect.y + rect.h, ref.y + ref.h)
+        : Math.max(rect.x + rect.w, ref.x + ref.w)
+    guides.push({ axis, at, from: lo - 12, to: hi + 12 })
+  }
+
+  if (sides.l) {
+    const hit = pull(rect.x, 'x')
+    if (hit) {
+      out.w = out.x + out.w - hit.at
+      out.x = hit.at
+      guideFor('x', hit.at, hit.ref)
+    }
+  } else if (sides.r) {
+    const hit = pull(rect.x + rect.w, 'x')
+    if (hit) {
+      out.w = hit.at - out.x
+      guideFor('x', hit.at, hit.ref)
+    }
+  }
+  if (sides.t) {
+    const hit = pull(rect.y, 'y')
+    if (hit) {
+      out.h = out.y + out.h - hit.at
+      out.y = hit.at
+      guideFor('y', hit.at, hit.ref)
+    }
+  } else if (sides.b) {
+    const hit = pull(rect.y + rect.h, 'y')
+    if (hit) {
+      out.h = hit.at - out.y
+      guideFor('y', hit.at, hit.ref)
+    }
+  }
+  return { rect: out, guides }
 }

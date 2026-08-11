@@ -28,7 +28,7 @@ function asStyle(s: EdgeStyle): Style {
     fontWeight: 400,
     italic: false,
     textColor: s.textColor,
-    align: 'center',
+    align: s.align ?? 'center',
     lineHeight: 1.2,
   }
 }
@@ -104,7 +104,9 @@ export const EdgeView = memo(function EdgeView({
         >
           {s.labelBg !== 'none' ? (
             <rect
-              x={-label.w / 2 - 3}
+              /* the plate follows the text, so it has to read the same anchor
+                 rule LabelView does rather than assume the block is centred */
+              x={(style.align === 'left' ? 0 : style.align === 'right' ? -label.w : -label.w / 2) - 3}
               y={-label.h / 2 - 1.5}
               width={label.w + 6}
               height={label.h + 3}

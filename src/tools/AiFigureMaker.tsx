@@ -70,11 +70,13 @@ import {
   rectsOverlap,
   rotatePt,
   snapGuides,
+  snapSides,
   unionRect,
   type Guide,
+  type MovedSides,
 } from './aifig/geometry'
 import { NodeView } from './aifig/shapes'
-import { ptOf, shapeOverflow } from './aifig/layout'
+import { inkRect, ptOf, refitText, shapeOverflow } from './aifig/layout'
 import { EdgeView } from './aifig/edges'
 import { resolveEdge, type ResolvedEdge } from './aifig/resolve'
 import { ensureMathJax, onMathReady } from './aifig/latex'
@@ -107,6 +109,7 @@ type Drag =
   | {
       t: 'resize'
       id: string
+      kind: NodeKind
       handle: HandleKey
       orig: Rect
       rotation: number
@@ -120,6 +123,9 @@ type Drag =
   | { t: 'endpoint'; edge: string; which: 'from' | 'to' }
   | { t: 'waypoint'; edge: string; index: number; moved: boolean }
   | null
+
+/** How close an edge has to come, on screen, before a guide claims it. */
+const SNAP_PX = 5
 
 const ZOOM_MIN = 0.15
 const ZOOM_MAX = 6
@@ -252,18 +258,6 @@ export default function AiFigureMaker() {
      mathRev is threaded into the memoised node/edge views because their props
      do not change when the formula cache fills in. ---- */
   const [mathRev, setMathRev] = useState(0)
-  useEffect(() => {
-    let alive = true
-    const bumpRev = () => {
-      if (alive) setMathRev((r) => r + 1)
-    }
-    void ensureMathJax().then(bumpRev)
-    const off = onMathReady(bumpRev)
-    return () => {
-      alive = false
-      off()
-    }
-  }, [])
 
   /* ---- history ---- */
   const hist = useRef<{ past: FigDoc[]; future: FigDoc[] }>({ past: [], future: [] })
@@ -283,10 +277,16 @@ export default function AiFigureMaker() {
     },
     [syncHistory],
   )
+  /* Every edit passes through here, so this is the one place an auto-fitting
+     text node can be kept the size of its own glyphs — including the edits
+     that resize it indirectly, like changing the font. refitText returns the
+     document unchanged when nothing moved, so commit's identity check and the
+     drag-frame render path both stay as cheap as they were. Undo and redo
+     deliberately skip it: they restore, they do not edit. */
   /** Change the document and open a new undo step. */
   const commit = useCallback((next: FigDoc | ((d: FigDoc) => FigDoc)) => {
     const cur = docRef.current
-    const value = typeof next === 'function' ? next(cur) : next
+    const value = refitText(typeof next === 'function' ? next(cur) : next)
     if (value === cur) return
     pushPast(cur)
     docRef.current = value
@@ -295,7 +295,8 @@ export default function AiFigureMaker() {
   /** Change the document without touching history (drag frames). */
   const live = useCallback((next: FigDoc | ((d: FigDoc) => FigDoc)) => {
     const cur = docRef.current
-    const value = typeof next === 'function' ? next(cur) : next
+    const value = refitText(typeof next === 'function' ? next(cur) : next)
+    if (value === cur) return
     docRef.current = value
     setDocState(value)
   }, [])
@@ -332,6 +333,23 @@ export default function AiFigureMaker() {
     setEditing(null)
     syncHistory()
   }, [syncHistory])
+
+  /* Declared after `live` on purpose: the ready callback re-measures the text
+     nodes that were sized from the plain-text fallback. */
+  useEffect(() => {
+    let alive = true
+    const bumpRev = () => {
+      if (!alive) return
+      setMathRev((r) => r + 1)
+      live(refitText)
+    }
+    void ensureMathJax().then(bumpRev)
+    const off = onMathReady(bumpRev)
+    return () => {
+      alive = false
+      off()
+    }
+  }, [live])
 
   const flash = useCallback((m: string) => {
     setToast(m)
@@ -770,12 +788,18 @@ export default function AiFigureMaker() {
           dragRef.current = {
             t: 'resize',
             id: n.id,
+            kind: n.kind,
             handle: handle as HandleKey,
             orig: { x: n.x, y: n.y, w: n.w, h: n.h },
             rotation: n.rotation,
             start: world,
             moved: false,
           }
+          // grabbing a handle is the user taking the box over from the text
+          if (n.props.autoFit)
+            live((cur) =>
+              patchNodes(cur, [n.id], (t) => ({ props: { ...t.props, autoFit: false } })),
+            )
         }
         return
       }
@@ -845,7 +869,8 @@ export default function AiFigureMaker() {
           const nn = nmap.get(id)
           if (nn && !nn.locked) orig.set(id, { x: nn.x, y: nn.y })
         }
-        const box = unionRect([...orig.keys()].map((id) => nodeBounds(nmap.get(id)!)))
+        // the ink, not the box: what the guides line up is what you can see
+        const box = unionRect([...orig.keys()].map((id) => inkRect(nmap.get(id)!)))
         if (!box) return
         beginDrag()
         setDragging(true)
@@ -901,21 +926,29 @@ export default function AiFigureMaker() {
           else dx = 0
         }
         const d = docRef.current
-        if (d.canvas.snap) {
-          const first = drag.orig.get(drag.ids[0])!
-          dx = Math.round((first.x + dx) / d.canvas.grid) * d.canvas.grid - first.x
-          dy = Math.round((first.y + dy) / d.canvas.grid) * d.canvas.grid - first.y
-        }
-        // smart guides against the unselected nodes
+        const free = ev.metaKey || ev.ctrlKey
+        /* Guides first, grid second.
+         *
+         * ⚠️ These two used to run the other way round — quantise to the grid,
+         * then let a guide pull up to 5px further. Any neighbour whose edge or
+         * centre was not itself on the grid (an odd width puts its centre half
+         * a step off, so most of them) then dragged the node back off it, and
+         * the next drag re-quantised. That flip-flop is what made snapping feel
+         * arbitrary. An alignment with something you can see beats one with an
+         * invisible lattice, so it wins the axis outright and the grid only
+         * gets the axes no guide claimed. */
         const moving = { x: drag.box.x + dx, y: drag.box.y + dy, w: drag.box.w, h: drag.box.h }
-        const others = d.nodes
-          .filter((n) => !drag.ids.includes(n.id) && !n.hidden)
-          .map(nodeBounds)
-        const snap = ev.metaKey || ev.ctrlKey
-          ? { dx: 0, dy: 0, guides: [] as Guide[] }
-          : snapGuides(moving, others, 5 / viewRef.current.zoom)
-        dx += snap.dx
-        dy += snap.dy
+        const others = d.nodes.filter((n) => !drag.ids.includes(n.id) && !n.hidden).map(inkRect)
+        const snap = free
+          ? { dx: 0, dy: 0, hitX: false, hitY: false, guides: [] as Guide[] }
+          : snapGuides(moving, others, SNAP_PX / viewRef.current.zoom)
+        const first = drag.orig.get(drag.ids[0])!
+        const toGrid = (o: number, delta: number) =>
+          Math.round((o + delta) / d.canvas.grid) * d.canvas.grid - o
+        if (snap.hitX) dx += snap.dx
+        else if (d.canvas.snap && !free) dx = toGrid(first.x, dx)
+        if (snap.hitY) dy += snap.dy
+        else if (d.canvas.snap && !free) dy = toGrid(first.y, dy)
         setGuides(snap.guides)
         drag.moved = drag.moved || dx !== 0 || dy !== 0
         live((cur) =>
@@ -933,13 +966,9 @@ export default function AiFigureMaker() {
         const c0 = { x: o.x + o.w / 2, y: o.y + o.h / 2 }
         const local = drag.rotation ? rotatePt(world, c0, -drag.rotation) : world
         const start = drag.rotation ? rotatePt(drag.start, c0, -drag.rotation) : drag.start
-        let dx = local.x - start.x
-        let dy = local.y - start.y
+        const dx = local.x - start.x
+        const dy = local.y - start.y
         const d = docRef.current
-        if (d.canvas.snap && !ev.metaKey && !ev.ctrlKey) {
-          dx = Math.round(dx / d.canvas.grid) * d.canvas.grid
-          dy = Math.round(dy / d.canvas.grid) * d.canvas.grid
-        }
         let { x, y, w, h } = o
         const H = drag.handle
         if (H.includes('e')) w = o.w + dx
@@ -960,6 +989,61 @@ export default function AiFigureMaker() {
           if (H.includes('n')) y = o.y + o.h - nh
           w = nw
           h = nh
+        }
+        /* An op paints a circle inscribed in the shorter axis, so any other
+           aspect is dead space that the selection box, the anchors and the
+           guides all report as part of the shape. Keep it square. */
+        if (drag.kind === 'op') {
+          const side = H === 'e' || H === 'w' ? w : H === 'n' || H === 's' ? h : Math.max(w, h)
+          if (H.includes('w')) x += w - side
+          if (H.includes('n')) y += h - side
+          w = side
+          h = side
+        }
+        /* Snap the edge under the cursor, not the distance dragged.
+           ⚠️ The grid step used to be applied to the delta, which preserves
+           whatever offset the box already had — an edge that started off-grid
+           could never be brought onto it. Rounding the resulting edge can. */
+        const sides: MovedSides = {
+          l: H.includes('w'),
+          r: H.includes('e'),
+          t: H.includes('n'),
+          b: H.includes('s'),
+        }
+        const free = ev.metaKey || ev.ctrlKey || ev.shiftKey || !!drag.rotation
+        if (!free) {
+          const others = d.nodes.filter((n) => n.id !== drag.id && !n.hidden).map(inkRect)
+          const g = snapSides({ x, y, w, h }, sides, others, SNAP_PX / viewRef.current.zoom)
+          setGuides(g.guides)
+          const gx = g.guides.some((q) => q.axis === 'x')
+          const gy = g.guides.some((q) => q.axis === 'y')
+          if (gx) ({ x, w } = { x: g.rect.x, w: g.rect.w })
+          if (gy) ({ y, h } = { y: g.rect.y, h: g.rect.h })
+          const q = (v: number) => Math.round(v / d.canvas.grid) * d.canvas.grid
+          if (d.canvas.snap && !gx) {
+            if (sides.l) {
+              const l = q(x)
+              w += x - l
+              x = l
+            } else if (sides.r) w = q(x + w) - x
+          }
+          if (d.canvas.snap && !gy) {
+            if (sides.t) {
+              const t = q(y)
+              h += y - t
+              y = t
+            } else if (sides.b) h = q(y + h) - y
+          }
+          if (drag.kind === 'op' && (gx || gy || d.canvas.snap)) {
+            // re-square after the axes were snapped independently
+            const side = Math.max(4, sides.l || sides.r ? w : h)
+            if (H.includes('w')) x += w - side
+            if (H.includes('n')) y += h - side
+            w = side
+            h = side
+          }
+        } else {
+          setGuides([])
         }
         w = Math.max(4, w)
         h = Math.max(4, h)
@@ -1276,9 +1360,26 @@ export default function AiFigureMaker() {
       if (K.startsWith('Arrow')) {
         if (!selNodesRef.current.length) return
         e.preventDefault()
-        const step = e.shiftKey ? 10 : docRef.current.canvas.snap ? docRef.current.canvas.grid : 1
-        const dx = K === 'ArrowLeft' ? -step : K === 'ArrowRight' ? step : 0
-        const dy = K === 'ArrowUp' ? -step : K === 'ArrowDown' ? step : 0
+        const c = docRef.current.canvas
+        const step = e.shiftKey ? 10 : c.snap ? c.grid : 1
+        let dx = K === 'ArrowLeft' ? -step : K === 'ArrowRight' ? step : 0
+        let dy = K === 'ArrowUp' ? -step : K === 'ArrowDown' ? step : 0
+        /* Move to the next grid line rather than by a grid's worth: stepping by
+           the pitch carries any existing offset along forever, so a node that
+           is 3px off can never be nudged back on. */
+        if (c.snap && !e.shiftKey) {
+          // docRef, not nmap: this listener is bound once and nmap would be
+          // the map from whichever render last re-ran the effect
+          const lead = docRef.current.nodes.find((n) => n.id === selNodesRef.current[0])
+          const line = (v: number, delta: number) =>
+            (delta > 0 ? Math.floor((v + delta) / c.grid) : Math.ceil((v + delta) / c.grid)) *
+              c.grid -
+            v
+          if (lead) {
+            if (dx) dx = line(lead.x, dx)
+            if (dy) dy = line(lead.y, dy)
+          }
+        }
         commit((d) => patchNodes(d, selNodesRef.current, (n) => ({ x: n.x + dx, y: n.y + dy })))
         return
       }
@@ -1462,6 +1563,10 @@ export default function AiFigureMaker() {
     : null
 
   /* ---- render ---- */
+  /* One checker square = one grid cell, so its corners are the points you snap
+     to. A fine grid would turn the checker to mush, so below ~6px a square
+     covers a whole number of cells instead — the corners still land on grid. */
+  const checkerCell = doc.canvas.grid * Math.max(1, Math.ceil(6 / doc.canvas.grid))
   const pal = paletteById(doc.paletteId)
   const canvasBg =
     doc.canvas.bg === 'white' ? '#ffffff' : doc.canvas.bg === 'paper' ? '#fbfbf9' : null
@@ -1729,14 +1834,49 @@ export default function AiFigureMaker() {
             style={{ cursor: panning ? 'grabbing' : connecting ? 'crosshair' : 'default' }}
           >
             <defs>
-              <pattern id="af-grid" width={doc.canvas.grid} height={doc.canvas.grid} patternUnits="userSpaceOnUse">
-                <circle cx={0.5} cy={0.5} r={0.5} fill="#b9b39a" />
+              {/* Stands in for the checker on an opaque canvas, so it marks the
+                  same thing: one dot per cell, in the middle of it. The corners
+                  between the dots are the snap points. */}
+              <pattern id="af-grid" width={checkerCell} height={checkerCell} patternUnits="userSpaceOnUse">
+                <circle cx={checkerCell / 2} cy={checkerCell / 2} r={0.7} fill="#c9c3ab" />
               </pattern>
-              {/* faint checker so a transparent canvas does not read as white paper */}
-              <pattern id="af-alpha" width={14} height={14} patternUnits="userSpaceOnUse">
-                <rect width={14} height={14} fill="#ffffff" />
-                <rect width={7} height={7} fill="#f7f7f4" />
-                <rect x={7} y={7} width={7} height={7} fill="#f7f7f4" />
+              {/* Faint checker so a transparent canvas does not read as white
+                  paper — and, since one square is one grid cell, it doubles as
+                  the grid itself. It used to be a hardcoded 7px square against
+                  an 8px grid: two lattices that could never agree, so the
+                  background said one thing and snapping did another. */}
+              <pattern
+                id="af-alpha"
+                width={checkerCell * 2}
+                height={checkerCell * 2}
+                patternUnits="userSpaceOnUse"
+              >
+                <rect width={checkerCell * 2} height={checkerCell * 2} fill="#ffffff" />
+                <rect width={checkerCell} height={checkerCell} fill="#f7f7f4" />
+                <rect
+                  x={checkerCell}
+                  y={checkerCell}
+                  width={checkerCell}
+                  height={checkerCell}
+                  fill="#f7f7f4"
+                />
+                {/* one dot per square, in the middle of it — the squares' own
+                    corners are the snap points, so a dot there only smudged
+                    the line it was sitting on */}
+                {[
+                  [0.5, 0.5],
+                  [1.5, 0.5],
+                  [0.5, 1.5],
+                  [1.5, 1.5],
+                ].map(([u, v]) => (
+                  <circle
+                    key={`${u}-${v}`}
+                    cx={checkerCell * u}
+                    cy={checkerCell * v}
+                    r={0.7}
+                    fill="#dedbcd"
+                  />
+                ))}
               </pattern>
             </defs>
             <g transform={`translate(${view.x} ${view.y}) scale(${view.zoom})`}>
@@ -1750,7 +1890,9 @@ export default function AiFigureMaker() {
                 stroke="#c9c3ab"
                 strokeWidth={1 / view.zoom}
               />
-              {doc.canvas.showGrid ? (
+              {/* Only where the checker is not already showing the same cells —
+                  drawing both put a second dot lattice on top of the first. */}
+              {doc.canvas.showGrid && canvasBg ? (
                 <rect x={0} y={0} width={doc.canvas.w} height={doc.canvas.h} fill="url(#af-grid)" />
               ) : null}
 
