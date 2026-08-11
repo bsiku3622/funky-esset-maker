@@ -4,7 +4,14 @@
  * function of the document — the editor never keeps a second copy of a field's
  * state that could go stale after an undo. */
 
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
+import { createPortal } from 'react-dom'
 
 export function Field({
   label,
@@ -292,28 +299,99 @@ export function ColorBtn({
   allowNone?: boolean
   title?: string
 }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLSpanElement>(null)
+  /* The popover is portalled out of the inspector.
+   *
+   * It used to be `position: absolute` inside the swatch, and the inspector
+   * body scrolls — an overflow container clips absolutely positioned children
+   * on *every* side, not just the scrolling one, so a swatch near the panel's
+   * left edge had the left half of its popover cut off. It goes to the tool
+   * root instead, which has no overflow of its own; keeping it inside
+   * `.femtool` rather than on `<body>` is what preserves the scoped CSS.
+   *
+   * The host element doubles as the open flag, so it can be resolved in the
+   * click that opens the popover rather than read off a ref during render. */
+  const [host, setHost] = useState<Element | null>(null)
+  const open = host !== null
+  const btn = useRef<HTMLButtonElement>(null)
+  const pop = useRef<HTMLDivElement>(null)
+  /* Stale between openings, which never shows: the layout effect below
+     repositions before the browser paints the reopened popover. */
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
+
+  useLayoutEffect(() => {
+    if (!open) return
+    const place = () => {
+      const b = btn.current?.getBoundingClientRect()
+      if (!b) return
+      const p = pop.current?.getBoundingClientRect()
+      const w = p?.width ?? 0
+      const h = p?.height ?? 0
+      const M = 8 // keep clear of the viewport edge
+      const left = Math.min(
+        Math.max(M, b.right - w),
+        Math.max(M, window.innerWidth - w - M),
+      )
+      const below = b.bottom + 4
+      const top = below + h > window.innerHeight - M ? Math.max(M, b.top - h - 4) : below
+      setPos({ left, top })
+    }
+    place()
+    // `true` so an ancestor scrolling — the inspector body — moves it too
+    window.addEventListener('scroll', place, true)
+    window.addEventListener('resize', place)
+    return () => {
+      window.removeEventListener('scroll', place, true)
+      window.removeEventListener('resize', place)
+    }
+  }, [open])
+
   useEffect(() => {
     if (!open) return
     const onDown = (e: PointerEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+      const t = e.target as Node
+      // the popover is no longer a descendant of the button, so both count
+      if (btn.current?.contains(t) || pop.current?.contains(t)) return
+      setHost(null)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setHost(null)
     }
     window.addEventListener('pointerdown', onDown)
-    return () => window.removeEventListener('pointerdown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointerdown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
   }, [open])
 
   return (
-    <span className="af-color" ref={ref}>
+    <span className="af-color">
       <button
+        ref={btn}
         type="button"
         title={title ?? value}
         className={`af-color__btn${value === 'none' ? ' is-none' : ''}`}
         style={value === 'none' ? undefined : { background: value }}
-        onClick={() => setOpen((o) => !o)}
+        onClick={(e) => {
+          // resolve the host here, not inside the updater: React re-runs the
+          // updater during render, by which point `currentTarget` is null
+          const root = e.currentTarget.closest('.femtool') ?? document.body
+          setHost((h) => (h ? null : root))
+        }}
       />
-      {open ? (
-        <div className="af-color__pop">
+      {open && host
+        ? createPortal(
+        <div
+          className="af-color__pop"
+          ref={pop}
+          style={{
+            left: pos?.left ?? 0,
+            top: pos?.top ?? 0,
+            // measured before paint, but stay invisible for the frame before
+            // that in case a layout effect ever lands late
+            visibility: pos ? 'visible' : 'hidden',
+          }}
+        >
           <div className="af-color__rows">
             {[swatches, GRAYS].map((row, i) => (
               <div className="af-color__row" key={i}>
@@ -326,7 +404,7 @@ export function ColorBtn({
                     style={{ background: c }}
                     onClick={() => {
                       onChange(c)
-                      setOpen(false)
+                      setHost(null)
                     }}
                   />
                 ))}
@@ -348,13 +426,15 @@ export function ColorBtn({
               onKeyDown={(e) => e.stopPropagation()}
             />
             {allowNone ? (
-              <button type="button" className="af-color__none" onClick={() => { onChange('none'); setOpen(false) }}>
+              <button type="button" className="af-color__none" onClick={() => { onChange('none'); setHost(null) }}>
                 없음
               </button>
             ) : null}
           </div>
-        </div>
-      ) : null}
+        </div>,
+            host,
+          )
+        : null}
     </span>
   )
 }

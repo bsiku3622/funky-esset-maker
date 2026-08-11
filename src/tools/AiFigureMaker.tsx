@@ -164,6 +164,29 @@ function starterDoc(): FigDoc {
  *  room more than the rails do */
 const AF_WIDE = 1280
 
+/* Nodes on the system clipboard.
+ *
+ * text/plain is the one format that survives every browser and the OS
+ * clipboard intact, so the payload is tagged JSON rather than a custom MIME
+ * type. The tag is what stops an ordinary paste of unrelated text from being
+ * read as a figure. */
+const CLIP_TAG = 'funky-esset-maker/aifig-nodes'
+
+const encodeClip = (c: { nodes: FigNode[]; edges: FigEdge[] }) =>
+  JSON.stringify({ tag: CLIP_TAG, nodes: c.nodes, edges: c.edges })
+
+function decodeClip(text: string): { nodes: FigNode[]; edges: FigEdge[] } | null {
+  // cheap reject before parsing: most pastes are not ours and can be long
+  if (!text.includes(CLIP_TAG)) return null
+  try {
+    const v = JSON.parse(text) as { tag?: string; nodes?: FigNode[]; edges?: FigEdge[] }
+    if (v?.tag !== CLIP_TAG || !Array.isArray(v.nodes) || !v.nodes.length) return null
+    return { nodes: v.nodes, edges: Array.isArray(v.edges) ? v.edges : [] }
+  } catch {
+    return null
+  }
+}
+
 export default function AiFigureMaker() {
   const [doc, setDocState] = useState<FigDoc>(() => loadDoc() ?? starterDoc())
   const [selNodes, setSelNodes] = useState<string[]>([])
@@ -207,6 +230,9 @@ export default function AiFigureMaker() {
   const dragRef = useRef<Drag>(null)
   const spaceRef = useRef(false)
   const clipRef = useRef<{ nodes: FigNode[]; edges: FigEdge[] } | null>(null)
+  /** the serialised payload currently on the system clipboard, so a paste can
+   *  tell "the same copy again" (cascade the offset) from "a different copy" */
+  const clipTextRef = useRef<string | null>(null)
   const pasteN = useRef(0)
 
   /* docRef is the authority the mutating helpers read and write: commit / live
@@ -556,7 +582,17 @@ export default function AiFigureMaker() {
     flash(`${tpl.label} 삽입`)
   }
 
-  /* ---- clipboard ---- */
+  /* ---- clipboard ----
+   *
+   * Copying nodes has to take ownership of the *system* clipboard, not just the
+   * in-memory one. It used to only fill `clipRef`, so whatever was on the OS
+   * clipboard — typically an image copied hours ago — outlived the copy, and
+   * since paste checks images first that stale image won every time. The
+   * ⌘C keydown even called preventDefault, which suppressed the native `copy`
+   * event and guaranteed the OS clipboard was never refreshed.
+   *
+   * Writing the selection out as text also makes copy work between two windows
+   * of the app, which the in-memory buffer never could. */
   const copySel = () => {
     const d = docRef.current
     const ids = new Set(selNodesRef.current)
@@ -1158,11 +1194,12 @@ export default function AiFigureMaker() {
         redo()
         return
       }
-      // ⇧ variant is "copy the PNG", handled with the other export keys below
-      if (mod && K.toLowerCase() === 'c' && !e.shiftKey) {
-        if (copySel()) e.preventDefault()
-        return
-      }
+      // ⇧ variant is "copy the PNG", handled with the other export keys below.
+      // Plain ⌘C is deliberately *not* handled here: preventing the default is
+      // what stops the native `copy` event, and that event is the only reliable
+      // way to put our own payload on the system clipboard. See the copy
+      // listener below.
+      if (mod && K.toLowerCase() === 'c' && !e.shiftKey) return
       if (mod && K.toLowerCase() === 'd') {
         e.preventDefault()
         duplicateSel()
@@ -1263,15 +1300,42 @@ export default function AiFigureMaker() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [undo, redo, fitView, toggleConnect, connectSelection])
 
-  /* ---- clipboard: images beat the internal node clipboard ---- */
+  /* ---- clipboard ----
+   *
+   * Order matters: our own payload first, then images, then whatever is still
+   * in the in-memory buffer. Checking images first is what let a stale image
+   * shadow a fresh node copy — now a node copy overwrites the system clipboard,
+   * so an image only survives there if it really was copied last. */
   useEffect(() => {
+    const inField = (t: EventTarget | null) =>
+      t instanceof HTMLElement &&
+      (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
+
+    const onCopy = (e: ClipboardEvent) => {
+      if (inField(e.target) || !e.clipboardData) return
+      if (!copySel()) return
+      const clip = clipRef.current!
+      e.clipboardData.setData('text/plain', encodeClip(clip))
+      clipTextRef.current = encodeClip(clip)
+      // only now: preventDefault on `copy` means "I wrote the data myself"
+      e.preventDefault()
+    }
+
     const onPaste = (e: ClipboardEvent) => {
-      const t = e.target
-      if (
-        t instanceof HTMLElement &&
-        (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
-      )
+      if (inField(e.target)) return
+      const text = e.clipboardData?.getData('text/plain') ?? ''
+      const mine = decodeClip(text)
+      if (mine) {
+        e.preventDefault()
+        // a payload from another window restarts the cascade offset
+        if (text !== clipTextRef.current) {
+          clipTextRef.current = text
+          clipRef.current = mine
+          pasteN.current = 0
+        }
+        pasteClip()
         return
+      }
       const files = imagesFromPaste(e.clipboardData)
       if (files.length) {
         e.preventDefault()
@@ -1280,8 +1344,13 @@ export default function AiFigureMaker() {
       }
       if (pasteClip()) e.preventDefault()
     }
+
+    window.addEventListener('copy', onCopy)
     window.addEventListener('paste', onPaste)
-    return () => window.removeEventListener('paste', onPaste)
+    return () => {
+      window.removeEventListener('copy', onCopy)
+      window.removeEventListener('paste', onPaste)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [insertImages])
 

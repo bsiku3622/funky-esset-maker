@@ -1,5 +1,30 @@
 # 작업 기록
 
+## 2026-08-11 — AI Figure Maker: 색 팝오버 잘림, 복사/붙여넣기
+
+- 변경 파일: `src/tools/aifig/ui.tsx`, `src/tools/AiFigureMaker.css`, `src/tools/AiFigureMaker.tsx`
+- 요약: 인스펙터가 색 팝오버를 잘라내던 문제와, 노드를 복사해도 예전 이미지가 붙던 문제를 고쳤습니다.
+
+### 팝오버는 스크롤 컨테이너 안에 두면 안 됩니다
+
+`.af-color__pop`이 스와치 안에 `position: absolute`로 있었고, `.fx-insp__body`가 `overflow-y: auto`입니다. **overflow 컨테이너는 스크롤 축뿐 아니라 사방에서 자식을 잘라냅니다.** 그래서 패널 왼쪽에 붙은 스와치는 팝오버 왼쪽 절반이 통째로 잘렸습니다.
+
+`createPortal`로 도구 루트(`.femtool`)에 내보내고 `position: fixed` + 컴포넌트가 좌표를 계산하도록 바꿨습니다. **`<body>`가 아니라 `.femtool`인 이유는 CSS가 `.scope-aifig` 아래로 스코프돼 있기 때문입니다** — body로 보내면 스타일이 전부 날아갑니다.
+
+딸려오는 것 세 가지: 바깥 클릭 판정이 이제 버튼과 팝오버를 **둘 다** 확인해야 합니다(팝오버가 더 이상 버튼의 자손이 아님). 위치 재계산은 `scroll` 리스너를 `capture: true`로 달아야 인스펙터 스크롤을 잡습니다. 그리고 좌표는 뷰포트 안으로 clamp하고, 아래 공간이 모자라면 버튼 위로 뒤집습니다.
+
+⚠️ **상태 업데이터 안에서 이벤트를 읽으면 안 됩니다.** `setHost((h) => ... e.currentTarget.closest(...))`로 짰다가 터졌습니다 — React가 렌더 중에 업데이터를 다시 호출하는데 그때 `currentTarget`은 이미 null입니다. 핸들러 본문에서 먼저 꺼내 변수에 담아야 합니다.
+
+### ⌘C가 시스템 클립보드를 가져가지 않았습니다
+
+노드를 복사한 뒤 붙여넣으면 **몇 시간 전에 복사해둔 이미지가** 들어왔습니다.
+
+`copySel()`은 메모리 버퍼(`clipRef`)만 채웠고, 붙여넣기 핸들러는 이미지를 먼저 검사합니다. OS 클립보드는 갱신된 적이 없으니 낡은 이미지가 영원히 이깁니다. 결정적으로 ⌘C keydown이 **`preventDefault()`를 호출해서 네이티브 `copy` 이벤트 자체를 막고 있었습니다** — 클립보드를 가져갈 유일한 통로를 스스로 닫아둔 셈입니다.
+
+keydown의 ⌘C 처리를 걷어내고 `copy` 리스너에서 `clipboardData.setData('text/plain', …)`으로 태그된 JSON을 씁니다. `copy` 이벤트에서의 `preventDefault()`는 "데이터를 내가 직접 썼다"는 뜻이라 이건 맞습니다. 붙여넣기 우선순위는 **내 페이로드 → 이미지 → 메모리 버퍼** 순입니다. 덤으로 창 두 개 사이 복사가 됩니다.
+
+커스텀 MIME 대신 `text/plain`을 쓴 이유는 그것만 브라우저와 OS 클립보드를 온전히 통과하기 때문입니다. 태그(`funky-esset-maker/aifig-nodes`)가 일반 텍스트 붙여넣기를 도형으로 오해하는 걸 막습니다.
+
 ## 2026-08-10 — AI Figure Maker: 연결 모드와 층 전결합
 
 - 변경 파일: `src/tools/AiFigureMaker.tsx`, `src/tools/aifig/{doc.ts,templates.ts,Overlay.tsx}`, `src/tools/aifig/doc.test.ts`(신규)

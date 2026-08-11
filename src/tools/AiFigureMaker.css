@@ -615,11 +615,12 @@
 .scope-aifig .af-color__btn.is-none {
   background: repeating-linear-gradient(45deg, #fff 0 3px, #f18 3px 4px, #fff 4px 7px);
 }
+/* Fixed, and placed by the component: it is portalled to the tool root so the
+   scrolling inspector cannot clip it, which means it can no longer be laid out
+   relative to its swatch. */
 .scope-aifig .af-color__pop {
-  position: absolute;
-  z-index: 20;
-  top: 26px;
-  right: 0;
+  position: fixed;
+  z-index: 40;
   padding: 6px;
   border: 2px solid var(--af-line);
   background: #fff;
