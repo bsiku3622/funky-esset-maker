@@ -226,7 +226,7 @@ export default function Overlay({
               data-edge-id={e.id}
               style={{ cursor: 'crosshair' }}
             />
-            {e.waypoints.map((w, i) => (
+            {r.wps.map((w, i) => (
               <rect
                 key={i}
                 x={w.x - 4 * k}

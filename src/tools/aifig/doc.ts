@@ -248,7 +248,9 @@ export function cloneInto(
       id: uid('e'),
       from,
       to,
-      waypoints: e.waypoints.map((p) => ({ x: p.x + dx, y: p.y + dy })),
+      // a bend tied to an end is already an offset from it, and the end has
+      // moved with the copy; only an absolute one needs shifting
+      waypoints: e.waypoints.map((p) => (p.rel ? { ...p } : { x: p.x + dx, y: p.y + dy })),
       style: { ...e.style },
     })
   }
@@ -443,7 +445,9 @@ export function contentBounds(doc: FigDoc): Rect | null {
   for (const e of doc.edges) {
     for (const ep of [e.from, e.to])
       if ('free' in ep) rects.push({ x: ep.free.x, y: ep.free.y, w: 0, h: 0 })
-    for (const p of e.waypoints) rects.push({ x: p.x, y: p.y, w: 0, h: 0 })
+    // relative bends sit inside their node's orbit, which is already counted
+    for (const p of e.waypoints)
+      if (!p.rel) rects.push({ x: p.x, y: p.y, w: 0, h: 0 })
   }
   return unionRect(rects)
 }
@@ -523,10 +527,48 @@ export function normalizeDoc(input: unknown): FigDoc | null {
         style: { ...baseEdgeStyle(p), ...(e.style ?? {}) },
       }) as FigEdge,
   )
-  return {
+  return tieLooseBends({
     nodes,
     edges,
     canvas: { ...DEFAULT_CANVAS, ...(d.canvas ?? {}) },
     paletteId: d.paletteId ?? 'muted',
+  })
+}
+
+/* Convert bends that are pinned to the canvas into offsets from the shape they
+ * belong to.
+ *
+ * Every bend used to be an absolute coordinate, so moving a block left its
+ * connectors' corners behind and the figure tangled. Converting on load is
+ * safe because the offset is computed from where things are *now*: the resolved
+ * point is identical, so nothing moves — the bends simply start travelling with
+ * their shapes from here on. */
+function tieLooseBends(doc: FigDoc): FigDoc {
+  const byId = nodeMap(doc)
+  const centre = (ep: FigEdge['from']) => {
+    if ('free' in ep) return null
+    const n = byId.get(ep.node)
+    return n ? { x: n.x + n.w / 2, y: n.y + n.h / 2 } : null
   }
+  let touched = false
+  const edges = doc.edges.map((e) => {
+    if (!e.waypoints.some((w) => !w.rel)) return e
+    const a = centre(e.from)
+    const b = centre(e.to)
+    if (!a && !b) return e
+    touched = true
+    return {
+      ...e,
+      waypoints: e.waypoints.map((w) => {
+        if (w.rel) return w
+        const da = a ? Math.hypot(w.x - a.x, w.y - a.y) : Infinity
+        const db = b ? Math.hypot(w.x - b.x, w.y - b.y) : Infinity
+        const base = da <= db ? a : b
+        return base
+          ? { x: Math.round(w.x - base.x), y: Math.round(w.y - base.y), rel: da <= db ? 'from' : 'to' }
+          : w
+      }) as FigEdge['waypoints'],
+    }
+  })
+  return touched ? { ...doc, edges } : doc
 }

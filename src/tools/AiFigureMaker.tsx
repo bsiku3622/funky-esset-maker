@@ -34,6 +34,7 @@ import type {
   Rect,
   Style,
   View,
+  Waypoint,
 } from './aifig/types'
 import { SHAPES, makeNode, paletteById, shapeSpec, tint } from './aifig/presets'
 import {
@@ -159,6 +160,31 @@ type Drag =
 /** How close an edge has to come, on screen, before a guide claims it. */
 const SNAP_PX = 5
 
+/* Tie a bend to the end of the connector it belongs to, and store it as an
+ * offset from that node's centre.
+ *
+ * ⚠️ Bends used to be absolute canvas coordinates, so moving a block left its
+ * connectors' corners behind and the figure tangled — a line is a relationship
+ * between two shapes, and nothing about it should be pinned to the page. The
+ * nearer end wins, which is what makes a lane running alongside a block travel
+ * with that block while the far end re-routes. A bend on a free-floating
+ * endpoint stays absolute; there is no shape to belong to. */
+function tieToEnd(e: FigEdge, p: Pt, doc: FigDoc, force?: 'from' | 'to'): Waypoint {
+  const mid = (ep: FigEdge['from']) => {
+    if ('free' in ep) return null
+    const n = doc.nodes.find((x) => x.id === ep.node)
+    return n ? { x: n.x + n.w / 2, y: n.y + n.h / 2 } : null
+  }
+  const a = mid(e.from)
+  const b = mid(e.to)
+  const da = a ? Math.hypot(p.x - a.x, p.y - a.y) : Infinity
+  const db = b ? Math.hypot(p.x - b.x, p.y - b.y) : Infinity
+  const pick = force ?? (da <= db ? 'from' : 'to')
+  const base = pick === 'from' ? a : b
+  if (!base) return { x: Math.round(p.x), y: Math.round(p.y) }
+  return { x: Math.round(p.x - base.x), y: Math.round(p.y - base.y), rel: pick }
+}
+
 /* Which straight run of an orthogonal route the pointer is on, if it is on one
  * that can move. The first and last runs are the stubs leaving the shapes: they
  * are pinned to their anchors, and a run too short to see is not something
@@ -217,7 +243,7 @@ function starterDoc(): FigDoc {
     doc.nodes = doc.nodes.map((n) => ({ ...n, x: n.x + dx, y: n.y + dy }))
     doc.edges = doc.edges.map((e) => ({
       ...e,
-      waypoints: e.waypoints.map((p) => ({ x: p.x + dx, y: p.y + dy })),
+      waypoints: e.waypoints.map((p) => (p.rel ? { ...p } : { x: p.x + dx, y: p.y + dy })),
     }))
   }
   return doc
@@ -657,7 +683,7 @@ export default function AiFigureMaker() {
     const nodes = bag.nodes.map((n) => ({ ...n, x: n.x + dx, y: n.y + dy }))
     const edges = bag.edges.map((e) => ({
       ...e,
-      waypoints: e.waypoints.map((p) => ({ x: p.x + dx, y: p.y + dy })),
+      waypoints: e.waypoints.map((p) => (p.rel ? { ...p } : { x: p.x + dx, y: p.y + dy })),
     }))
     commit({ ...d, nodes: [...d.nodes, ...nodes], edges: [...d.edges, ...edges] })
     setSelEdges([])
@@ -1295,8 +1321,25 @@ export default function AiFigureMaker() {
             : { ...c },
         )
         drag.moved = true
-        // the ends are the anchors; only what lies between them is a waypoint
-        live((cur) => patchEdges(cur, [drag.edge], () => ({ waypoints: pts.slice(1, -1) })))
+        /* Tie every corner to the *same* end — the one nearest the run being
+           dragged. Deciding per corner looks more precise and is worse: the two
+           ends of a straight run would follow different shapes, so moving one
+           of them alone would kink a lane that should have stayed straight. */
+        const mid = {
+          x: (pts[drag.index].x + pts[drag.index + 1].x) / 2,
+          y: (pts[drag.index].y + pts[drag.index + 1].y) / 2,
+        }
+        live((cur) =>
+          patchEdges(cur, [drag.edge], (e) => {
+            const rel = tieToEnd(e, mid, cur).rel
+            return {
+              waypoints: pts.slice(1, -1).map((p) => {
+                const t = tieToEnd(e, p, cur)
+                return rel && t.rel !== rel ? tieToEnd(e, p, cur, rel) : t
+              }),
+            }
+          }),
+        )
         return
       }
 
@@ -1305,7 +1348,7 @@ export default function AiFigureMaker() {
         drag.moved = true
         live((cur) =>
           patchEdges(cur, [drag.edge], (e) => ({
-            waypoints: e.waypoints.map((w, i) => (i === drag.index ? p : w)),
+            waypoints: e.waypoints.map((w, i) => (i === drag.index ? tieToEnd(e, p, cur) : w)),
           })),
         )
         return
@@ -1428,9 +1471,15 @@ export default function AiFigureMaker() {
         patchEdges(d, [hitEdge], (e) => {
           // insert at the nearest segment so the path keeps its shape
           const r = resolved.get(e.id)
-          if (!r) return { waypoints: [...e.waypoints, p] }
-          const pts = [...e.waypoints, p]
-          pts.sort((a, b) => distAlong(r, a) - distAlong(r, b))
+          const tied = tieToEnd(e, p, docRef.current)
+          if (!r) return { waypoints: [...e.waypoints, tied] }
+          /* Sorting by position along the path keeps the inserted bend in the
+             place it was clicked. Relative bends have to be resolved first —
+             their raw x/y are offsets, not points on the canvas. */
+          const abs = new Map(e.waypoints.map((w, i) => [w, r.wps[i] ?? w] as const))
+          abs.set(tied, p)
+          const pts = [...e.waypoints, tied]
+          pts.sort((u, v) => distAlong(r, abs.get(u)!) - distAlong(r, abs.get(v)!))
           return { waypoints: pts }
         }),
       )

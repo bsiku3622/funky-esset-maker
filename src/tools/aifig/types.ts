@@ -160,6 +160,17 @@ export type EndPoint =
   | { node: string; anchor: Anchor }
   | { free: Pt } // detached endpoint (free-floating arrow)
 
+/* A bend in a connector.
+ *
+ * ⚠️ Without `rel` the point is an absolute canvas coordinate, which is how
+ * every bend used to be stored — and why moving a block left its connectors
+ * pinned to the canvas and tangled the figure. With `rel` the point is an
+ * offset from that endpoint's node centre, so the bend travels with the shape
+ * it belongs to. Files written before this keep the old meaning. */
+export interface Waypoint extends Pt {
+  rel?: 'from' | 'to'
+}
+
 export type RouteKind = 'straight' | 'ortho' | 'curve' | 'arc'
 export type HeadKind =
   | 'none'
@@ -190,7 +201,7 @@ export interface FigEdge {
   from: EndPoint
   to: EndPoint
   route: RouteKind
-  waypoints: Pt[] // user-dragged bends (straight/ortho); curve uses them as controls
+  waypoints: Waypoint[] // user-dragged bends (straight/ortho); curve uses them as controls
   startHead: HeadKind
   endHead: HeadKind
   label: string // may contain $…$

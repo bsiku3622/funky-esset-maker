@@ -22,6 +22,8 @@ export interface ResolvedEdge {
   strokeInfo: PathInfo
   /** corner polyline of an orthogonal route; empty for the other kinds */
   corners: Pt[]
+  /** the edge's bends in canvas coordinates, whatever they are stored as */
+  wps: Pt[]
 }
 
 function endPointOf(
@@ -49,10 +51,21 @@ export function resolveEdge(
   const ca = centerOf(e.from, nodes)
   const cb = centerOf(e.to, nodes)
   if (!ca || !cb) return null
+  /* Bends anchored to an end are offsets from that end's node centre, so this
+     is the one place they become canvas coordinates. The centre and not the
+     anchor point: the anchor is what we are about to compute from them, and a
+     definition cannot depend on its own result. */
+  const wps: Pt[] = e.waypoints.map((w) =>
+    w.rel === 'from'
+      ? { x: ca.x + w.x, y: ca.y + w.y }
+      : w.rel === 'to'
+        ? { x: cb.x + w.x, y: cb.y + w.y }
+        : { x: w.x, y: w.y },
+  )
   // aim each anchor at the first waypoint (or the other end) so 'auto' picks
   // the side the line actually leaves from
-  const towardA = e.waypoints[0] ?? cb
-  const towardB = e.waypoints[e.waypoints.length - 1] ?? ca
+  const towardA = wps[0] ?? cb
+  const towardB = wps[wps.length - 1] ?? ca
   const a = endPointOf(e.from, nodes, towardA)
   const b = endPointOf(e.to, nodes, towardB)
   if (!a || !b) return null
@@ -67,14 +80,14 @@ export function resolveEdge(
     const n = nodes.get(ep.node)
     if (n && ep.anchor !== 'c') boxes.push(nodeBounds(n))
   }
-  const segs = route(e.route, a, b, e.waypoints, e.bow, undefined, boxes)
+  const segs = route(e.route, a, b, wps, e.bow, undefined, boxes)
   // the pre-fillet corners, so a run can be grabbed and slid sideways
-  const corners = e.route === 'ortho' ? orthoCorners(a, b, e.waypoints, undefined, boxes) : []
+  const corners = e.route === 'ortho' ? orthoCorners(a, b, wps, undefined, boxes) : []
   const info = pathInfo(segs)
 
   const sw = e.style.strokeWidth
   const hs = headGeom(e.startHead, sw)
   const he = headGeom(e.endHead, sw)
   const strokeInfo = pathInfo(trimPath(segs, hs?.inset ?? 0, he?.inset ?? 0))
-  return { info, a, b, strokeInfo, corners }
+  return { info, a, b, strokeInfo, corners, wps }
 }

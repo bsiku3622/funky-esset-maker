@@ -1,5 +1,22 @@
 # 작업 기록
 
+## 2026-08-11 — AI Figure Maker: ⚠️ 연결선 꺾임점을 도형에 묶기 (절대 → 상대)
+
+- 변경 파일: `src/tools/aifig/types.ts`, `src/tools/aifig/resolve.ts`, `src/tools/aifig/doc.ts`, `src/tools/aifig/Overlay.tsx`, `src/tools/AiFigureMaker.tsx`
+- 요약: 꺾임점이 캔버스 절대 좌표라 도형을 옮기면 선만 남아 꼬이던 것을, 끝점 노드 기준 상대 좌표로 바꿨습니다.
+
+**선은 두 도형 사이의 관계이지 종이 위의 자국이 아닙니다.** 그런데 `waypoints`가 절대 좌표라 블록을 옮기면 꺾임점이 제자리에 못 박혀 그림이 엉켰습니다. 구간 끌기를 넣으면서 꺾임점이 훨씬 흔해졌으니 더 이상 미룰 수 없는 문제였습니다.
+
+`Waypoint`에 `rel?: 'from' | 'to'`를 넣었습니다. 있으면 x/y는 **그 끝점 노드 중심으로부터의 오프셋**이고, 없으면 예전대로 절대 좌표입니다(예전 파일이 그대로 열립니다). 절대→상대 변환은 `resolveEdge` 한 곳에서만 일어납니다.
+
+**⚠️ 기준을 앵커가 아니라 노드 중심으로 잡은 이유**: 앵커는 지금부터 이 좌표들로 *계산할* 대상입니다. 정의가 자기 결과에 의존할 수 없습니다.
+
+**⚠️ 한 구간의 두 끝은 반드시 같은 노드에 묶어야 합니다.** 코너마다 가까운 쪽에 묶는 게 더 정밀해 보이지만 더 나쁩니다 — 직선 구간의 양 끝이 서로 다른 도형을 따라가므로, 한쪽만 옮기면 곧게 있어야 할 레인이 꺾입니다. 실측에서 `L388 → 380`짜리 삐죽한 턱이 생겼습니다. 그래서 구간을 끌 때는 **끌고 있는 구간의 중점** 기준으로 한 번만 판정해 모든 코너에 같은 `rel`을 씁니다.
+
+기존 문서는 `normalizeDoc`에서 변환합니다. **지금 위치로 오프셋을 계산하므로 결과 좌표가 동일합니다** — 그림이 1px도 안 움직이고, 그때부터 도형을 따라다니기 시작할 뿐입니다. 실측으로 CPiMLP 문서의 path가 변환 전후 바이트 단위로 같았습니다.
+
+부수적으로 손봐야 했던 곳: 복제·템플릿 삽입·"내용에 맞추기"의 평행이동은 상대 꺾임점을 **건드리면 안 됩니다**(이미 노드와 함께 움직였으므로 또 더하면 두 배로 갑니다). `contentBounds`도 상대 꺾임점은 제외합니다 — 노드 반경 안에 있어서 이미 계산됩니다. 오버레이의 노란 손잡이는 `ResolvedEdge.wps`(해석된 절대 좌표)를 읽습니다.
+
 ## 2026-08-11 — AI Figure Maker: 등간격 스냅, 직각 구간 끌기, 프레임 제목
 
 - 변경 파일: `src/tools/aifig/geometry.ts`, `src/tools/aifig/resolve.ts`, `src/tools/aifig/shapes.tsx`, `src/tools/aifig/Overlay.tsx`, `src/tools/aifig/Inspector.tsx`, `src/tools/aifig/types.ts`, `src/tools/AiFigureMaker.tsx`, `src/tools/aifig/snap.test.ts`
