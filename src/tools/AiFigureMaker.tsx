@@ -68,6 +68,7 @@ import {
   hitsByOutline,
   nearestT,
   nodeBounds,
+  spacingSnap,
   snapPos,
   snapSize,
   pointOnNode,
@@ -77,6 +78,7 @@ import {
   snapGuides,
   snapSides,
   unionRect,
+  type Gap,
   type Guide,
   type MovedSides,
   type Sticky,
@@ -140,10 +142,47 @@ type Drag =
   /** sliding a connector's label along its own path; `base` is where on the
    *  path the label sat when it was grabbed, so the offset rides along */
   | { t: 'label'; edge: string; start: Pt; base: Pt; moved: boolean }
+  /** pushing one straight run of an orthogonal route sideways */
+  | {
+      t: 'segment'
+      edge: string
+      /** which run of the corner polyline, by its starting corner */
+      index: number
+      /** the run is vertical, so it moves in x — and the other way round */
+      axis: 'x' | 'y'
+      corners: Pt[]
+      start: Pt
+      moved: boolean
+    }
   | null
 
 /** How close an edge has to come, on screen, before a guide claims it. */
 const SNAP_PX = 5
+
+/* Which straight run of an orthogonal route the pointer is on, if it is on one
+ * that can move. The first and last runs are the stubs leaving the shapes: they
+ * are pinned to their anchors, and a run too short to see is not something
+ * anyone meant to grab. */
+function nearestRun(
+  corners: Pt[],
+  p: Pt,
+): { index: number; axis: 'x' | 'y' } | null {
+  let best: { index: number; axis: 'x' | 'y'; d: number } | null = null
+  for (let i = 1; i < corners.length - 2; i++) {
+    const a = corners[i]
+    const b = corners[i + 1]
+    const vertical = Math.abs(a.x - b.x) < 0.5
+    const len = vertical ? Math.abs(b.y - a.y) : Math.abs(b.x - a.x)
+    if (len < 16) continue
+    const lo = vertical ? Math.min(a.y, b.y) : Math.min(a.x, b.x)
+    const hi = vertical ? Math.max(a.y, b.y) : Math.max(a.x, b.x)
+    const along = vertical ? p.y : p.x
+    if (along < lo - 4 || along > hi + 4) continue
+    const d = Math.abs((vertical ? p.x - a.x : p.y - a.y))
+    if (!best || d < best.d) best = { index: i, axis: vertical ? 'x' : 'y', d }
+  }
+  return best && best.d <= 12 ? { index: best.index, axis: best.axis } : null
+}
 
 const ZOOM_MIN = 0.15
 const ZOOM_MAX = 6
@@ -220,6 +259,7 @@ export default function AiFigureMaker() {
   const [editing, setEditing] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [guides, setGuides] = useState<Guide[]>([])
+  const [gaps, setGaps] = useState<Gap[]>([])
   const [marquee, setMarquee] = useState<Rect | null>(null)
   const [temp, setTemp] = useState<{ a: Pt; b: Pt; target: string | null } | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -948,6 +988,28 @@ export default function AiFigureMaker() {
     const hitEdge = el.getAttribute?.('data-hit-edge')
     if (hitEdge) {
       selectEdge(hitEdge, ev.shiftKey)
+      /* An orthogonal route's long runs are draggable sideways. Waypoints could
+         already express the result, but placing one by hand to move a lane is
+         backwards: you want to push the line you can see. The stubs at either
+         end are left alone — they are pinned to the anchors. */
+      const r = resolved.get(hitEdge)
+      const e = d.edges.find((x) => x.id === hitEdge)
+      if (r && e && !e.locked && e.route === 'ortho' && r.corners.length > 3) {
+        const seg = nearestRun(r.corners, world)
+        if (seg) {
+          beginDrag()
+          setDragging(true)
+          dragRef.current = {
+            t: 'segment',
+            edge: hitEdge,
+            index: seg.index,
+            axis: seg.axis,
+            corners: r.corners,
+            start: world,
+            moved: false,
+          }
+        }
+      }
       return
     }
 
@@ -1008,16 +1070,39 @@ export default function AiFigureMaker() {
           ? { dx: 0, dy: 0, hitX: false, hitY: false, guides: [] as Guide[], atX: null, atY: null }
           : snapGuides(moving, others, SNAP_PX / viewRef.current.zoom, drag.sticky)
         drag.sticky = { x: snap.atX, y: snap.atY }
-        /* Positions land on half cells — the corners *and* the middles of the
+        /* Three rules per axis, in order of how much they mean to the reader.
+           Lining up with something beats an even gap, and an even gap beats the
+           lattice — a grid is only ever a proxy for the other two.
+
+           Positions land on half cells: the corners *and* the middles of the
            checker, which is what lets an odd box centre itself on the lattice
            and an even one sit flush. Quantising the selection's box rather than
            the lead node is what makes a multi-selection move as one piece. */
         const g = d.canvas.grid
+        const gaps: Gap[] = []
+        const evenly = (axis: 'x' | 'y') => {
+          if (free) return null
+          const box = { x: drag.box.x + dx, y: drag.box.y + dy, w: drag.box.w, h: drag.box.h }
+          return spacingSnap(box, others, axis, SNAP_PX / viewRef.current.zoom)
+        }
         if (snap.hitX) dx += snap.dx
-        else if (d.canvas.snap && !free) dx += snapPos(drag.box.x + dx, g) - (drag.box.x + dx)
+        else {
+          const s = evenly('x')
+          if (s) {
+            dx += s.d
+            gaps.push(...s.gaps)
+          } else if (d.canvas.snap && !free) dx += snapPos(drag.box.x + dx, g) - (drag.box.x + dx)
+        }
         if (snap.hitY) dy += snap.dy
-        else if (d.canvas.snap && !free) dy += snapPos(drag.box.y + dy, g) - (drag.box.y + dy)
+        else {
+          const s = evenly('y')
+          if (s) {
+            dy += s.d
+            gaps.push(...s.gaps)
+          } else if (d.canvas.snap && !free) dy += snapPos(drag.box.y + dy, g) - (drag.box.y + dy)
+        }
         setGuides(snap.guides)
+        setGaps(gaps)
         drag.moved = drag.moved || dx !== 0 || dy !== 0
         live((cur) =>
           patchNodes(cur, drag.ids, (n) => {
@@ -1109,6 +1194,7 @@ export default function AiFigureMaker() {
           }
         } else {
           setGuides([])
+          setGaps([])
         }
         w = Math.max(4, w)
         h = Math.max(4, h)
@@ -1187,6 +1273,33 @@ export default function AiFigureMaker() {
         return
       }
 
+      if (drag.t === 'segment') {
+        /* Move the run and hand the whole corner list back as waypoints. The
+           waypoint router dog-legs through them in order, and every corner of
+           an orthogonal route already shares a coordinate with its neighbour,
+           so replaying them reproduces the path exactly — with this one run
+           somewhere else. */
+        const d = docRef.current
+        const raw =
+          drag.axis === 'x'
+            ? drag.corners[drag.index].x + (world.x - drag.start.x)
+            : drag.corners[drag.index].y + (world.y - drag.start.y)
+        const v = Math.round(
+          d.canvas.snap && !ev.metaKey && !ev.ctrlKey ? snapPos(raw, d.canvas.grid) : raw,
+        )
+        const pts = drag.corners.map((c, i) =>
+          i === drag.index || i === drag.index + 1
+            ? drag.axis === 'x'
+              ? { x: v, y: c.y }
+              : { x: c.x, y: v }
+            : { ...c },
+        )
+        drag.moved = true
+        // the ends are the anchors; only what lies between them is a waypoint
+        live((cur) => patchEdges(cur, [drag.edge], () => ({ waypoints: pts.slice(1, -1) })))
+        return
+      }
+
       if (drag.t === 'waypoint') {
         const p = { x: Math.round(gridSnap(world.x)), y: Math.round(gridSnap(world.y)) }
         drag.moved = true
@@ -1205,6 +1318,7 @@ export default function AiFigureMaker() {
       setDragging(false)
       setPanning(false)
       setGuides([])
+      setGaps([])
       setMarquee(null)
       if (!drag) return
 
@@ -2059,6 +2173,7 @@ export default function AiFigureMaker() {
                   .filter((x): x is { e: FigEdge; r: ResolvedEdge } => !!x.r)}
                 hoverNode={hoverNode && !hoverNode.locked ? hoverNode : null}
                 guides={guides}
+                gaps={gaps}
                 marquee={marquee}
                 tempEdge={temp ? { a: temp.a, b: temp.b } : null}
                 connectTarget={temp?.target ? nodeBounds(nmap.get(temp.target)!) : null}
@@ -2141,7 +2256,7 @@ export default function AiFigureMaker() {
             ? connectFrom
               ? '도착 노드를 클릭하세요 · 시작점은 그대로 남아 연속 연결됩니다 · Esc 취소'
               : '연결 모드 — 시작 노드를 클릭하세요 · Esc로 나가기'
-            : '드래그 이동 · C 연결 모드 · 여러 층 선택 후 L 전결합 · 더블클릭 편집 · 이미지는 끌어다 놓거나 ⌘V'}
+            : '드래그 이동 · C 연결 모드 · 여러 층 선택 후 L 전결합 · 더블클릭 편집 · 직각 연결선은 구간을 끌어 옮김 · 이미지는 끌어다 놓거나 ⌘V'}
         </span>
       </div>
 

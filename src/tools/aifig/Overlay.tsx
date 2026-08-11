@@ -6,7 +6,7 @@
  * handles keep a constant on-screen size. */
 
 import type { FigEdge, FigNode, Pt, Rect } from './types'
-import type { Guide } from './geometry'
+import type { Gap, Guide } from './geometry'
 import type { ResolvedEdge } from './resolve'
 import { atLength, nodeBounds } from './geometry'
 import { ANCHOR_UV, CURSOR, HANDLES, HANDLE_UV, anchorHandlePoint } from './handles'
@@ -18,6 +18,8 @@ interface Props {
   edges: { e: FigEdge; r: ResolvedEdge }[] // selected edges
   hoverNode: FigNode | null
   guides: Guide[]
+  /** equal-spacing bars, drawn while a drag is holding a rhythm */
+  gaps: Gap[]
   marquee: Rect | null
   tempEdge: { a: Pt; b: Pt } | null
   /** bounds of the node a live connection would land on */
@@ -33,6 +35,7 @@ export default function Overlay({
   edges,
   hoverNode,
   guides,
+  gaps,
   marquee,
   tempEdge,
   connectTarget,
@@ -55,6 +58,34 @@ export default function Overlay({
           strokeDasharray={`${4 * k} ${3 * k}`}
         />
       ))}
+
+      {/* Equal gaps: a measured bar with end ticks, drawn solid so it reads as
+          a distance rather than as one more alignment line. */}
+      {gaps.map((g, i) => {
+        const horiz = g.axis === 'x'
+        const x1 = horiz ? g.from : g.at
+        const y1 = horiz ? g.at : g.from
+        const x2 = horiz ? g.to : g.at
+        const y2 = horiz ? g.at : g.to
+        const t = 4 * k
+        return (
+          <g key={`gap${i}`} stroke="#ff2d9b" strokeWidth={1.2 * k}>
+            <line x1={x1} y1={y1} x2={x2} y2={y2} />
+            <line
+              x1={horiz ? x1 : x1 - t}
+              y1={horiz ? y1 - t : y1}
+              x2={horiz ? x1 : x1 + t}
+              y2={horiz ? y1 + t : y1}
+            />
+            <line
+              x1={horiz ? x2 : x2 - t}
+              y1={horiz ? y2 - t : y2}
+              x2={horiz ? x2 : x2 + t}
+              y2={horiz ? y2 + t : y2}
+            />
+          </g>
+        )
+      })}
 
       {/* selected node outlines */}
       {nodes.map((n) => {

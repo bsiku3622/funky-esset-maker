@@ -446,11 +446,18 @@ const Curve = ({ n }: BodyProps) => {
   )
 }
 
+/* The title used to straddle the top edge on an opaque white plate, so that on
+ * a transparent canvas it printed a white slab across the drawing — and the
+ * plate had to be taller than the text to cover the border it sat on. Sitting
+ * the title *above* the edge needs no plate at all: nothing is behind it to
+ * punch through. `titleBg` is still there for a title that has to overlap
+ * something, but it is off unless asked for. */
 const Frame = ({ n }: BodyProps) => {
   const s = n.style
   const title = n.props.title ?? ''
   const f = fontCss(FONT_STACK[s.fontFamily], s.fontSize, 600, false)
-  const tw = title ? textWidth(title, f) + 10 : 0
+  const bg = n.props.titleBg ?? 'none'
+  const tw = title ? textWidth(title, f) : 0
   return (
     <g>
       <rect
@@ -465,16 +472,18 @@ const Frame = ({ n }: BodyProps) => {
       />
       {title ? (
         <g>
-          <rect
-            x={10}
-            y={-s.fontSize * 0.72}
-            width={tw}
-            height={s.fontSize * 1.35}
-            fill="#ffffff"
-          />
+          {bg !== 'none' ? (
+            <rect
+              x={10 - 4}
+              y={-s.fontSize * 1.12}
+              width={tw + 8}
+              height={s.fontSize * 1.05}
+              fill={bg}
+            />
+          ) : null}
           <text
-            x={15}
-            y={s.fontSize * 0.34}
+            x={10}
+            y={-s.fontSize * 0.3}
             fontFamily={FONT_STACK[s.fontFamily]}
             fontSize={s.fontSize}
             fontWeight={600}

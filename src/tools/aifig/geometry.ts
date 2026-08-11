@@ -349,6 +349,19 @@ function smoothPolyline(pts: Pt[]): PathSeg[] {
 
 const STUB = 18 // how far an ortho leg leaves the shape before turning
 
+/** The corner polyline behind an orthogonal route, before the fillets go on.
+ *  The editor needs it to let a run be dragged sideways: the rounded path has
+ *  no corners left to grab. */
+export function orthoCorners(
+  a: AnchorPoint,
+  b: AnchorPoint,
+  waypoints: Pt[],
+  radius = 8,
+  avoid: Rect[] = [],
+): Pt[] {
+  return orthoPoints(a, b, waypoints, radius, avoid)
+}
+
 function orthoPoints(
   a: AnchorPoint,
   b: AnchorPoint,
@@ -823,6 +836,103 @@ export function snapGuides(
     atX: x?.at ?? null,
     atY: y?.at ?? null,
   }
+}
+
+/* ---------- equal spacing ---------- */
+
+/** A gap the snap is claiming is equal to another one, drawn as a measured bar
+ *  between two shapes. `from`/`to` run along `axis`; `at` is where to draw it. */
+export interface Gap {
+  axis: 'x' | 'y'
+  from: number
+  to: number
+  at: number
+}
+
+const span = (r: Rect, axis: 'x' | 'y') =>
+  axis === 'x' ? { lo: r.x, hi: r.x + r.w } : { lo: r.y, hi: r.y + r.h }
+
+/* Snap so the gaps come out equal, the way you actually lay a row of blocks
+ * out: drop one between two others and it lands centred between them, or drop
+ * it past the end of a row and it keeps the rhythm the row already has.
+ *
+ * Only shapes that overlap the moving box on the *other* axis are considered.
+ * A gap to something in a different row is not a gap anyone can see. */
+export function spacingSnap(
+  moving: Rect,
+  others: Rect[],
+  axis: 'x' | 'y',
+  threshold: number,
+): { d: number; gaps: Gap[] } | null {
+  const cross = axis === 'x' ? 'y' : 'x'
+  const m = span(moving, axis)
+  const mc = span(moving, cross)
+  const row = others
+    .filter((o) => {
+      const c = span(o, cross)
+      return c.lo < mc.hi && c.hi > mc.lo
+    })
+    .map((o) => ({ r: o, ...span(o, axis) }))
+    .sort((p, q) => p.lo - q.lo)
+  if (row.length < 2) return null
+
+  const size = m.hi - m.lo
+  const at = (a: Rect, b: Rect) => {
+    const ca = span(a, cross)
+    const cb = span(b, cross)
+    return (Math.max(ca.lo, cb.lo) + Math.min(ca.hi, cb.hi)) / 2
+  }
+  const bar = (lo: number, hi: number, a: Rect, b: Rect): Gap => ({
+    axis,
+    from: lo,
+    to: hi,
+    at: at(a, b),
+  })
+
+  const left = row.filter((o) => o.hi <= m.lo + 0.01)
+  const right = row.filter((o) => o.lo >= m.hi - 0.01)
+  const L = left[left.length - 1]
+  const LL = left[left.length - 2]
+  const Rt = right[0]
+  const RR = right[1]
+
+  interface Cand {
+    lo: number
+    gaps: Gap[]
+  }
+  const cands: Cand[] = []
+
+  // centred between the two it sits among
+  if (L && Rt && Rt.lo - L.hi > size) {
+    const lo = (L.hi + Rt.lo - size) / 2
+    cands.push({
+      lo,
+      gaps: [bar(L.hi, lo, L.r, moving), bar(lo + size, Rt.lo, moving, Rt.r)],
+    })
+  }
+  // carrying on a rhythm the row already has, on either side
+  if (L && LL && L.lo - LL.hi > 0.5) {
+    const g = L.lo - LL.hi
+    cands.push({
+      lo: L.hi + g,
+      gaps: [bar(LL.hi, L.lo, LL.r, L.r), bar(L.hi, L.hi + g, L.r, moving)],
+    })
+  }
+  if (Rt && RR && RR.lo - Rt.hi > 0.5) {
+    const g = RR.lo - Rt.hi
+    cands.push({
+      lo: Rt.lo - g - size,
+      gaps: [bar(Rt.lo - g, Rt.lo, moving, Rt.r), bar(Rt.hi, RR.lo, Rt.r, RR.r)],
+    })
+  }
+
+  let best: { d: number; gaps: Gap[] } | null = null
+  for (const c of cands) {
+    const d = c.lo - m.lo
+    if (Math.abs(d) <= threshold && (!best || Math.abs(d) < Math.abs(best.d)))
+      best = { d, gaps: c.gaps }
+  }
+  return best
 }
 
 /* Position and size are quantised differently, and that is the whole trick.

@@ -118,6 +118,9 @@ export interface NodeProps {
   taper?: number // 0..0.9, how much the short side shrinks
   /* frame */
   title?: string
+  /** plate behind the frame's title; 'none' unless the title has to sit over
+   *  something. It used to be a hardcoded white slab. */
+  titleBg?: string
 }
 
 export interface FigNode {

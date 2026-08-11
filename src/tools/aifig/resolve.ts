@@ -5,6 +5,7 @@ import type { EndPoint, FigEdge, FigNode, Pt, Rect } from './types'
 import {
   anchorPoint,
   nodeBounds,
+  orthoCorners,
   pathInfo,
   route,
   trimPath,
@@ -19,6 +20,8 @@ export interface ResolvedEdge {
   b: AnchorPoint
   /** path after trimming for filled heads — what actually gets stroked */
   strokeInfo: PathInfo
+  /** corner polyline of an orthogonal route; empty for the other kinds */
+  corners: Pt[]
 }
 
 function endPointOf(
@@ -65,11 +68,13 @@ export function resolveEdge(
     if (n && ep.anchor !== 'c') boxes.push(nodeBounds(n))
   }
   const segs = route(e.route, a, b, e.waypoints, e.bow, undefined, boxes)
+  // the pre-fillet corners, so a run can be grabbed and slid sideways
+  const corners = e.route === 'ortho' ? orthoCorners(a, b, e.waypoints, undefined, boxes) : []
   const info = pathInfo(segs)
 
   const sw = e.style.strokeWidth
   const hs = headGeom(e.startHead, sw)
   const he = headGeom(e.endHead, sw)
   const strokeInfo = pathInfo(trimPath(segs, hs?.inset ?? 0, he?.inset ?? 0))
-  return { info, a, b, strokeInfo }
+  return { info, a, b, strokeInfo, corners }
 }

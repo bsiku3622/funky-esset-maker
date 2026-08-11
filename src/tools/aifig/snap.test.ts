@@ -11,7 +11,7 @@
  * shift really lands on, and stop the choice changing hands under jitter. */
 
 import { describe, expect, it } from 'vitest'
-import { snapGuides, type Sticky } from './geometry'
+import { snapGuides, spacingSnap, type Sticky } from './geometry'
 import type { Rect } from './types'
 
 const R = (x: number, y: number, w: number, h: number): Rect => ({ x, y, w, h })
@@ -86,5 +86,44 @@ describe('snapGuides', () => {
     expect(r.dy).toBe(0)
     expect(r.guides).toEqual([])
     expect(r.atY).toBe(null)
+  })
+})
+
+describe('spacingSnap', () => {
+  const row = (xs: number[]) => xs.map((x) => R(x, 100, 60, 40))
+
+  it('centres a block between the two it sits among', () => {
+    // neighbours end at 160 and start at 320: centred means 210, so 207 pulls +3
+    const s = spacingSnap(R(207, 100, 60, 40), row([100, 320]), 'x', 6)
+    expect(s?.d).toBe(3)
+    expect(s?.gaps).toHaveLength(2)
+  })
+
+  it('measures the two gaps it made equal', () => {
+    const s = spacingSnap(R(207, 100, 60, 40), row([100, 320]), 'x', 6)!
+    const widths = s.gaps.map((g) => +(g.to - g.from).toFixed(2))
+    expect(widths).toEqual([50, 50])
+  })
+
+  it('carries on the rhythm a row already has', () => {
+    // 100 and 200 are 40 apart; dropping a third near 300 should land on 300
+    const s = spacingSnap(R(297, 100, 60, 40), row([100, 200]), 'x', 6)
+    expect(s?.d).toBe(3)
+  })
+
+  /* A gap to something in another row is not a gap anyone can see, so shapes
+     that do not overlap on the other axis must not take part. */
+  it('ignores shapes that are not in the same row', () => {
+    const elsewhere = [R(100, 400, 60, 40), R(320, 400, 60, 40)]
+    expect(spacingSnap(R(200, 100, 60, 40), elsewhere, 'x', 6)).toBe(null)
+  })
+
+  it('stays quiet when nothing is close enough', () => {
+    // 25px from the centred position, well past the threshold
+    expect(spacingSnap(R(185, 100, 60, 40), row([100, 320]), 'x', 6)).toBe(null)
+  })
+
+  it('needs two neighbours before spacing means anything', () => {
+    expect(spacingSnap(R(200, 100, 60, 40), row([100]), 'x', 6)).toBe(null)
   })
 })
