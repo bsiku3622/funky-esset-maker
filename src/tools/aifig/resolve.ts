@@ -24,6 +24,8 @@ export interface ResolvedEdge {
   corners: Pt[]
   /** the edge's bends in canvas coordinates, whatever they are stored as */
   wps: Pt[]
+  /** heads shrink below 1 when the line is too short to carry them */
+  headScale: number
 }
 
 function endPointOf(
@@ -88,6 +90,14 @@ export function resolveEdge(
   const sw = e.style.strokeWidth
   const hs = headGeom(e.startHead, sw)
   const he = headGeom(e.endHead, sw)
-  const strokeInfo = pathInfo(trimPath(segs, hs?.inset ?? 0, he?.inset ?? 0))
-  return { info, a, b, strokeInfo, corners, wps }
+  /* Between two shapes that nearly touch there is less line than there is
+     arrowhead: the head used to be drawn at full size on a 0.2px stub, so it
+     stuck out of both of them and the connector read as a blob. Give the heads
+     at most a third of the line each and scale them to match. */
+  const want = (hs?.inset ?? 0) + (he?.inset ?? 0)
+  const headScale = want > 0 ? Math.min(1, (info.len * 0.66) / want) : 1
+  const strokeInfo = pathInfo(
+    trimPath(segs, (hs?.inset ?? 0) * headScale, (he?.inset ?? 0) * headScale),
+  )
+  return { info, a, b, strokeInfo, corners, wps, headScale }
 }

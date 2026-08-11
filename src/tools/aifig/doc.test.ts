@@ -7,7 +7,7 @@
  * looking extra line per unit. */
 
 import { describe, expect, it } from 'vitest'
-import { columnsOf, emptyDoc, fullyConnect } from './doc'
+import { columnsOf, emptyDoc, fullyConnect, removeItems } from './doc'
 import { makeNode, paletteById } from './presets'
 import type { EndPoint, FigDoc, FigEdge, FigNode } from './types'
 
@@ -85,5 +85,69 @@ describe('fullyConnect', () => {
     const r = fullyConnect(d, ['a0', 'a1'])
     expect(r.edgeIds).toHaveLength(0)
     expect(r.doc).toBe(d)
+  })
+})
+
+/* Deleting a block used to take its connectors with it, so pulling one step
+ * out of a chain left the two halves with no way back together. */
+describe('removeItems', () => {
+  const chain = (ids: string[]): FigDoc => {
+    const nodes = ids.map((id, i) => at(id, i * 200, 0))
+    const edges = ids.slice(1).map((id, i) => ({
+      id: `e${i}`,
+      from: { node: ids[i], anchor: 'auto' as const },
+      to: { node: id, anchor: 'auto' as const },
+      route: 'straight' as const,
+      waypoints: [],
+      startHead: 'none' as const,
+      endHead: 'arrow' as const,
+      label: '',
+      labelT: 0.5,
+      labelDx: 0,
+      labelDy: 0,
+      bow: 24,
+      style: { ...paletteById('muted') && baseEdge() },
+      locked: false,
+      hidden: false,
+    }))
+    return { ...emptyDoc(), nodes, edges }
+  }
+  const baseEdge = () => ({
+    stroke: '#222', strokeWidth: 1.4, dash: 'solid' as const, opacity: 1,
+    fontFamily: 'sans' as const, fontSize: 11, textColor: '#222', labelBg: 'none',
+  })
+
+  it('joins what came before to what came after', () => {
+    const r = removeItems(chain(['a', 'b', 'c']), ['b'], [])
+    expect(r.nodes.map((n) => n.id)).toEqual(['a', 'c'])
+    expect(r.edges.map(pairOf)).toEqual(['ac'])
+  })
+
+  it('closes a run of several deleted blocks in one hop', () => {
+    const r = removeItems(chain(['a', 'b', 'c', 'd']), ['b', 'c'], [])
+    expect(r.edges.map(pairOf)).toEqual(['ad'])
+  })
+
+  it('carries the incoming line to every branch the block fed', () => {
+    const d = chain(['a', 'b'])
+    d.nodes.push(at('c', 400, 0), at('x', 400, 200))
+    d.edges.push(
+      { ...d.edges[0], id: 'e1', from: { node: 'b', anchor: 'auto' }, to: { node: 'c', anchor: 'auto' } },
+      { ...d.edges[0], id: 'e2', from: { node: 'b', anchor: 'auto' }, to: { node: 'x', anchor: 'auto' } },
+    )
+    const r = removeItems(d, ['b'], [])
+    expect(r.edges.map(pairOf).sort()).toEqual(['ac', 'ax'])
+  })
+
+  it('invents nothing when the block was an end of the chain', () => {
+    const r = removeItems(chain(['a', 'b']), ['b'], [])
+    expect(r.edges).toEqual([])
+  })
+
+  it('does not duplicate a connection that already exists', () => {
+    const d = chain(['a', 'b', 'c'])
+    d.edges.push({ ...d.edges[0], id: 'direct', from: { node: 'a', anchor: 'auto' }, to: { node: 'c', anchor: 'auto' } })
+    const r = removeItems(d, ['b'], [])
+    expect(r.edges.map(pairOf)).toEqual(['ac'])
   })
 })

@@ -1293,7 +1293,12 @@ export default function AiFigureMaker() {
           x: drag.base.x + (world.x - drag.start.x),
           y: drag.base.y + (world.y - drag.start.y),
         }
-        const t = Math.round(nearestT(r.info, target) * 100) / 100
+        /* Quantise along the path in pixels, not in hundredths of it. A fixed
+           0.01 step is a tenth of a pixel on a short connector and ten pixels
+           on a long one, so the label crawled smoothly on one and lurched on
+           the other. One step is one pixel either way. */
+        const len = Math.max(1, r.info.len)
+        const t = +(Math.round(nearestT(r.info, target) * len) / len).toFixed(4)
         drag.moved = true
         live((cur) => patchEdges(cur, [drag.edge], () => ({ labelT: t })))
         return
@@ -2103,10 +2108,14 @@ export default function AiFigureMaker() {
                   height={checkerCell}
                   fill="#f7f7f4"
                 />
-                {/* one dot per square, in the middle of it — the squares' own
-                    corners are the snap points, so a dot there only smudged
-                    the line it was sitting on */}
-                {[
+                {/* One dot per square, in the middle of it — the squares' own
+                    corners are the snap points, so a dot there only smudged the
+                    line it was sitting on.
+                    ⚠️ Baking these into the checker made the "점 표시" checkbox
+                    dead on a transparent canvas: the box was off and the dots
+                    were still there, because they were part of the background
+                    rather than the grid layer. */}
+                {doc.canvas.showGrid ? [
                   [0.5, 0.5],
                   [1.5, 0.5],
                   [0.5, 1.5],
@@ -2119,7 +2128,7 @@ export default function AiFigureMaker() {
                     r={0.7}
                     fill="#dedbcd"
                   />
-                ))}
+                )) : null}
               </pattern>
             </defs>
             <g transform={`translate(${view.x} ${view.y}) scale(${view.zoom})`}>

@@ -20,12 +20,15 @@ function Head({
   dir,
   color,
   sw,
+  scale,
 }: {
   kind: string
   at: Pt
   dir: Pt
   color: string
   sw: number
+  /** below 1 when the connector is shorter than its own arrowhead */
+  scale: number
 }) {
   const g = headGeom(kind, sw)
   if (!g) return null
@@ -33,7 +36,10 @@ function Head({
   return (
     <path
       d={g.path}
-      transform={`translate(${at.x.toFixed(2)} ${at.y.toFixed(2)}) rotate(${angle.toFixed(2)})`}
+      transform={
+        `translate(${at.x.toFixed(2)} ${at.y.toFixed(2)}) rotate(${angle.toFixed(2)})` +
+        (scale < 1 ? ` scale(${scale.toFixed(3)})` : '')
+      }
       fill={g.filled ? color : 'none'}
       stroke={color}
       strokeWidth={g.filled ? 0 : Math.max(0.9, sw)}
@@ -77,8 +83,16 @@ export const EdgeView = memo(function EdgeView({
         dir={{ x: -start.dir.x, y: -start.dir.y }}
         color={s.stroke}
         sw={s.strokeWidth}
+        scale={r.headScale}
       />
-      <Head kind={e.endHead} at={end.p} dir={end.dir} color={s.stroke} sw={s.strokeWidth} />
+      <Head
+        kind={e.endHead}
+        at={end.p}
+        dir={end.dir}
+        color={s.stroke}
+        sw={s.strokeWidth}
+        scale={r.headScale}
+      />
       {label && lp ? (
         <g
           transform={`translate(${(lp.p.x + e.labelDx).toFixed(2)} ${(lp.p.y + e.labelDy).toFixed(2)})`}

@@ -293,7 +293,11 @@ export function route(
     const dy = b.p.y - a.p.y
     const L = Math.hypot(dx, dy) || 1
     const mid = { x: (a.p.x + b.p.x) / 2, y: (a.p.y + b.p.y) / 2 }
-    const c = { x: mid.x - (dy / L) * bow * 2, y: mid.y + (dx / L) * bow * 2 }
+    /* The bow is in px, so between two shapes almost touching it used to throw
+       a 24px belly out of a 2px gap. Nothing may bulge further than the chord
+       it spans. */
+    const k = Math.sign(bow) * Math.min(Math.abs(bow), L / 2)
+    const c = { x: mid.x - (dy / L) * k * 2, y: mid.y + (dx / L) * k * 2 }
     return [{ t: 'Q', a: a.p, c, b: b.p }]
   }
 
@@ -301,7 +305,12 @@ export function route(
     if (waypoints.length) return smoothPolyline(pts)
     const dx = b.p.x - a.p.x
     const dy = b.p.y - a.p.y
-    const L = Math.max(28, Math.hypot(dx, dy) * 0.42)
+    /* ⚠️ The 28px floor keeps a short curve from going limp, but on its own it
+       meant two shapes 2px apart were joined by a 31px loop: the handles stuck
+       out further than the gap they were spanning. It only applies while there
+       is room for it. */
+    const dist = Math.hypot(dx, dy)
+    const L = Math.min(Math.max(28, dist * 0.42), dist * 0.5)
     const da = len2(a.dir) ? a.dir : { x: Math.sign(dx) || 1, y: 0 }
     const db = len2(b.dir) ? b.dir : { x: -(Math.sign(dx) || 1), y: 0 }
     return [

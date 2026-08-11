@@ -244,16 +244,9 @@ export interface FigDoc {
 
 /* ---------- editor-only state (not persisted in the figure) ---------- */
 
-export type ToolMode =
-  | 'select'
-  | 'connect'
-  | 'pan'
-  | { insert: NodeKind }
-
-export interface Selection {
-  nodes: string[]
-  edges: string[]
-}
+/* `ToolMode` and `Selection` used to live here. Nothing ever read either: the
+ * editor keeps its mode in `connecting` and its selection in two id arrays, so
+ * they were a description of a design that was never built. */
 
 export interface View {
   x: number

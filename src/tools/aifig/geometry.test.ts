@@ -190,3 +190,54 @@ describe('path measurement', () => {
     expect(dir).toEqual({ x: 0, y: 1 })
   })
 })
+
+/* Two shapes almost touching used to produce a connector far bigger than the
+ * gap it spanned: a curve's handles have a 28px floor, an arc's bow is in px,
+ * and an arrowhead is sized from the stroke — none of them looked at how much
+ * room there actually was. */
+describe('connectors shorter than their own decoration', () => {
+  const chord = (segs: PathSeg[]) => {
+    const pts = pathInfo(segs).pts
+    const a = pts[0]
+    const b = pts[pts.length - 1]
+    return Math.hypot(b.x - a.x, b.y - a.y)
+  }
+  const sideways = (segs: PathSeg[]) => {
+    const xs = pathInfo(segs).pts.map((p) => p.x)
+    return Math.max(...xs) - Math.min(...xs)
+  }
+  /** two boxes stacked with `gap` between them, joined bottom-to-top */
+  const pair = (kind: 'curve' | 'arc' | 'straight', gap: number, bow = 24) => {
+    const a = node(100, 100, 60, 40)
+    const b = node(100, 140 + gap, 60, 40)
+    return route(kind, anchorPoint(a, 's', center(b)), anchorPoint(b, 'n', center(a)), [], bow, RADIUS)
+  }
+
+  it('does not loop a curve out further than the gap it spans', () => {
+    for (const gap of [0, 2, 6, 14]) {
+      const segs = pair('curve', gap)
+      expect(pathInfo(segs).len).toBeLessThanOrEqual(gap + 0.5)
+    }
+  })
+
+  it('keeps the handles long once there is room for them', () => {
+    /* Two boxes stacked face to face give a curve whose handles lie along the
+       chord, so the path is straight however long they are — the floor has to
+       be read off the control point, not off the length. */
+    const seg = pair('curve', 200)[0]
+    expect(seg.t).toBe('C')
+    if (seg.t !== 'C') return
+    expect(Math.hypot(seg.c1.x - seg.a.x, seg.c1.y - seg.a.y)).toBeGreaterThan(28)
+  })
+
+  it('never bulges an arc wider than half its chord', () => {
+    for (const gap of [2, 6, 14, 30, 200]) {
+      const segs = pair('arc', gap)
+      expect(sideways(segs)).toBeLessThanOrEqual(chord(segs) / 2 + 0.01)
+    }
+  })
+
+  it('leaves a generous arc alone when the chord is long', () => {
+    expect(sideways(pair('arc', 400))).toBeCloseTo(24, 0)
+  })
+})

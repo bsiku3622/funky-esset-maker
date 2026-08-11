@@ -233,9 +233,8 @@ function CanvasPanel({
           <Num value={c.grid} min={2} max={64} onChange={(grid) => onCanvas({ grid })} suffix="px" width={52} />
         </Field>
         <p className="af-note">
-          투명 배경의 체크무늬 한 칸이 이 간격입니다 — 보이는 칸 모서리가 곧 스냅 지점이에요. 점은
-          칸 가운데 표시일 뿐이라 체크무늬가 보일 때는 그리지 않고, 흰색·종이 배경에서만 대신
-          나옵니다.
+          투명 배경의 체크무늬 한 칸이 이 간격입니다 — 보이는 칸 모서리가 스냅 지점이고, 점은 칸
+          가운데 표시입니다. 도형은 반칸 단위로 놓이고 크기는 온칸 단위로 바뀝니다.
         </p>
         <Field label="기본 글자">
           <Num
@@ -821,18 +820,25 @@ function EdgePanel({
             onKeyDown={(ev) => ev.stopPropagation()}
           />
         </Field>
-        <Field label="위치">
+        {/* Three separate things — where along the line, how far off it, and
+            which side of that point the text sits — used to share one row and
+            wrapped into a mess. One row each, each labelled. */}
+        <Field label="선 위 위치">
           <Num
             value={e.labelT}
-            step={0.05}
+            step={0.01}
             min={0}
             max={1}
             onChange={(labelT) => onEdge(() => ({ labelT }))}
-            width={48}
+            width={56}
           />
-          <span className="af-hint-inline">오프셋</span>
-          <Num value={e.labelDx} onChange={(labelDx) => onEdge(() => ({ labelDx }))} width={44} />
-          <Num value={e.labelDy} onChange={(labelDy) => onEdge(() => ({ labelDy }))} width={44} />
+          <span className="af-hint-inline">0 = 시작, 1 = 끝 · 라벨을 끌어도 됩니다</span>
+        </Field>
+        <Field label="X 오프셋">
+          <Num value={e.labelDx} onChange={(labelDx) => onEdge(() => ({ labelDx }))} suffix="px" width={56} />
+        </Field>
+        <Field label="Y 오프셋">
+          <Num value={e.labelDy} onChange={(labelDy) => onEdge(() => ({ labelDy }))} suffix="px" width={56} />
         </Field>
         <Field label="정렬">
           <Seg

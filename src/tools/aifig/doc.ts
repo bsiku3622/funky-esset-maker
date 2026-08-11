@@ -90,16 +90,63 @@ export function patchEdgeStyle(
   return patchEdges(doc, ids, (e) => ({ style: { ...e.style, ...patch } }))
 }
 
+/* Delete, and close the gap behind what was deleted.
+ *
+ * Taking a block out of a chain used to take its connectors with it, leaving
+ * the two halves with no way back together short of redrawing the line by hand
+ * — the graph was cut and could not be rejoined. Deleting a block should mean
+ * "this step is gone", not "everything it touched is gone", so each way *in*
+ * is reconnected to each way *out*, which is what removing a link from a chain
+ * means. Nothing is invented: a node with no way in, or none out, simply loses
+ * its edges as before. */
 export function removeItems(doc: FigDoc, nodeIds: string[], edgeIds: string[]): FigDoc {
   const ns = new Set(nodeIds)
   const es = new Set(edgeIds)
-  const attached = (ep: FigEdge['from']) => 'node' in ep && ns.has(ep.node)
+  const at = (ep: FigEdge['from']) => ('node' in ep ? ep.node : null)
+  const doomed = (ep: FigEdge['from']) => {
+    const id = at(ep)
+    return id !== null && ns.has(id)
+  }
+  const live = doc.edges.filter((e) => !es.has(e.id))
+  const kept = live.filter((e) => !doomed(e.from) && !doomed(e.to))
+
+  /* Walk past a run of deleted blocks to the first survivor, so pulling three
+     out in a row still joins what was before them to what came after. `seen`
+     guards a cycle in the deleted stretch. */
+  const forward = (e: FigEdge, seen: Set<string>): FigEdge['to'][] => {
+    const id = at(e.to)
+    if (id === null || !ns.has(id)) return [e.to]
+    if (seen.has(id)) return []
+    seen.add(id)
+    return live.filter((x) => at(x.from) === id).flatMap((x) => forward(x, seen))
+  }
+  const backward = (e: FigEdge, seen: Set<string>): FigEdge['from'][] => {
+    const id = at(e.from)
+    if (id === null || !ns.has(id)) return [e.from]
+    if (seen.has(id)) return []
+    seen.add(id)
+    return live.filter((x) => at(x.to) === id).flatMap((x) => backward(x, seen))
+  }
+
+  const healed: FigEdge[] = []
+  const made = new Set<string>()
+  for (const gone of nodeIds)
+    for (const i of live.filter((e) => at(e.to) === gone))
+      for (const o of live.filter((e) => at(e.from) === gone))
+        for (const from of backward(i, new Set()))
+          for (const to of forward(o, new Set())) {
+            const key = `${at(from)}>${at(to)}`
+            if (at(from) === at(to) || made.has(key)) continue
+            if (kept.some((e) => `${at(e.from)}>${at(e.to)}` === key)) continue
+            made.add(key)
+            // the incoming line's look survives; the bends belonged to the gap
+            healed.push({ ...i, id: uid('e'), from, to, waypoints: [] })
+          }
+
   return {
     ...doc,
     nodes: doc.nodes.filter((n) => !ns.has(n.id)),
-    edges: doc.edges.filter(
-      (e) => !es.has(e.id) && !attached(e.from) && !attached(e.to),
-    ),
+    edges: [...kept, ...healed],
   }
 }
 
