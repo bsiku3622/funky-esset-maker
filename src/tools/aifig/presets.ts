@@ -316,7 +316,9 @@ export function baseEdgeStyle(p: Palette, font = 11): EdgeStyle {
     fontFamily: 'sans',
     fontSize: font,
     textColor: p.line,
-    labelBg: '#ffffff',
+    // no plate by default: it is there to punch through a line the label sits
+    // on, and most labels do not, so it mostly just ate the background
+    labelBg: 'none',
   }
 }
 

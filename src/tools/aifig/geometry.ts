@@ -581,8 +581,62 @@ export function pointInNode(p: Pt, n: FigNode, pad = 0) {
   return pointInRect(q, nodeRect(n), pad)
 }
 
+/* Shapes that are grabbed anywhere inside them even with no fill: a text node
+ * is its glyphs, an inline plot and an operator token are too small for an
+ * outline-only target to be anything but fiddly. */
+const SOLID_HIT = new Set<FigNode['kind']>(['text', 'image', 'curve', 'op'])
+
+/** Does this node paint an interior to click on, or only an outline? */
+export const hitsByOutline = (n: FigNode) =>
+  !SOLID_HIT.has(n.kind) && (n.style.fill === 'none' || n.style.fill === 'transparent')
+
+/* Is the pointer on the node — not merely inside its bounding box?
+ *
+ * ⚠️ An unfilled container is the whole reason this exists. A group frame is a
+ * dashed outline around other shapes, but its hit area was the filled
+ * rectangle, so it swallowed every click meant for what it contains: pressing a
+ * node inside it grabbed the frame and dragged the entire block instead. An
+ * empty interior is empty — you grab it by its edge, the way every vector
+ * editor does it. */
+export function pointOnNode(p: Pt, n: FigNode, pad = 0) {
+  if (!pointInNode(p, n, pad)) return false
+  if (!hitsByOutline(n)) return true
+  const band = Math.max(pad, 6) + n.style.strokeWidth / 2
+  // inside the box but not inside the hole it leaves in the middle
+  return !pointInNode(p, n, -band)
+}
+
 export function rectsOverlap(a: Rect, b: Rect) {
   return !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y)
+}
+
+/** Where along a path a point lands, as a 0..1 fraction of its length.
+ *  The inverse of `atLength`, so dragging something that rides the path can
+ *  be expressed as "which t is nearest the cursor". */
+export function nearestT(info: PathInfo, p: Pt): number {
+  const pts = info.pts
+  if (pts.length < 2 || info.len <= 0) return 0
+  let best = Infinity
+  let at = 0
+  let acc = 0
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1]
+    const b = pts[i]
+    const dx = b.x - a.x
+    const dy = b.y - a.y
+    const L2 = dx * dx + dy * dy
+    const seg = Math.sqrt(L2)
+    // clamp to the segment: the nearest point on an open polyline is never
+    // beyond an end, and letting u escape 0..1 would return a t off the path
+    const u = L2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / L2))
+    const d = Math.hypot(p.x - (a.x + dx * u), p.y - (a.y + dy * u))
+    if (d < best) {
+      best = d
+      at = acc + seg * u
+    }
+    acc += seg
+  }
+  return Math.max(0, Math.min(1, at / info.len))
 }
 
 /** Distance from a point to a flattened path — for selecting a connector. */
@@ -678,6 +732,26 @@ export function snapGuides(
     guides,
   }
 }
+
+/* Position and size are quantised differently, and that is the whole trick.
+ *
+ * A box that is an even number of cells across can put its edges *and* its
+ * centre on grid lines — the same positions. An odd one cannot: the centre on a
+ * line puts the edges on half cells, and vice versa. There is no third answer,
+ * so any single lattice has to pick a winner and gets the other case wrong.
+ *
+ * Splitting the two settles it. Sizes move a whole cell at a time, so a box is
+ * always a whole number of cells; positions land on halves, so the box can sit
+ * flush against the checker *or* centred on it, and the user says which by
+ * where they drop it. Odd and even both work, with no parity rule anywhere.
+ *
+ * The half lattice is also exactly what the canvas draws: cell corners and the
+ * dot in the middle of each cell. */
+export const snapPos = (v: number, grid: number) => Math.round(v / (grid / 2)) * (grid / 2)
+
+/** Sizes are whole cells, never halves — that is the invariant that keeps the
+ *  position lattice meaningful for both parities. */
+export const snapSize = (v: number, grid: number) => Math.max(grid, Math.round(v / grid) * grid)
 
 /** Which sides a resize handle is dragging. */
 export interface MovedSides {

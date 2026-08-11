@@ -3,10 +3,11 @@
  * Split out of shapes.tsx so the pure geometry can be imported by the editor,
  * the exporter and the hit layer without dragging a component module along. */
 
-import type { CanvasCfg, FigDoc, FigNode, Rect, Style } from './types'
+import type { CanvasCfg, EdgeStyle, FigDoc, FigEdge, FigNode, Rect, Style } from './types'
 import { FONT_STACK } from './presets'
-import { rotatePt } from './geometry'
+import { atLength, rotatePt, snapPos, snapSize } from './geometry'
 import { layoutLabel, type LabelLayout } from './latex'
+import type { ResolvedEdge } from './resolve'
 
 export function labelFont(s: Style) {
   return {
@@ -79,6 +80,42 @@ export function labelStyle(n: FigNode): Style {
   return n.style
 }
 
+/* ---------- connector labels ---------- */
+
+/** Edge labels reuse the node label renderer, which wants a full node Style. */
+export function edgeLabelStyle(s: EdgeStyle): Style {
+  return {
+    fill: 'none',
+    stroke: 'none',
+    strokeWidth: 0,
+    dash: 'solid',
+    opacity: 1,
+    radius: 0,
+    fontFamily: s.fontFamily,
+    fontSize: s.fontSize,
+    fontWeight: 400,
+    italic: false,
+    textColor: s.textColor,
+    align: s.align ?? 'center',
+    lineHeight: 1.2,
+  }
+}
+
+/** Where an edge's label sits, in world coordinates. The editor puts a grab
+ *  target here, so it has to be the *same* box the renderer draws from or the
+ *  text and the thing you grab drift apart. */
+export function edgeLabelBox(e: FigEdge, r: ResolvedEdge): Rect | null {
+  if (!e.label || e.hidden) return null
+  const style = edgeLabelStyle(e.style)
+  const l = layoutLabel(e.label, labelFont(style))
+  if (!l.w) return null
+  const { p } = atLength(r.info, e.labelT)
+  const x = p.x + e.labelDx
+  const y = p.y + e.labelDy
+  const left = style.align === 'left' ? x : style.align === 'right' ? x - l.w : x - l.w / 2
+  return { x: left, y: y - l.h / 2, w: l.w, h: l.h }
+}
+
 /* ---------- ink bounds ---------- */
 
 /** Text nodes that size themselves to their glyphs. Absent on nodes from an
@@ -135,6 +172,25 @@ function localInk(n: FigNode): Rect {
   }
   const o = shapeOverflow(n)
   return { x: n.x - o.l, y: n.y - o.t, w: n.w + o.l + o.r, h: n.h + o.t + o.b }
+}
+
+/* Put a node on the grid: a whole number of cells across, on the half-cell
+ * position lattice, without wandering off from where it already is.
+ *
+ * Whole cells is the part that matters. A box 3.4 cells wide can put neither
+ * its edges nor its centre on the lattice, so every rule for placing it looks
+ * arbitrary — the ambiguity is a property of the *size*, and this is where it
+ * gets fixed. */
+export function fitNodeToGrid(n: FigNode, grid: number): Partial<FigNode> {
+  // an op is a circle: one measurement, or it stops being one
+  const w = autoFits(n) ? n.w : n.kind === 'op' ? snapSize(Math.min(n.w, n.h), grid) : snapSize(n.w, grid)
+  const h = autoFits(n) ? n.h : n.kind === 'op' ? w : snapSize(n.h, grid)
+  return {
+    x: Math.round(snapPos(n.x + (n.w - w) / 2, grid)),
+    y: Math.round(snapPos(n.y + (n.h - h) / 2, grid)),
+    w,
+    h,
+  }
 }
 
 /** Resize auto-fitting text nodes to their glyphs, keeping the anchor the

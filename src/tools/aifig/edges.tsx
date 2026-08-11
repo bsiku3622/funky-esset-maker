@@ -6,32 +6,13 @@
  * colour. Drawing them inline keeps every exported file self-contained. */
 
 import { memo } from 'react'
-import type { EdgeStyle, FigEdge, Pt, Style } from './types'
+import type { FigEdge, Pt } from './types'
 import { atLength } from './geometry'
 import { dashArray, headGeom } from './presets'
 import { LabelView } from './shapes'
 import { layoutLabel } from './latex'
-import { labelFont } from './layout'
+import { edgeLabelStyle, labelFont } from './layout'
 import type { ResolvedEdge } from './resolve'
-
-/** Edge labels reuse the node label renderer, which wants a full node Style. */
-function asStyle(s: EdgeStyle): Style {
-  return {
-    fill: 'none',
-    stroke: 'none',
-    strokeWidth: 0,
-    dash: 'solid',
-    opacity: 1,
-    radius: 0,
-    fontFamily: s.fontFamily,
-    fontSize: s.fontSize,
-    fontWeight: 400,
-    italic: false,
-    textColor: s.textColor,
-    align: s.align ?? 'center',
-    lineHeight: 1.2,
-  }
-}
 
 function Head({
   kind,
@@ -75,7 +56,7 @@ export const EdgeView = memo(function EdgeView({
   const s = e.style
   const start = atLength(r.info, 0)
   const end = atLength(r.info, 1)
-  const style = asStyle(s)
+  const style = edgeLabelStyle(s)
   const label = e.label ? layoutLabel(e.label, labelFont(style)) : null
   const lp = label ? atLength(r.info, e.labelT) : null
 

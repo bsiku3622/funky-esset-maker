@@ -63,9 +63,14 @@ import {
   type ZMode,
 } from './aifig/doc'
 import {
+  atLength,
   distToPath,
+  hitsByOutline,
+  nearestT,
   nodeBounds,
-  pointInNode,
+  snapPos,
+  snapSize,
+  pointOnNode,
   rectCenter,
   rectsOverlap,
   rotatePt,
@@ -76,7 +81,14 @@ import {
   type MovedSides,
 } from './aifig/geometry'
 import { NodeView } from './aifig/shapes'
-import { inkRect, ptOf, refitText, shapeOverflow } from './aifig/layout'
+import {
+  edgeLabelBox,
+  fitNodeToGrid,
+  inkRect,
+  ptOf,
+  refitText,
+  shapeOverflow,
+} from './aifig/layout'
 import { EdgeView } from './aifig/edges'
 import { resolveEdge, type ResolvedEdge } from './aifig/resolve'
 import { ensureMathJax, onMathReady } from './aifig/latex'
@@ -122,6 +134,9 @@ type Drag =
   | { t: 'connect'; node: string; anchor: string; from: Pt }
   | { t: 'endpoint'; edge: string; which: 'from' | 'to' }
   | { t: 'waypoint'; edge: string; index: number; moved: boolean }
+  /** sliding a connector's label along its own path; `base` is where on the
+   *  path the label sat when it was grabbed, so the offset rides along */
+  | { t: 'label'; edge: string; start: Pt; base: Pt; moved: boolean }
   | null
 
 /** How close an edge has to come, on screen, before a guide claims it. */
@@ -384,6 +399,8 @@ export default function AiFigureMaker() {
     }
     return out
   }, [doc.edges, nmap])
+  // the window pointer listeners are bound once, so they cannot close over this
+  const resolvedRef = useLatest(resolved)
 
   const selectedNodeObjs = useMemo(
     () => doc.nodes.filter((n) => selNodes.includes(n.id)),
@@ -520,7 +537,12 @@ export default function AiFigureMaker() {
   const insertShape = (kind: NodeKind) => {
     const c = viewCenter()
     const { doc: next, id } = addNodeAt(docRef.current, kind, c)
-    commit(next)
+    // the catalogue's sizes are chosen to look right, not to divide by the
+    // grid, so a fresh shape would land off the lattice everything else is on
+    const placed = next.canvas.snap
+      ? patchNodes(next, [id], (n) => fitNodeToGrid(n, next.canvas.grid))
+      : next
+    commit(placed)
     setSelEdges([])
     setSelNodes([id])
     if (kind === 'text') setEditing(id)
@@ -719,16 +741,18 @@ export default function AiFigureMaker() {
    * reappeared as soon as the pointer fell through to the rect again, so the
    * dots flickered and could not be grabbed at all. Hit-testing the document
    * keeps the node hovered wherever the pointer is near it, dots included. */
-  const onHoverMove = (ev: React.PointerEvent) => {
-    if (dragRef.current) return
-    const w = toWorld(ev.clientX, ev.clientY)
-    // the dots straddle the border and stick out by their radius, so the hover
-    // region has to reach past the box or they drop out from under the pointer
-    const tol = 9 / viewRef.current.zoom
-    const hit = docRef.current.nodes
+  /** The node hover would light up at this point: topmost, visible, unlocked. */
+  const pickNodeAt = (w: Pt, tol = 0) =>
+    docRef.current.nodes
       .slice()
       .reverse()
-      .find((n) => !n.hidden && !n.locked && pointInNode(w, n, tol))
+      .find((n) => !n.hidden && !n.locked && pointOnNode(w, n, tol)) ?? null
+
+  const onHoverMove = (ev: React.PointerEvent) => {
+    if (dragRef.current) return
+    // the dots straddle the border and stick out by their radius, so the hover
+    // region has to reach past the box or they drop out from under the pointer
+    const hit = pickNodeAt(toWorld(ev.clientX, ev.clientY), 9 / viewRef.current.zoom)
     const id = hit?.id ?? null
     setHoverId((h) => (h === id ? h : id))
   }
@@ -845,17 +869,47 @@ export default function AiFigureMaker() {
       return
     }
 
+    // 3b) drag a connector's label along its own path
+    const hitLabel = el.getAttribute?.('data-hit-label')
+    if (hitLabel) {
+      const r = resolved.get(hitLabel)
+      const e = d.edges.find((x) => x.id === hitLabel)
+      if (r && e && !e.locked) {
+        selectEdge(hitLabel, ev.shiftKey)
+        beginDrag()
+        setDragging(true)
+        dragRef.current = {
+          t: 'label',
+          edge: hitLabel,
+          start: world,
+          base: atLength(r.info, e.labelT).p,
+          moved: false,
+        }
+        return
+      }
+    }
+
     // 4) node hit
     const hitNode = el.getAttribute?.('data-hit-node')
     if (hitNode) {
-      const n = nmap.get(hitNode)
-      if (n && !n.locked) {
-        const already = selNodesRef.current.includes(hitNode)
-        let ids = already ? selNodesRef.current : expandGroups(d, [hitNode])
+      /* What you hover has to be what you drag.
+       *
+       * ⚠️ Hover picks the topmost *unlocked* node geometrically; the press
+       * used to take whichever hit rect the DOM happened to put under the
+       * cursor and give up if it was locked. A locked node lying over an
+       * unlocked one made the two disagree — the anchor dots said "you have
+       * this one", the press fell through to the marquee branch and started
+       * rubber-banding the empty canvas instead. Fall back to hover's answer
+       * rather than dropping through. */
+      const direct = nmap.get(hitNode)
+      const n = direct && !direct.locked ? direct : pickNodeAt(world)
+      if (n) {
+        const already = selNodesRef.current.includes(n.id)
+        let ids = already ? selNodesRef.current : expandGroups(d, [n.id])
         if (ev.shiftKey) {
           ids = already
-            ? selNodesRef.current.filter((i) => i !== hitNode)
-            : [...new Set([...selNodesRef.current, ...expandGroups(d, [hitNode])])]
+            ? selNodesRef.current.filter((i) => i !== n.id)
+            : [...new Set([...selNodesRef.current, ...expandGroups(d, [n.id])])]
           setSelNodes(ids)
           setSelEdges([])
           return
@@ -905,7 +959,7 @@ export default function AiFigureMaker() {
         const over = docRef.current.nodes
           .slice()
           .reverse()
-          .find((n) => !n.hidden && pointInNode(w, n, 4))
+          .find((n) => !n.hidden && pointOnNode(w, n, 4))
         setTemp((t) =>
           t ? { ...t, b: w, target: over && over.id !== from ? over.id : null } : t,
         )
@@ -942,13 +996,15 @@ export default function AiFigureMaker() {
         const snap = free
           ? { dx: 0, dy: 0, hitX: false, hitY: false, guides: [] as Guide[] }
           : snapGuides(moving, others, SNAP_PX / viewRef.current.zoom)
-        const first = drag.orig.get(drag.ids[0])!
-        const toGrid = (o: number, delta: number) =>
-          Math.round((o + delta) / d.canvas.grid) * d.canvas.grid - o
+        /* Positions land on half cells — the corners *and* the middles of the
+           checker, which is what lets an odd box centre itself on the lattice
+           and an even one sit flush. Quantising the selection's box rather than
+           the lead node is what makes a multi-selection move as one piece. */
+        const g = d.canvas.grid
         if (snap.hitX) dx += snap.dx
-        else if (d.canvas.snap && !free) dx = toGrid(first.x, dx)
+        else if (d.canvas.snap && !free) dx += snapPos(drag.box.x + dx, g) - (drag.box.x + dx)
         if (snap.hitY) dy += snap.dy
-        else if (d.canvas.snap && !free) dy = toGrid(first.y, dy)
+        else if (d.canvas.snap && !free) dy += snapPos(drag.box.y + dy, g) - (drag.box.y + dy)
         setGuides(snap.guides)
         drag.moved = drag.moved || dx !== 0 || dy !== 0
         live((cur) =>
@@ -1000,10 +1056,6 @@ export default function AiFigureMaker() {
           w = side
           h = side
         }
-        /* Snap the edge under the cursor, not the distance dragged.
-           ⚠️ The grid step used to be applied to the delta, which preserves
-           whatever offset the box already had — an edge that started off-grid
-           could never be brought onto it. Rounding the resulting edge can. */
         const sides: MovedSides = {
           l: H.includes('w'),
           r: H.includes('e'),
@@ -1019,23 +1071,24 @@ export default function AiFigureMaker() {
           const gy = g.guides.some((q) => q.axis === 'y')
           if (gx) ({ x, w } = { x: g.rect.x, w: g.rect.w })
           if (gy) ({ y, h } = { y: g.rect.y, h: g.rect.h })
-          const q = (v: number) => Math.round(v / d.canvas.grid) * d.canvas.grid
+          /* Quantise the *size*, holding the edge you are not dragging exactly
+             where it is. Rounding the moving edge onto the grid instead would
+             drag the box off the half-cell position it was placed at; this way
+             a box grows and shrinks a whole cell at a time and keeps whatever
+             offset it had, which is what makes the half-cell positions survive
+             a resize. Non-whole sizes get fixed on their first resize for free. */
           if (d.canvas.snap && !gx) {
-            if (sides.l) {
-              const l = q(x)
-              w += x - l
-              x = l
-            } else if (sides.r) w = q(x + w) - x
+            const nw = snapSize(w, d.canvas.grid)
+            if (sides.l) x += w - nw
+            w = nw
           }
           if (d.canvas.snap && !gy) {
-            if (sides.t) {
-              const t = q(y)
-              h += y - t
-              y = t
-            } else if (sides.b) h = q(y + h) - y
+            const nh = snapSize(h, d.canvas.grid)
+            if (sides.t) y += h - nh
+            h = nh
           }
           if (drag.kind === 'op' && (gx || gy || d.canvas.snap)) {
-            // re-square after the axes were snapped independently
+            // re-square after the axes were quantised independently
             const side = Math.max(4, sides.l || sides.r ? w : h)
             if (H.includes('w')) x += w - side
             if (H.includes('n')) y += h - side
@@ -1100,8 +1153,25 @@ export default function AiFigureMaker() {
         const target = docRef.current.nodes
           .slice()
           .reverse()
-          .find((n) => !n.hidden && pointInNode(world, n, 4))
+          .find((n) => !n.hidden && pointOnNode(world, n, 4))
         setTemp((t) => (t ? { ...t, b: world, target: target?.id ?? null } : t))
+        return
+      }
+
+      if (drag.t === 'label') {
+        const r = resolvedRef.current.get(drag.edge)
+        if (!r) return
+        /* Move the point the label rides on by the pointer delta and ask the
+           path which t is nearest. Carrying the *anchor* rather than the
+           cursor is what keeps labelDx/labelDy — the nudge off the line —
+           intact: only the position along the path changes. */
+        const target = {
+          x: drag.base.x + (world.x - drag.start.x),
+          y: drag.base.y + (world.y - drag.start.y),
+        }
+        const t = Math.round(nearestT(r.info, target) * 100) / 100
+        drag.moved = true
+        live((cur) => patchEdges(cur, [drag.edge], () => ({ labelT: t })))
         return
       }
 
@@ -1131,7 +1201,7 @@ export default function AiFigureMaker() {
         const target = docRef.current.nodes
           .slice()
           .reverse()
-          .find((n) => !n.hidden && pointInNode(world, n, 4))
+          .find((n) => !n.hidden && pointOnNode(world, n, 4))
         setTemp(null)
         if (target && target.id !== drag.node) {
           const { doc: next, id } = connectNodes(
@@ -1156,7 +1226,7 @@ export default function AiFigureMaker() {
         const target = docRef.current.nodes
           .slice()
           .reverse()
-          .find((n) => !n.hidden && pointInNode(world, n, 4))
+          .find((n) => !n.hidden && pointOnNode(world, n, 4))
         setTemp(null)
         live((cur) =>
           patchEdges(cur, [drag.edge], () => ({
@@ -1364,20 +1434,18 @@ export default function AiFigureMaker() {
         const step = e.shiftKey ? 10 : c.snap ? c.grid : 1
         let dx = K === 'ArrowLeft' ? -step : K === 'ArrowRight' ? step : 0
         let dy = K === 'ArrowUp' ? -step : K === 'ArrowDown' ? step : 0
-        /* Move to the next grid line rather than by a grid's worth: stepping by
-           the pitch carries any existing offset along forever, so a node that
-           is 3px off can never be nudged back on. */
+        /* Land on the lattice rather than stepping blindly by the pitch, which
+           carries any existing offset along forever — a node 3px off could
+           never be nudged back on. A full cell per press, half cells reachable
+           by dropping the node there. */
         if (c.snap && !e.shiftKey) {
           // docRef, not nmap: this listener is bound once and nmap would be
           // the map from whichever render last re-ran the effect
           const lead = docRef.current.nodes.find((n) => n.id === selNodesRef.current[0])
-          const line = (v: number, delta: number) =>
-            (delta > 0 ? Math.floor((v + delta) / c.grid) : Math.ceil((v + delta) / c.grid)) *
-              c.grid -
-            v
           if (lead) {
-            if (dx) dx = line(lead.x, dx)
-            if (dy) dy = line(lead.y, dy)
+            const b = inkRect(lead)
+            if (dx) dx = snapPos(b.x + dx, c.grid) - b.x
+            if (dy) dy = snapPos(b.y + dy, c.grid) - b.y
           }
         }
         commit((d) => patchNodes(d, selNodesRef.current, (n) => ({ x: n.x + dx, y: n.y + dy })))
@@ -1927,17 +1995,44 @@ export default function AiFigureMaker() {
                 {doc.nodes.map((n) => {
                   if (n.hidden) return null
                   const o = shapeOverflow(n)
+                  /* A shape with no fill is grabbed by its edge, not its empty
+                     middle — see pointOnNode. A transparent fill here would put
+                     a solid sheet over everything a group frame contains. */
+                  const outline = hitsByOutline(n)
+                  const b = outline ? inkRect(n) : null
                   return (
                     <rect
                       key={n.id}
-                      x={n.x - o.l}
-                      y={n.y - o.t}
-                      width={n.w + o.l + o.r}
-                      height={n.h + o.t + o.b}
+                      x={b ? b.x : n.x - o.l}
+                      y={b ? b.y : n.y - o.t}
+                      width={b ? b.w : n.w + o.l + o.r}
+                      height={b ? b.h : n.h + o.t + o.b}
                       transform={n.rotation ? `rotate(${n.rotation} ${n.x + n.w / 2} ${n.y + n.h / 2})` : undefined}
-                      fill="transparent"
+                      fill={outline ? 'none' : 'transparent'}
+                      stroke={outline ? 'transparent' : undefined}
+                      strokeWidth={outline ? Math.max(12, n.style.strokeWidth + 8) / view.zoom : undefined}
                       data-hit-node={n.id}
                       style={{ cursor: connecting ? 'crosshair' : n.locked ? 'default' : 'move' }}
+                    />
+                  )
+                })}
+                {/* Last, so a label stays grabbable where it overlaps a node —
+                    it is drawn on top, and a hit layer that disagreed with the
+                    paint order would give you the box under the text. */}
+                {doc.edges.map((e) => {
+                  const r = resolved.get(e.id)
+                  const b = r ? edgeLabelBox(e, r) : null
+                  if (!b || e.locked) return null
+                  return (
+                    <rect
+                      key={`l-${e.id}`}
+                      x={b.x - 2}
+                      y={b.y - 2}
+                      width={b.w + 4}
+                      height={b.h + 4}
+                      fill="transparent"
+                      data-hit-label={e.id}
+                      style={{ cursor: connecting ? 'crosshair' : 'grab' }}
                     />
                   )
                 })}

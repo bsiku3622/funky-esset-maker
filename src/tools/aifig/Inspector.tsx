@@ -27,7 +27,7 @@ import {
   paletteById,
   presetById,
 } from './presets'
-import { ptOf } from './layout'
+import { fitNodeToGrid, ptOf } from './layout'
 import { dataUrlBytes, fileToImage, formatBytes } from './image'
 import { Chk, ColorBtn, Field, Group, Num, NumList, Sel, Seg } from './ui'
 
@@ -318,6 +318,14 @@ function NodePanel({
             suffix="°"
             width={58}
           />
+          <button
+            type="button"
+            className="af-mini"
+            title="크기를 격자 칸 수에 맞추고 격자선 위에 올립니다"
+            onClick={() => onNode((x) => fitNodeToGrid(x, doc.canvas.grid))}
+          >
+            격자에 맞추기
+          </button>
         </Field>
       </Group>
 
