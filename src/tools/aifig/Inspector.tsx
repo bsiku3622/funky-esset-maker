@@ -646,6 +646,15 @@ function KindPanel({
               onKeyDown={(e) => e.stopPropagation()}
             />
           </Field>
+          <Field label="제목 배경">
+            <ColorBtn
+              value={p.titleBg ?? 'none'}
+              swatches={swatches}
+              allowNone
+              onChange={(titleBg) => onProps({ titleBg })}
+            />
+            <span className="af-hint-inline">겹칠 때만</span>
+          </Field>
         </Group>
       )
     case 'image': {
@@ -821,7 +830,7 @@ function EdgePanel({
             onChange={(labelT) => onEdge(() => ({ labelT }))}
             width={48}
           />
-          <span className="af-hint-inline">보정</span>
+          <span className="af-hint-inline">오프셋</span>
           <Num value={e.labelDx} onChange={(labelDx) => onEdge(() => ({ labelDx }))} width={44} />
           <Num value={e.labelDy} onChange={(labelDy) => onEdge(() => ({ labelDy }))} width={44} />
         </Field>

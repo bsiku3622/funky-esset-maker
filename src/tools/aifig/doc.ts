@@ -309,7 +309,9 @@ export function connect(
     labelDx: 0,
     labelDy: 0,
     bow: 24,
-    style: baseEdgeStyle(p, Math.max(9, doc.canvas.baseFont - 2)),
+    // a fixed 11, not a fraction of the body size: a connector label is an
+    // aside, and scaling it with the body just made it drift between figures
+    style: baseEdgeStyle(p),
     locked: false,
     hidden: false,
   }
@@ -371,7 +373,7 @@ export function fullyConnect(
   if (cols.length < 2) return { doc, edgeIds: [], columns: cols.length }
 
   const p = paletteById(doc.paletteId)
-  const style = baseEdgeStyle(p, Math.max(9, doc.canvas.baseFont - 2))
+  const style = baseEdgeStyle(p)
   const edges: FigEdge[] = []
   for (let i = 0; i < cols.length - 1; i++)
     for (const a of cols[i])

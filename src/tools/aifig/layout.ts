@@ -49,7 +49,15 @@ export function placeLabel(n: FigNode): PlacedLabel | null {
   let y = 0
   switch (n.labelPos) {
     case 'center':
-      y = n.h / 2 - layout.h / 2
+      /* Centre what is drawn, not the line box around it. A formula's box is
+         padded to the font's ascent and descent whatever the formula is, so
+         centring the box leaves a fraction sitting low and a superscript
+         sitting high — visible the moment the shape is large. `ink` is only
+         set when the whole label is math, i.e. when the extent is known
+         exactly; prose keeps the font baseline so sibling labels stay level. */
+      y = layout.ink
+        ? n.h / 2 - (layout.ink.top + layout.ink.bottom) / 2
+        : n.h / 2 - layout.h / 2
       break
     case 'inside-top':
       y = PAD
@@ -128,7 +136,11 @@ function labelRect(n: FigNode): Rect | null {
   if (!p || !p.layout.w) return null
   const align = labelStyle(n).align
   const left = align === 'center' ? p.x - p.layout.w / 2 : align === 'right' ? p.x - p.layout.w : p.x
-  return { x: left, y: p.y, w: p.layout.w, h: p.layout.h }
+  // a formula's real extent when we have it, so an auto-fitting box hugs it
+  const ink = p.layout.ink
+  return ink
+    ? { x: left, y: p.y + ink.top, w: p.layout.w, h: ink.bottom - ink.top }
+    : { x: left, y: p.y, w: p.layout.w, h: p.layout.h }
 }
 
 /* What a node actually paints, in world coordinates.
@@ -229,6 +241,10 @@ export function shapeOverflow(n: FigNode): { l: number; t: number; r: number; b:
   if (n.kind === 'cuboid') {
     const { dx, dy } = isoOff(n)
     return { l: 0, t: -dy, r: dx, b: 0 }
+  }
+  if (n.kind === 'frame' && n.props.title) {
+    // the title sits above the top edge, so it is part of what the frame paints
+    return { l: 0, t: n.style.fontSize * 1.15, r: 0, b: 0 }
   }
   if (n.kind === 'stack') {
     const c = Math.max(1, n.props.count ?? 3) - 1
