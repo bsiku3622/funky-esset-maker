@@ -4,7 +4,7 @@
  * the selected nodes' / edges' properties. Multi-select edits apply to every
  * selected item; a field displays the first item's value as the representative. */
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import type {
   AlignKind,
   Anchor,
@@ -28,6 +28,8 @@ import {
   presetById,
 } from './presets'
 import { fitNodeToGrid, ptOf } from './layout'
+import { nodeMap } from './doc'
+import { resolveEdge } from './resolve'
 import { dataUrlBytes, fileToImage, formatBytes } from './image'
 import { Chk, ColorBtn, Field, Group, Num, NumList, Sel, Seg } from './ui'
 
@@ -750,6 +752,17 @@ function EdgePanel({
 }) {
   const e = edges[0]
   const s = e.style
+  /* The label's position is stored as a fraction so it keeps its place when the
+     line changes length, but a fraction is a poor thing to type: 0.01 of a long
+     connector is ten pixels, so nudging it lurched. Offer the same value in
+     whichever unit suits — px to place it exactly, % to think proportionally. */
+  const [unit, setUnit] = useState<'px' | 'pct'>('px')
+  const len = useMemo(() => resolveEdge(e, nodeMap(doc))?.info.len ?? 0, [e, doc])
+  const along = unit === 'px' ? Math.round(e.labelT * len) : Math.round(e.labelT * 1000) / 10
+  const setAlong = (v: number) => {
+    const t = unit === 'px' ? (len > 0 ? v / len : 0) : v / 100
+    onEdge(() => ({ labelT: +Math.min(1, Math.max(0, t)).toFixed(4) }))
+  }
   return (
     <>
       <Group title={edges.length > 1 ? `연결선 ${edges.length}개` : '연결선'}>
@@ -825,14 +838,23 @@ function EdgePanel({
             wrapped into a mess. One row each, each labelled. */}
         <Field label="선 위 위치">
           <Num
-            value={e.labelT}
-            step={0.01}
+            value={along}
+            step={unit === 'px' ? 1 : 0.5}
             min={0}
-            max={1}
-            onChange={(labelT) => onEdge(() => ({ labelT }))}
-            width={56}
+            max={unit === 'px' ? Math.max(1, Math.round(len)) : 100}
+            onChange={setAlong}
+            width={60}
           />
-          <span className="af-hint-inline">0 = 시작, 1 = 끝 · 라벨을 끌어도 됩니다</span>
+          <Seg
+            compact
+            value={unit}
+            options={[
+              { key: 'px', label: 'px', title: '선을 따라 잰 거리' },
+              { key: 'pct', label: '%', title: '선 길이에 대한 비율' },
+            ]}
+            onChange={setUnit}
+          />
+          <span className="af-hint-inline">전체 {Math.round(len)} px · 라벨을 끌어도 됩니다</span>
         </Field>
         <Field label="X 오프셋">
           <Num value={e.labelDx} onChange={(labelDx) => onEdge(() => ({ labelDx }))} suffix="px" width={56} />
