@@ -48,6 +48,7 @@ const TOOLS: Tool[] = [
   { id: 'chart', label: 'Chart Maker', desc: '막대 · 선 · 원 · 산점도', icon: '▮', scope: 'scope-chart', file: 'chart', Component: lazy(() => import('./tools/ChartMaker')) },
   { id: 'numline', label: 'Number Line', desc: '수직선 · 구간 · 부등식', icon: '⊢', scope: 'scope-numline', file: 'numberline', Component: lazy(() => import('./tools/NumberLine')) },
   { id: 'truth', label: 'Truth Table', desc: '진리표', icon: '⊤', scope: 'scope-truth', file: 'truthtable', Component: lazy(() => import('./tools/TruthTable')) },
+  { id: 'hwpmath', label: 'HWP Math', desc: 'LaTeX → 한글 수식', icon: '⇄', scope: 'scope-hwpmath', file: 'hwp-equation', Component: lazy(() => import('./tools/HwpMath')) },
 ]
 
 const KEY = 'funky-esset-maker.active'

@@ -1,0 +1,169 @@
+/* hand-authored, prefixed with .scope-hwpmath (native tool, not generated)
+ *
+ * 이 도구는 그림을 만들지 않는다. 그래서 체스판 무대(.stage) 대신 두 칸짜리
+ * 판을 쓴다 — 투명 배경을 알릴 것이 없는데 체스판을 깔면 "여기서 PNG가 나온다"는
+ * 거짓말이 된다. 두 칸은 얇은 선이 아니라 2px 테두리와 하드 그림자를 두른 면으로
+ * 나뉜다. */
+
+.scope-hwpmath .hwp-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  padding: 20px;
+  background: #fff0b8;
+  overflow: auto;
+}
+
+/* 좁은 창에서는 좌우로 나란히 두면 둘 다 못 쓴다 — 위아래로 쌓는다 */
+@media (max-width: 900px) {
+  .scope-hwpmath .hwp-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+.scope-hwpmath .hwp-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border: 2px solid #222;
+  background: #fff;
+  box-shadow: 4px 4px 0 0 rgba(0, 0, 0, 0.2);
+}
+
+.scope-hwpmath .hwp-pane__bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 8px 12px;
+  border-bottom: 2px solid #222;
+}
+
+.scope-hwpmath .hwp-pane__bar--src {
+  background: #7828c8;
+  color: #fff;
+}
+
+.scope-hwpmath .hwp-pane__bar--out {
+  background: #ff4eba;
+  color: #222;
+}
+
+.scope-hwpmath .hwp-pane__name {
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* 어디에 붙여넣는지 아는 사람은 이 줄을 안 읽는다. 처음 쓰는 사람만 읽으면
+   되므로 이름보다 물러나 있어야 한다. */
+.scope-hwpmath .hwp-pane__note {
+  font-size: 0.74rem;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+/* ---------- 왼쪽: 원본 ---------- */
+
+.scope-hwpmath .hwp-src {
+  flex: 1 1 auto;
+  min-height: 120px;
+  padding: 12px 14px;
+  border: 0;
+  border-bottom: 2px solid #222;
+  background: #fff;
+  font-family: var(--mono);
+  font-size: 0.95rem;
+  line-height: 1.6;
+  resize: none;
+  outline: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.scope-hwpmath .hwp-preview {
+  flex: 0 0 auto;
+  max-height: 45%;
+  overflow: auto;
+  padding: 14px;
+  background: #fff0b8;
+}
+
+.scope-hwpmath .hwp-preview__line {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.scope-hwpmath .hwp-preview__line .katex-display {
+  margin: 0.3em 0;
+}
+
+.scope-hwpmath .hwp-preview__blank {
+  height: 0.6em;
+}
+
+/* ---------- 오른쪽: 결과 ---------- */
+
+.scope-hwpmath .hwp-out {
+  flex: 1 1 auto;
+  min-height: 120px;
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 0.95rem;
+  line-height: 1.7;
+  font-weight: 600;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+
+/* 경고는 결과 아래에 붙는다 — 결과를 가리지 않으면서, 복사하기 전에 눈에
+   들어오는 자리다. 주황 면에 검정 글씨: 빨강은 "실패"를 뜻하는데 변환은
+   실패하지 않았다. */
+.scope-hwpmath .hwp-warn {
+  flex: 0 0 auto;
+  max-height: 45%;
+  overflow: auto;
+  margin: 0;
+  padding: 10px 14px 10px 30px;
+  list-style: square;
+  border-top: 2px solid #222;
+  background: #ff9100;
+  color: #222;
+}
+
+.scope-hwpmath .hwp-warn__item {
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.scope-hwpmath .hwp-warn__item + .hwp-warn__item {
+  margin-top: 5px;
+}
+
+/* ---------- 토스트 ---------- */
+
+/* .stage가 없으므로 공용 .toast를 못 쓴다. 자리와 모양은 같게 둔다. */
+.scope-hwpmath .hwp-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  z-index: 30;
+  padding: 10px 18px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #fff5d1;
+  background: #222;
+  border: 2px solid #222;
+  box-shadow: 4px 4px 0 0 rgba(0, 0, 0, 0.25);
+}

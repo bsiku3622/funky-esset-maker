@@ -28,6 +28,7 @@ export type ToolId =
   | 'chart'
   | 'numline'
   | 'truth'
+  | 'hwpmath'
 
 export interface ProjectFile {
   app: typeof APP_ID
@@ -59,6 +60,7 @@ export const STORE_KEYS: Record<ToolId, string> = {
   chart: 'fem.chart.v1',
   numline: 'fem.numline.v1',
   truth: 'fem.truth.v1',
+  hwpmath: 'fem.hwpmath.v1',
 }
 
 export const TOOL_IDS = Object.keys(STORE_KEYS) as ToolId[]
