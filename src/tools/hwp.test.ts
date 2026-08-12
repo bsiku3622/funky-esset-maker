@@ -51,9 +51,7 @@ describe('괄호', () => {
   })
 
   it('짝이 맞지 않으면 알려준다', () => {
-    expect(warns('\\left( x')).toContain(
-      '여는 괄호와 닫는 괄호의 수가 다릅니다 — 한글 수식은 LEFT와 RIGHT가 짝이 맞아야 합니다',
-    )
+    expect(warns('\\left( x')[0]).toContain('여는 괄호 1개와 닫는 괄호 0개')
   })
 
   it('꺾쇠·바닥 괄호는 이름이 아니라 그 글자를 쓴다', () => {
@@ -380,5 +378,19 @@ describe('이름이 없는 기호', () => {
   it('한글에서 뜻이 따로 있는 글자는 옮기지 않고 알린다', () => {
     // `_`와 `^`는 첨자, `~`는 빈칸, `{}`는 묶음이라 글자로 쓸 방법이 없다
     expect(warns('\\textunderscore')).toHaveLength(1)
+  })
+})
+
+describe('짝 안 맞는 괄호', () => {
+  it('되돌릴 때도 LEFT·RIGHT 개수를 세어 알려준다', () => {
+    // 손으로 짠 수식에서 가장 흔한 사고. 한글이 먼저 거부하고, 통과해도
+    // `\right.` 하나만 남은 LaTeX는 컴파일되지 않는다
+    const r = hwpToLatex('LEFT ( x RIGHT ) RIGHT')
+    expect(r.warnings).toHaveLength(1)
+    expect(r.warnings[0]).toContain('LEFT 1개와 RIGHT 2개')
+  })
+
+  it('짝이 맞으면 조용하다', () => {
+    expect(hwpToLatex('LEFT ( LEFT [ x RIGHT ] RIGHT )').warnings).toHaveLength(0)
   })
 })

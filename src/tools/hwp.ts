@@ -949,7 +949,9 @@ export function latexToHwp(source: string): HwpResult {
 
   const out = join(parseSeq(() => false))
   if (opened !== closed)
-    warn('여는 괄호와 닫는 괄호의 수가 다릅니다 — 한글 수식은 LEFT와 RIGHT가 짝이 맞아야 합니다')
+    warn(
+      `여는 괄호 ${opened}개와 닫는 괄호 ${closed}개의 수가 다릅니다 — 한글 수식은 LEFT와 RIGHT가 짝이 맞아야 합니다`,
+    )
   if (glyphs.size)
     warn(
       `한글에 명령어 이름이 없어 글자로 넣은 기호: ${[...glyphs].join(' ')} — 수식 글꼴에 없으면 네모로 보일 수 있습니다`,
@@ -1293,6 +1295,9 @@ export function hwpToLatex(source: string): HwpResult {
   let envDepth = 0
   /** LaTeX 명령이 없어 글자로 남긴 기호들 */
   const glyphs = new Set<string>()
+  /** LEFT·RIGHT 짝. 한쪽이 남으면 한글에서도 LaTeX에서도 열리지 않는다 */
+  let opened = 0
+  let closed = 0
 
   const warn = (m: string) => {
     if (seen.has(m)) return
@@ -1570,7 +1575,11 @@ export function hwpToLatex(source: string): HwpResult {
       const b = larg(parseAtom(stop))
       return { s: `\\binom{${a}}{${b}}`, atomic: true, tightLeft: true, tightRight: true }
     }
-    if (w === 'left' || w === 'right') return cmdTermOf(`\\${w}${readDelim()}`)
+    if (w === 'left' || w === 'right') {
+      if (w === 'left') opened++
+      else closed++
+      return cmdTermOf(`\\${w}${readDelim()}`)
+    }
     if (w === 'lsub' || w === 'lsup') {
       const base = lwrap(parseAtom(stop))
       const script = larg(parseAtom(stop))
@@ -1626,6 +1635,13 @@ export function hwpToLatex(source: string): HwpResult {
   }
 
   const out = ljoin(parseSeq(() => false))
+  /* 짝이 안 맞는 LEFT·RIGHT는 손으로 짠 수식에서 가장 흔한 사고다. 한글이
+     먼저 거부하고, 설령 통과해도 `\right.` 하나만 남은 LaTeX는 컴파일되지
+     않는다. 어느 쪽이 남았는지 알 수 있게 개수를 같이 적는다. */
+  if (opened !== closed)
+    warn(
+      `LEFT ${opened}개와 RIGHT ${closed}개의 수가 맞지 않습니다 — 짝 없는 쪽을 지워야 한글에서도 LaTeX에서도 열립니다`,
+    )
   if (glyphs.size)
     warn(
       `LaTeX에 명령어가 없어 글자로 옮긴 기호: ${[...glyphs].join(' ')} — XeLaTeX·LuaLaTeX가 아니면 그대로 나오지 않을 수 있습니다`,
