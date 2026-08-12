@@ -16,16 +16,19 @@ A set of web tools for making visual assets you can drop straight into slides, h
 | **Chart Maker** | Bar · line · pie · scatter |
 | **Number Line** | Number lines, intervals, inequalities |
 | **Truth Table** | Truth tables |
-| **HWP Math** | LaTeX rewritten as 한글(HWP) equation script |
+| **HWP Math** | LaTeX ↔ 한글(HWP) equation script |
 
 The tool you used last is remembered in `localStorage` and reopens on your next visit.
 
 HWP Math is the odd one out: its output is text, not a picture. 한글's equation
 editor has its own language — `{a} over {b}` for a fraction, no backslashes,
-spaces as term boundaries — so a Korean document cannot take LaTeX directly. It
-parses the LaTeX properly rather than running a table of substitutions over it,
-because `\frac{a}{b}` needs its two arguments found before `over` can go between
-them, and it lists every construct it had to approximate instead of silently
+spaces as term boundaries — so a Korean document cannot take LaTeX directly, and
+equations pasted out of one are not LaTeX either. It converts both ways, parsing
+each side properly rather than running a table of substitutions over it: going
+out, `\frac{a}{b}` needs its two arguments found before `over` can go between
+them; coming back, `over` is an infix operator that takes exactly one term on
+each side, which is why `10a^3 over b^2 times c` is (10a³/b²)×c and not
+10a³/(b²×c). Whatever it has to approximate, it lists, instead of silently
 producing something that renders wrong.
 
 ## Two looks
@@ -54,7 +57,7 @@ Beyond that, each tool exports whatever its content actually is:
 | Tabler · Truth Table | **booktabs LaTeX** — a table belongs in a paper as source, not as a picture of a table |
 | Highlighter | **`listings` block** |
 | AI Figure Maker | approximate **TikZ** |
-| HWP Math | **한글 equation script** — copied as text (`⌘⇧C`); there is no image |
+| HWP Math | **한글 equation script**, or **LaTeX** back out of one — copied as text (`⌘⇧C`); there is no image |
 
 The four SVG tools also carry a printed-width preset (ICML, CVPR, Nature, …) and show the resulting point size in the toolbar, turning red below 6 pt — the failure mode is otherwise invisible until the PDF comes back.
 

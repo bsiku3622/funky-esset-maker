@@ -3,7 +3,7 @@
 > Eleven browser tools that turn text into a figure you can paste into a slide,
 > handout, or paper — code listings, equations, tables, data structures,
 > diagrams, plots, charts, number lines, truth tables, and model architecture
-> figures — plus one that rewrites LaTeX as 한글(HWP) equation script.
+> figures — plus one that converts between LaTeX and 한글(HWP) equation script.
 > Everything runs client-side; nothing is uploaded.
 
 This file is for an assistant helping someone use the app. The useful thing you
@@ -88,7 +88,7 @@ toolbar and turns it red under 6 pt.
 | `chart` | bar, line, pie, scatter | `input` |
 | `numline` | number lines, intervals, inequalities | `input` |
 | `truth` | truth tables | `input` |
-| `hwpmath` | LaTeX rewritten as 한글(HWP) equation script | `latex` |
+| `hwpmath` | LaTeX ↔ 한글(HWP) equation script, either way | `latex` / `hwp` |
 
 ### highlighter — code
 
@@ -293,26 +293,32 @@ automatically (up to 12).
 Operators: `not ¬ !` · `and ∧ &` · `or ∨ |` · `xor ⊕ ^` · `implies → ->` ·
 `iff ↔ <->`, plus parentheses. `useTF:false` prints 1/0 instead of T/F.
 
-### hwpmath — LaTeX to 한글 equation script
+### hwpmath — LaTeX ↔ 한글 equation script
 
 The odd one out: it produces text, not a figure. 한글(HWP) has its own equation
 language — `{a} over {b}` instead of `\frac{a}{b}`, no backslashes, spaces as
-term boundaries — and this rewrites LaTeX into it so the user can paste the
-result into 한글's script input box (Ctrl+N, M).
+term boundaries — and this converts between the two, either way.
 
 ```json
 {"app":"funky-esset-maker","format":1,"tool":"hwpmath","data":{
+  "dir":"toHwp",
   "latex":"x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}"
 }}
 ```
 
-`latex` is the only field. Send plain LaTeX — surrounding `$…$`, `$$…$$`,
-`\[…\]` and `\(…\)` are stripped for you, and `\\` becomes 한글's `#`.
+- `dir`: `"toHwp"` (default) rewrites LaTeX as 한글 script, which the user
+  pastes into 한글's script input box (Ctrl+N, M). `"toTex"` goes the other way,
+  for equations copied out of an existing 한글 document.
+- `latex` and `hwp` are separate buffers, one per direction — set the one that
+  matches `dir`. Send plain LaTeX in `latex`; surrounding `$…$`, `$$…$$`,
+  `\[…\]` and `\(…\)` are stripped for you, and `\\` becomes 한글's `#`.
 
 Reach for this whenever the user is writing in 한글 rather than LaTeX — a
-Korean school or university document, a 보고서, a 문제지. Conversions with no
-한글 equivalent (blackboard bold, `\mathcal`, angle brackets) still convert, and
-the tool lists what it had to approximate.
+Korean school or university document, a 보고서, a 문제지 — or whenever they
+have 한글 equations they want in a LaTeX paper. Constructs with no equivalent
+on the other side (blackboard bold, `\mathcal`, angle brackets going out;
+LADDER, LONGDIV, REL coming back) still convert on a best effort, and the tool
+lists what it had to approximate.
 
 ## Once it is open
 
@@ -329,7 +335,7 @@ the tool lists what it had to approximate.
 - **⌘S** saves the current tool back out as a project file, recording the
   render mode with it. **⌘Z / ⌘⇧Z** undo and redo in every tool (inside a text
   field the browser's own undo wins, which is the behaviour you want there).
-- `hwpmath` has no image at all — ⌘⇧C copies its 한글 script as text instead.
+- `hwpmath` has no image at all — ⌘⇧C copies its converted text instead.
 - Work is kept in `localStorage` per tool, so a reload does not lose it.
 
 ## Editing after it opens

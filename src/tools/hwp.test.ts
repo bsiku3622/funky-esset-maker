@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { latexToHwp } from './hwp'
+import { hwpToLatex, latexToHwp } from './hwp'
 
 const out = (tex: string) => latexToHwp(tex).out
 const warns = (tex: string) => latexToHwp(tex).warnings
+const back = (hwp: string) => hwpToLatex(hwp).out
 
 describe('구조', () => {
   it('분수는 중위 연산자 over가 된다', () => {
@@ -207,4 +208,140 @@ describe('실제 수식', () => {
       'x = {-b PLUSMINUS sqrt {b ^2 - 4ac}} over {2a}',
     )
   })
+})
+
+/* ---------- 되돌리기: 한글 수식 → LaTeX ---------- */
+
+describe('되돌리기 · 구조', () => {
+  it('over는 앞뒤에서 한 항씩만 가져간다', () => {
+    expect(back('1 over 2')).toBe('\\frac{1}{2}')
+    expect(back('{a+b} over {a-b}')).toBe('\\frac{a+b}{a-b}')
+  })
+
+  it('한 항씩이라는 규칙이 한컴 예제와 맞는다', () => {
+    // 분모는 b^2 에서 끝나고 times 까지 삼키지 않는다
+    expect(back('10a^3 over b^2 times c')).toBe('10\\frac{a^{3}}{b^{2}} \\times c')
+  })
+
+  it('첨자 둘은 다시 묶지 않고 이어 붙는다', () => {
+    expect(back('x _{1} ^{2}')).toBe('x_{1}^{2}')
+    expect(back('sum _{i=1} ^{n}')).toBe('\\sum_{i=1}^{n}')
+  })
+
+  it('from · to 는 큰 연산자의 첨자다', () => {
+    expect(back('int from 0 to 3 f')).toBe('\\int_{0}^{3} f')
+  })
+
+  it('제곱근과 거듭제곱근', () => {
+    expect(back('sqrt {x+1}')).toBe('\\sqrt{x+1}')
+    expect(back('`^{3} sqrt {x+1}')).toBe('\\sqrt[3]{x+1}')
+    expect(back('root {n} of {x}')).toBe('\\sqrt[n]{x}')
+  })
+
+  it('CHOOSE는 binom', () => {
+    expect(back('{n} CHOOSE {k}')).toBe('\\binom{n}{k}')
+  })
+})
+
+describe('되돌리기 · 괄호와 묶음', () => {
+  it('LEFT · RIGHT 는 \\left · \\right', () => {
+    expect(back('LEFT ( x RIGHT )')).toBe('\\left( x \\right)')
+    expect(back('LEFT { G RIGHT } ^{2}')).toBe('\\left\\{ G \\right\\}^{2}')
+  })
+
+  it('행렬과 경우 나눔은 환경으로 돌아간다', () => {
+    expect(back('pmatrix{a & b # c & d}')).toBe(
+      '\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}',
+    )
+    expect(back('dmatrix{a}')).toBe('\\begin{vmatrix} a \\end{vmatrix}')
+    expect(back('eqalign{a &= b # &= c}')).toBe(
+      '\\begin{aligned} a &= b \\\\ &= c \\end{aligned}',
+    )
+  })
+
+  it('환경 밖의 줄바꿈만 알려준다', () => {
+    expect(hwpToLatex('cases{a # b}').warnings).toHaveLength(0)
+    expect(hwpToLatex('a # b').warnings).toHaveLength(1)
+  })
+})
+
+describe('되돌리기 · 기호', () => {
+  it('대소문자가 뜻을 가르는 것들', () => {
+    expect(back('alpha delta')).toBe('\\alpha \\delta')
+    expect(back('DELTA Delta')).toBe('\\Delta \\Delta')
+    expect(back('larrow LARROW')).toBe('\\leftarrow \\Leftarrow')
+    expect(back('vert VERT')).toBe('| \\|')
+  })
+
+  it('나머지 명령어는 대소문자를 가리지 않는다', () => {
+    expect(back('A SMALLUNION B smallinter C')).toBe('A \\cup B \\cap C')
+    expect(back('a TIMES b times c')).toBe('a \\times b \\times c')
+  })
+
+  it('글자로 된 연산자', () => {
+    expect(back('x -> 0')).toBe('x \\to 0')
+    expect(back('a != b')).toBe('a \\neq b')
+    expect(back('not = ')).toBe('\\neq')
+  })
+
+  it('장식은 인자를 하나 먹는다', () => {
+    expect(back('vec {v} hat x bar {AB}')).toBe('\\vec{v} \\hat{x} \\bar{AB}')
+  })
+
+  it('LAPLACE는 필기체 L로 돌아간다', () => {
+    expect(back('LAPLACE')).toBe('\\mathcal{L}')
+  })
+})
+
+describe('되돌리기 · 글자', () => {
+  it('글꼴 전환은 묶음 끝까지 걸린다', () => {
+    expect(back('{rm if} x')).toBe('\\mathrm{if} x')
+    expect(back('{rmbold R}')).toBe('\\mathbf{R}')
+  })
+
+  it('따옴표로 묶인 낱말은 본문이다', () => {
+    expect(back('{rm "otherwise"~value}')).toBe('\\mathrm{\\text{otherwise}\\ value}')
+  })
+
+  it('모르는 낱말은 경고하지 않는다 — 사용자의 변수 이름이다', () => {
+    const r = hwpToLatex('abc + xyz')
+    expect(r.out).toBe('abc + xyz')
+    expect(r.warnings).toHaveLength(0)
+  })
+
+  it('LaTeX에 없는 한글 전용 명령어만 알려준다', () => {
+    expect(hwpToLatex('LONGDIV {6}{422}').warnings).toHaveLength(1)
+  })
+
+  it('빈 입력은 빈 결과', () => {
+    expect(hwpToLatex('')).toEqual({ out: '', warnings: [] })
+  })
+
+  it('짝 없는 닫는 중괄호에도 멈추지 않는다', () => {
+    expect(back('a } b')).toBe('a b')
+  })
+})
+
+describe('왕복', () => {
+  const ROUND = [
+    'x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}',
+    '\\sum_{i=1}^{n} i^{2} = \\frac{n(n+1)(2n+1)}{6}',
+    '\\left(\\frac{a}{b}\\right)^{2}',
+    '\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}',
+    '\\nabla_{\\theta}\\mathcal{L} = 2\\left\\{G(X)\\right\\}^{2}',
+  ]
+
+  /* 왕복은 글자가 아니라 뜻이 남는지를 본다 — 빈칸과 중괄호는 양쪽 문법에서
+     쓰임이 달라 원본과 글자까지 같을 수 없다. */
+  const canon = (tex: string) => tex.replace(/[{}\s]/g, '')
+
+  for (const tex of ROUND) {
+    it(`한 바퀴 돌아도 같은 식: ${tex.slice(0, 28)}…`, () => {
+      const there = latexToHwp(tex)
+      const home = hwpToLatex(there.out)
+      expect(there.warnings).toHaveLength(0)
+      expect(home.warnings).toHaveLength(0)
+      expect(canon(home.out)).toBe(canon(tex))
+    })
+  }
 })
