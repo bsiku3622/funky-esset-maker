@@ -352,3 +352,33 @@ describe('왕복', () => {
     })
   }
 })
+
+describe('이름이 없는 기호', () => {
+  it('한글에 이름이 없으면 글자로 넣고 한 줄로 모아 알린다', () => {
+    const r = latexToHwp('a \\heartsuit b \\bowtie c')
+    expect(r.out).toBe('a ♡ b ⋈ c')
+    expect(r.warnings).toHaveLength(1)
+    expect(r.warnings[0]).toContain('♡ ⋈')
+  })
+
+  it('그렇게 넣은 글자는 되돌릴 때 명령어로 돌아온다', () => {
+    expect(back('a ♡ b ⋈ c')).toBe('a \\heartsuit b \\bowtie c')
+  })
+
+  it('아스키 글자는 되돌리지 않는다', () => {
+    // `(`는 LaTeX에서도 `(`다 — \lparen 이라는 이름이 있다고 꺼내 쓰지 않는다
+    expect(back('f(x)')).toBe('f(x)')
+    expect(back('[a]')).toBe('[a]')
+  })
+
+  it('LaTeX에 이름이 없는 한글 기호도 글자로 옮기고 알린다', () => {
+    const r = hwpToLatex('a ATT b')
+    expect(r.out).toBe('a ※ b')
+    expect(r.warnings).toHaveLength(1)
+  })
+
+  it('한글에서 뜻이 따로 있는 글자는 옮기지 않고 알린다', () => {
+    // `_`와 `^`는 첨자, `~`는 빈칸, `{}`는 묶음이라 글자로 쓸 방법이 없다
+    expect(warns('\\textunderscore')).toHaveLength(1)
+  })
+})

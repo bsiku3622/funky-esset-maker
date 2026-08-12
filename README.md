@@ -37,6 +37,13 @@ Put them side by side and anything the conversion lost is visible rather than
 merely reported. (It is this tool's reading of the script, not 한글's — a blind
 spot shared by both directions would agree with itself.)
 
+Coverage is measured rather than assumed: 95% of the 496 commands KaTeX knows
+convert to 한글, and every name in the reference 한글 table converts back.
+한글's symbol palette is much smaller than LaTeX's, so where no command name
+exists the character itself goes in — which is what Hancom's own spec does for
+symbols it has no name for — and those are listed together, since a glyph
+missing from the equation font shows up as a box.
+
 ## Two looks
 
 Everything has a **paper mode** alongside the funky one, switched in the sidebar and applied to every tool at once:

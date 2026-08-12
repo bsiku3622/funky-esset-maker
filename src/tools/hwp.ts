@@ -175,6 +175,31 @@ const RENAME: Record<string, string> = {
   dashv: 'DASHV',
   diagup: 'LSLANT',
   diagdown: 'RSLANT',
+  /* 같은 것을 가리키는 다른 이름들 */
+  gt: '>',
+  lt: '<',
+  dag: 'dagger',
+  ddag: 'ddagger',
+  smallint: 'int',
+  intop: 'int',
+  mathellipsis: 'LDOTS',
+  varvdots: 'VDOTS',
+  cdotp: 'cdot',
+  lgroup: '(',
+  rgroup: ')',
+  lmoustache: '(',
+  rmoustache: ')',
+  ldotp: '.',
+  textbackslash: 'RSLANT',
+  textbar: 'vert',
+  textbardbl: 'VERT',
+  textless: '<',
+  textgreater: '>',
+  textdegree: 'DEG',
+  textellipsis: 'LDOTS',
+  textdagger: 'dagger',
+  textdaggerdbl: 'ddagger',
+  textdollar: '$',
 }
 
 /** 글자 장식 — 한글도 명령어를 앞에 두고 대상을 뒤에 쓴다.
@@ -219,12 +244,13 @@ const SPACING: Record<string, string> = {
   medspace: '``',
   thickspace: '~',
   nobreakspace: '~',
+  space: '~',
 }
 
 /** 아무것도 만들지 않고 사라지는 것들 — 조판 지시나 번호 매기기. */
 const DROP = new Set([
   'displaystyle', 'textstyle', 'scriptstyle', 'scriptscriptstyle',
-  'limits', 'nolimits', 'nonumber', 'notag', 'noalign',
+  'limits', 'nolimits', 'nonumber', 'notag', 'noalign', 'allowbreak', 'nobreak',
   'bigl', 'bigr', 'Bigl', 'Bigr', 'biggl', 'biggr',
   'Biggl', 'Biggr', 'big', 'Big', 'bigg', 'Bigg', 'middle',
   'mathstrut', 'strut', 'relax', '!',
@@ -274,6 +300,99 @@ const COLORS: Record<string, string> = {
   pink: '255,78,186',
   brown: '150,75,0',
 }
+
+/** 한글에 이름이 없는 기호 → 그 유니코드 글자.
+ *
+ *  한컴 스펙의 예제 2.1이 `□`와 `÷`를 두고 "코드표를 이용해 삽입한다"고 적고
+ *  있다. 이름 없는 기호는 글자로 넣는 것이 한글의 정식 방법이라는 뜻이다.
+ *  그러니 대응하는 명령어를 못 찾았을 때 낱말을 그대로 찍어 `heartsuit`라는
+ *  글자를 남기느니, 그 기호를 넣는 편이 언제나 낫다.
+ *
+ *  표는 KaTeX가 아는 기호 목록에서 뽑아 만들었다 — 이 도구가 미리보기를 그릴
+ *  때 쓰는 바로 그 목록이라, 그릴 수 있는 것과 옮길 수 있는 것이 어긋나지
+ *  않는다. 되돌릴 때는 이 표를 뒤집어 글자를 다시 명령어로 읽는다.
+ *
+ *  ⚠️ 글자가 들어간다고 반드시 보이는 것은 아니다. 한글 수식의 글꼴에 그
+ *  글리프가 없으면 네모로 나온다. 그래서 이렇게 옮긴 기호는 한 줄로 모아
+ *  알려 준다. */
+const UNICODE: Record<string, string> = {
+  Box: "□", Cap: "⋒", Cup: "⋓", Diamond: "◊",
+  Doteq: "≑", Lleftarrow: "⇚", Lsh: "↰", Rrightarrow: "⇛",
+  Rsh: "↱", Subset: "⋐", Supset: "⋑", Vdash: "⊩",
+  Vert: "∥", Vvdash: "⊪", amalg: "⨿", approxeq: "≊",
+  backepsilon: "∍", backprime: "‵", backsim: "∽", backsimeq: "⋍",
+  barwedge: "⊼", beth: "ℶ", between: "≬", bigsqcup: "⨆",
+  bigstar: "★", biguplus: "⨄", blacklozenge: "⧫", blacksquare: "■",
+  blacktriangle: "▲", blacktriangledown: "▼", blacktriangleleft: "◀", blacktriangleright: "▶",
+  bowtie: "⋈", boxdot: "⊡", boxminus: "⊟", boxplus: "⊞",
+  boxtimes: "⊠", bumpeq: "≏", centerdot: "⋅", checkmark: "✓",
+  circeq: "≗", circlearrowleft: "↺", circlearrowright: "↻", circledR: "®",
+  circledS: "Ⓢ", circledast: "⊛", circledcirc: "⊚", circleddash: "⊝",
+  clubsuit: "♣", complement: "∁", curlyeqprec: "⋞", curlyeqsucc: "⋟",
+  curlyvee: "⋎", curlywedge: "⋏", curvearrowleft: "↶", curvearrowright: "↷",
+  daleth: "ℸ", dashleftarrow: "⇠", dashrightarrow: "⇢", diamondsuit: "♢",
+  digamma: "ϝ", divideontimes: "⋇", doteqdot: "≑", doublebarwedge: "⩞",
+  doublecap: "⋒", doublecup: "⋓", downdownarrows: "⇊", downharpoonleft: "⇃",
+  downharpoonright: "⇂", eqcirc: "≖", eqsim: "≂", eqslantgtr: "⪖",
+  eqslantless: "⪕", eth: "ð", flat: "♭", frown: "⌢",
+  geqq: "≧", geqslant: "⩾", gggtr: "⋙", gimel: "ℷ",
+  gnapprox: "⪊", gneq: "⪈", gneqq: "≩", gnsim: "⋧",
+  gtrapprox: "⪆", gtrdot: "⋗", gtreqless: "⋛", gtreqqless: "⪌",
+  gtrless: "≷", gtrsim: "≳", heartsuit: "♡", hslash: "ℏ",
+  intercal: "⊺", lVert: "∥", langle: "⟨", lbrace: "{",
+  lbrack: "[", lceil: "⌈", leadsto: "⇝", leftarrowtail: "↢",
+  leftharpoondown: "↽", leftharpoonup: "↼", leftleftarrows: "⇇", leftrightarrows: "⇆",
+  leftrightharpoons: "⇋", leftrightsquigarrow: "↭", leftthreetimes: "⋋", leqq: "≦",
+  leqslant: "⩽", lessapprox: "⪅", lessdot: "⋖", lesseqgtr: "⋚",
+  lesseqqgtr: "⪋", lessgtr: "≶", lesssim: "≲", lfloor: "⌊",
+  lhd: "⊲", llless: "⋘", lnapprox: "⪉", lneq: "⪇",
+  lneqq: "≨", lnsim: "⋦", longmapsto: "⟼", looparrowleft: "↫",
+  looparrowright: "↬", lozenge: "◊", lparen: "(", ltimes: "⋉",
+  lvert: "∣", maltese: "✠", mho: "℧", mid: "∣",
+  multimap: "⊸", nLeftarrow: "⇍", nLeftrightarrow: "⇎", nRightarrow: "⇏",
+  nVDash: "⊯", nVdash: "⊮", natural: "♮", ncong: "≆",
+  ngeq: "≱", ngtr: "≯", nleftarrow: "↚", nleftrightarrow: "↮",
+  nleq: "≰", nless: "≮", nmid: "∤", nparallel: "∦",
+  nprec: "⊀", npreceq: "⋠", nrightarrow: "↛", nsim: "≁",
+  nsubseteq: "⊈", nsucc: "⊁", nsucceq: "⋡", nsupseteq: "⊉",
+  ntriangleleft: "⋪", ntrianglelefteq: "⋬", ntriangleright: "⋫", ntrianglerighteq: "⋭",
+  nvDash: "⊭", nvdash: "⊬", pitchfork: "⋔", precapprox: "⪷",
+  preccurlyeq: "≼", preceq: "⪯", precnapprox: "⪹", precneqq: "⪵",
+  precnsim: "⋨", precsim: "≾", rVert: "∥", rangle: "⟩",
+  rbrace: "}", rbrack: "]", rceil: "⌉", rfloor: "⌋",
+  rhd: "⊳", rightarrowtail: "↣", rightharpoondown: "⇁", rightharpoonup: "⇀",
+  rightleftarrows: "⇄", rightleftharpoons: "⇌", rightrightarrows: "⇉", rightsquigarrow: "⇝",
+  rightthreetimes: "⋌", rparen: ")", rtimes: "⋊", rvert: "∣",
+  sharp: "♯", shortmid: "∣", shortparallel: "∥", smallfrown: "⌢",
+  smallsetminus: "∖", smallsmile: "⌣", smile: "⌣", spadesuit: "♠",
+  square: "□", subseteqq: "⫅", subsetneq: "⊊", subsetneqq: "⫋",
+  succapprox: "⪸", succcurlyeq: "≽", succeq: "⪰", succnapprox: "⪺",
+  succneqq: "⪶", succnsim: "⋩", succsim: "≿", supseteqq: "⫆",
+  supsetneq: "⊋", supsetneqq: "⫌", surd: "√", thickapprox: "≈",
+  thicksim: "∼", triangleleft: "◃", trianglelefteq: "⊴", triangleq: "≜",
+  triangleright: "▹", trianglerighteq: "⊵", twoheadleftarrow: "↞", twoheadrightarrow: "↠",
+  unlhd: "⊴", unrhd: "⊵", upharpoonleft: "↿", upharpoonright: "↾",
+  upuparrows: "⇈", vDash: "⊨", varkappa: "ϰ", varpropto: "∝",
+  varrho: "ϱ", vartriangle: "△", vartriangleleft: "⊲", vartriangleright: "⊳",
+  vert: "∣", wr: "≀",
+  /* 아래는 손으로 더한 것들. 뒤에 두는 이유는 표를 뒤집을 때 먼저 적힌 쪽이
+     이기기 때문이다 — ⋈는 \\Join보다 \\bowtie로 되돌아오는 편이 낫다. */
+  Finv: "Ⅎ", Game: "⅁", Join: "⋈", imageof: "⊷",
+  origof: "⊶", restriction: "↾", pounds: "£", yen: "¥",
+  mathsterling: "£", textsterling: "£", textemdash: "—", textendash: "–",
+  textquoteleft: "‘", textquoteright: "’",
+}
+
+/** 위 표를 뒤집은 것. 한글 스크립트에 박힌 글자를 LaTeX 명령어로 되읽는다.
+ *
+ *  ⚠️ 아스키 글자는 뒤집지 않는다. `(`는 LaTeX에서도 그냥 `(`이고, `\lparen`이
+ *  라는 이름이 있다고 해서 되돌릴 때 그 이름을 꺼내 쓸 이유가 없다. */
+const FROM_UNICODE: Record<string, string> = (() => {
+  const m: Record<string, string> = {}
+  for (const [name, ch] of Object.entries(UNICODE))
+    if (ch.charCodeAt(0) > 0x7f && !(ch in m)) m[ch] = `\\${name}`
+  return m
+})()
 
 /* ---------- 낱말 나누기 ---------- */
 
@@ -395,6 +514,8 @@ export function latexToHwp(source: string): HwpResult {
   /** 짝이 맞는지 보려고 세어 둔다 — `\{` 하나만 쓰면 한글에서는 깨진다 */
   let opened = 0
   let closed = 0
+  /** 이름 대신 글자로 넣은 기호들. 하나씩 경고하면 시끄러우니 끝에 모아 알린다 */
+  const glyphs = new Set<string>()
 
   const warn = (m: string) => {
     if (seen.has(m)) return
@@ -786,6 +907,15 @@ export function latexToHwp(source: string): HwpResult {
       return { s: name, atomic: true, tightLeft: true, tightRight: true }
     }
 
+    /* 이름이 없으면 글자로. 낱말을 그대로 찍어 수식 안에 `heartsuit`를 남기는
+       것보다는 언제나 낫고, 한컴 스펙이 이름 없는 기호를 코드표에서 넣으라고
+       적어 둔 바로 그 방법이다. */
+    const ch = UNICODE[name]
+    if (ch) {
+      glyphs.add(ch)
+      return { s: ch, atomic: true, tightLeft: true, tightRight: true }
+    }
+
     warn(`\\${name}은(는) 대응하는 한글 명령어를 찾지 못해 이름 그대로 두었습니다`)
     return { s: name, atomic: true }
   }
@@ -820,6 +950,10 @@ export function latexToHwp(source: string): HwpResult {
   const out = join(parseSeq(() => false))
   if (opened !== closed)
     warn('여는 괄호와 닫는 괄호의 수가 다릅니다 — 한글 수식은 LEFT와 RIGHT가 짝이 맞아야 합니다')
+  if (glyphs.size)
+    warn(
+      `한글에 명령어 이름이 없어 글자로 넣은 기호: ${[...glyphs].join(' ')} — 수식 글꼴에 없으면 네모로 보일 수 있습니다`,
+    )
 
   return { out, warnings: warns }
 }
@@ -915,9 +1049,33 @@ const REV_FIX: Record<string, string> = {
   for: '\\mathrm{for}',
   and: '\\mathrm{and}',
   or: '\\mathrm{or}',
+  /* 정방향 표에 없어 자동으로 안 따라오는 별칭·큰 연산자들 */
+  land: '\\land',
+  lor: '\\lor',
+  superset: '\\supset',
+  smallsum: '\\sum',
+  smcoprod: '\\coprod',
+  bigoplus: '\\bigoplus',
+  bigotimes: '\\bigotimes',
+  bigodot: '\\bigodot',
+  biguplus: '\\biguplus',
+  bigsqcup: '\\bigsqcup',
+  odiv: '\\oslash',
+  /* LaTeX에 명령이 없는 것들 — 글자로 옮기고 한 줄로 모아 알린다 */
+  bigsqcap: '⨅',
+  bigominus: '⊖',
+  bigodiv: '⊘',
+  rtangle: '⊾',
+  att: '※',
+  hund: '‰',
+  thou: '‱',
+  base: '⌂',
+  benzene: '⌬',
+  well: '♯',
 }
 
-/** 한글에는 있지만 LaTeX에 대응이 없는 명령어. 이름을 아니까 경고할 수 있다. */
+/** 한글에는 있지만 LaTeX에 **구조**가 없는 명령어. 글자 하나로 대신할 수 없는
+ *  것들이라 이름을 남기고 경고한다. (기호는 글자로 옮기면 되므로 여기 없다.) */
 const NO_LATEX: Record<string, string> = {
   ladder: '최소공배수 사다리(LADDER)는 LaTeX에 대응이 없어 이름만 남겼습니다',
   sladder: '진법 변환 사다리(SLADDER)는 LaTeX에 대응이 없어 이름만 남겼습니다',
@@ -925,9 +1083,6 @@ const NO_LATEX: Record<string, string> = {
   rel: 'REL(화살표 위아래 관계식)은 LaTeX에 대응이 없습니다 — \\xrightarrow 계열을 손으로 쓰셔야 합니다',
   buildrel: 'BUILDREL은 LaTeX에 대응이 없습니다 — \\xrightarrow 계열을 손으로 쓰셔야 합니다',
   scale: 'SCALE(글자 크기 비율)은 LaTeX에 대응이 없어 지웠습니다',
-  att: 'att(※)는 수식 기호가 아니라 문자라 그대로 두었습니다',
-  well: 'well(♯ 모양 기호)은 LaTeX에 대응이 없어 이름만 남겼습니다',
-  benzene: '벤젠 고리 기호는 LaTeX에 대응이 없어 이름만 남겼습니다',
 }
 
 /** 낱말 하나로 끝나는 기호들의 되돌리기 표. 앞의 표에서 자동으로 만든다. */
@@ -1136,6 +1291,8 @@ export function hwpToLatex(source: string): HwpResult {
   let p = 0
   /** 몇 겹의 환경 안에 있는가 — 줄바꿈이 갈 곳이 있는지 판단하는 데만 쓴다 */
   let envDepth = 0
+  /** LaTeX 명령이 없어 글자로 남긴 기호들 */
+  const glyphs = new Set<string>()
 
   const warn = (m: string) => {
     if (seen.has(m)) return
@@ -1363,8 +1520,12 @@ export function hwpToLatex(source: string): HwpResult {
         return cmdTermOf('\\%')
       case '$':
         return cmdTermOf('\\$')
-      default:
-        return textTermOf(v)
+      default: {
+        /* 한글 스크립트에 이름 없이 박혀 있는 기호 글자. LaTeX 원문에 그대로
+           두면 XeLaTeX가 아닌 이상 컴파일되지 않으므로 명령어로 되읽는다. */
+        const cmd = FROM_UNICODE[v]
+        return cmd ? cmdTermOf(cmd) : textTermOf(v)
+      }
     }
   }
 
@@ -1453,12 +1614,21 @@ export function hwpToLatex(source: string): HwpResult {
     if (pair) return cmdTermOf(raw === w ? pair[0] : pair[1])
 
     const sym = REV[w]
-    if (sym) return cmdTermOf(sym)
+    if (sym) {
+      // LaTeX 명령이 없어 글자로 옮긴 것 — 끝에 한 줄로 모아 알린다
+      if (!sym.startsWith('\\')) glyphs.add(sym)
+      return cmdTermOf(sym)
+    }
 
     /* 여기까지 왔으면 명령어가 아니라 사용자의 글자다. 한글에서 `abc`는 그냥
        기울임체 글자 셋이고, LaTeX에서도 그렇다. */
     return textTermOf(raw)
   }
 
-  return { out: ljoin(parseSeq(() => false)), warnings: warns }
+  const out = ljoin(parseSeq(() => false))
+  if (glyphs.size)
+    warn(
+      `LaTeX에 명령어가 없어 글자로 옮긴 기호: ${[...glyphs].join(' ')} — XeLaTeX·LuaLaTeX가 아니면 그대로 나오지 않을 수 있습니다`,
+    )
+  return { out, warnings: warns }
 }
