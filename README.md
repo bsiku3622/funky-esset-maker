@@ -31,6 +31,12 @@ each side, which is why `10a^3 over b^2 times c` is (10a³/b²)×c and not
 10a³/(b²×c). Whatever it has to approximate, it lists, instead of silently
 producing something that renders wrong.
 
+Having both directions means the 한글 script can be drawn too: it is read back
+into LaTeX and handed to KaTeX, so both panes show their own contents rendered.
+Put them side by side and anything the conversion lost is visible rather than
+merely reported. (It is this tool's reading of the script, not 한글's — a blind
+spot shared by both directions would agree with itself.)
+
 ## Two looks
 
 Everything has a **paper mode** alongside the funky one, switched in the sidebar and applied to every tool at once:

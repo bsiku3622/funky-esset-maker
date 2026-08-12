@@ -13,9 +13,14 @@ import './HwpMath.css'
  * 오른쪽이 결과. 변환은 실패하지 않으므로(모르는 것도 최선을 내고 지나간다)
  * 오른쪽 칸은 늘 채워져 있고, 미심쩍은 곳만 경고로 따로 모인다.
  *
- * 미리보기는 언제나 **LaTeX 쪽**에 붙는다. 방향에 따라 그것이 입력일 때도
- * 결과일 때도 있으니 미리보기도 칸을 옮겨 다닌다. 한글 스크립트는 브라우저가
- * 그릴 수 없으므로 그쪽에 미리보기를 두는 시늉을 할 수는 없다. */
+ * 두 칸 모두 자기 내용을 그려서 보여 준다. 브라우저는 한글 스크립트를 그릴 줄
+ * 모르지만, 이 도구에는 그것을 LaTeX로 읽는 파서가 이미 있다 — 한글 쪽 미리보기는
+ * `hwpToLatex`로 한 번 되읽은 뒤 KaTeX에 넘긴 것이다. 그래서 LaTeX → 한글 방향
+ * 에서는 두 미리보기가 나란히 서고, 둘이 다르면 옮기는 중에 무언가 샜다는 뜻이다.
+ *
+ * ⚠️ 다만 그것은 **이 도구가 읽은** 스크립트지 한글이 읽은 스크립트가 아니다.
+ * 두 방향이 같은 맹점을 공유하면 미리보기끼리는 맞아떨어지면서 정작 한글에서만
+ * 다르게 보일 수 있다. 미리보기는 확인이지 보증이 아니다. */
 
 const STORE_KEY = 'fem.hwpmath.v1'
 
@@ -66,39 +71,11 @@ const TOAST_MS = 1800
 
 type Line = { kind: 'html'; html: string } | { kind: 'blank' }
 
-export default function HwpMathTool() {
-  const initial = useStored(STORE_KEY, DEFAULTS)
-  const [dir, setDir] = useState<Dir>(initial.dir)
-  const [latex, setLatex] = useState(initial.latex)
-  const [hwp, setHwp] = useState(initial.hwp)
-  const [toast, setToast] = useState<string | null>(null)
-  const inputRef = useRef<HTMLTextAreaElement>(null)
-
-  const persisted = { dir, latex, hwp }
-  usePersist(STORE_KEY, persisted)
-  const history = useHistory(persisted, (s) => {
-    setDir(s.dir)
-    setLatex(s.latex)
-    setHwp(s.hwp)
-  })
-
-  const toHwp = dir === 'toHwp'
-  /* 방향마다 원본을 따로 기억한다. 토글이 상대편 칸을 덮어써 버리면, 한글
-     문서에서 붙여 넣어 둔 것이 LaTeX를 한 번 옮겼다고 사라진다. */
-  const source = toHwp ? latex : hwp
-  const setSource = toHwp ? setLatex : setHwp
-
-  const result = useMemo(
-    () => (toHwp ? latexToHwp(source) : hwpToLatex(source)),
-    [toHwp, source],
-  )
-
-  /** 그릴 수 있는 쪽 — 방향에 따라 원본이기도 하고 결과이기도 하다 */
-  const tex = toHwp ? source : result.out
-
-  const lines = useMemo<Line[]>(() => {
+/** LaTeX 한 덩어리를 줄마다 그린다. 줄이 곧 수식 하나다. */
+function useLines(tex: string): Line[] {
+  return useMemo(() => {
     const raw = tex.length ? tex.split('\n') : ['']
-    return raw.map((line) => {
+    return raw.map((line): Line => {
       const src = line.trim()
       if (!src) return { kind: 'blank' }
       return {
@@ -111,6 +88,48 @@ export default function HwpMathTool() {
       }
     })
   }, [tex])
+}
+
+export default function HwpMathTool() {
+  const initial = useStored(STORE_KEY, DEFAULTS)
+  const [dir, setDir] = useState<Dir>(initial.dir)
+  const [latex, setLatex] = useState(initial.latex)
+  const [script, setScript] = useState(initial.hwp)
+  const [toast, setToast] = useState<string | null>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  const persisted = { dir, latex, hwp: script }
+  usePersist(STORE_KEY, persisted)
+  const history = useHistory(persisted, (s) => {
+    setDir(s.dir)
+    setLatex(s.latex)
+    setScript(s.hwp)
+  })
+
+  const toHwp = dir === 'toHwp'
+  /* 방향마다 원본을 따로 기억한다. 토글이 상대편 칸을 덮어써 버리면, 한글
+     문서에서 붙여 넣어 둔 것이 LaTeX를 한 번 옮겼다고 사라진다. */
+  const source = toHwp ? latex : script
+  const setSource = toHwp ? setLatex : setScript
+
+  const result = useMemo(
+    () => (toHwp ? latexToHwp(source) : hwpToLatex(source)),
+    [toHwp, source],
+  )
+
+  /* 두 칸의 내용. 방향에 따라 어느 쪽이 원본이고 어느 쪽이 결과인지만 바뀐다. */
+  const tex = toHwp ? source : result.out
+
+  /* 한글 스크립트를 그리려면 LaTeX로 한 번 되읽어야 한다. 되돌리기 파서가
+     이미 있으니 미리보기는 그것을 다시 쓰는 것으로 충분하다. 한글 → LaTeX
+     방향에서는 그 결과가 곧 오른쪽 칸이므로 다시 계산하지 않는다. */
+  const scriptAsTex = useMemo(
+    () => (toHwp ? hwpToLatex(result.out).out : result.out),
+    [toHwp, result.out],
+  )
+
+  const texLines = useLines(tex)
+  const scriptLines = useLines(scriptAsTex)
 
   const flash = useCallback((message: string) => {
     setToast(message)
@@ -142,8 +161,8 @@ export default function HwpMathTool() {
     return () => window.removeEventListener('keydown', onKey)
   }, [copy])
 
-  const preview = (
-    <div className="hwp-preview" aria-label="수식 미리보기">
+  const preview = (lines: Line[], label: string) => (
+    <div className="hwp-preview" aria-label={label}>
       {lines.map((ln, i) =>
         ln.kind === 'blank' ? (
           <div key={i} className="hwp-preview__blank" />
@@ -220,7 +239,7 @@ export default function HwpMathTool() {
           <header className={`hwp-pane__bar hwp-pane__bar--${toHwp ? 'tex' : 'hwp'}`}>
             <span className="hwp-pane__name">{toHwp ? 'LaTeX' : '한글 수식'}</span>
             <span className="hwp-pane__note">
-              {toHwp ? '붙여넣기 · $…$ 는 알아서 벗깁니다' : '한글에서 복사한 스크립트를 붙여넣기'}
+              {toHwp ? '$…$ 는 알아서 벗깁니다' : '한글에서 복사한 스크립트를 붙여넣기'}
             </span>
           </header>
           <textarea
@@ -238,7 +257,9 @@ export default function HwpMathTool() {
             autoCorrect="off"
             aria-label={toHwp ? 'LaTeX 입력' : '한글 수식 입력'}
           />
-          {toHwp && preview}
+          {toHwp
+            ? preview(texLines, 'LaTeX 미리보기')
+            : preview(scriptLines, '한글 수식 미리보기')}
         </section>
 
         <section className="hwp-pane">
@@ -251,7 +272,12 @@ export default function HwpMathTool() {
           <pre className="hwp-out" aria-label="변환 결과">
             {result.out || ' '}
           </pre>
-          {!toHwp && preview}
+          {/* 결과 쪽 미리보기. LaTeX → 한글 방향에서는 이것이 옮긴 스크립트를
+              되읽어 그린 것이라, 왼쪽 미리보기와 나란히 놓고 비교하면 무엇이
+              샜는지 눈으로 보인다. */}
+          {toHwp
+            ? preview(scriptLines, '한글 수식 미리보기')
+            : preview(texLines, 'LaTeX 미리보기')}
           {result.warnings.length > 0 && (
             <ul className="hwp-warn">
               {result.warnings.map((w) => (

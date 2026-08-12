@@ -56,10 +56,11 @@ describe('괄호', () => {
     )
   })
 
-  it('한글에 없는 꺾쇠괄호는 부등호로 바꾸고 알려준다', () => {
-    const r = latexToHwp('\\left\\langle x \\right\\rangle')
-    expect(r.out).toBe('LEFT < x RIGHT >')
-    expect(r.warnings).toHaveLength(1)
+  it('꺾쇠·바닥 괄호는 이름이 아니라 그 글자를 쓴다', () => {
+    // 한글이 스스로 내보내는 문자열도 `LEFT ⌊`처럼 생겼다
+    const r = latexToHwp('\\left\\langle x \\right\\rangle + \\left\\lfloor y \\right\\rfloor')
+    expect(r.out).toBe('LEFT ⟨ x RIGHT ⟩ + LEFT ⌊ y RIGHT ⌋')
+    expect(r.warnings).toHaveLength(0)
   })
 })
 
@@ -257,6 +258,12 @@ describe('되돌리기 · 괄호와 묶음', () => {
     expect(back('eqalign{a &= b # &= c}')).toBe(
       '\\begin{aligned} a &= b \\\\ &= c \\end{aligned}',
     )
+  })
+
+  it('꺾쇠괄호는 글자로, 부등호는 부등호로 되돌아온다', () => {
+    // `<`를 ⟨로 되읽으면 한글에서는 나오지도 않는 괄호가 미리보기에만 그려진다
+    expect(back('LEFT ⟨ u,v RIGHT ⟩')).toBe('\\left\\langle u,v \\right\\rangle')
+    expect(back('LEFT < x RIGHT >')).toBe('\\left< x \\right>')
   })
 
   it('환경 밖의 줄바꿈만 알려준다', () => {

@@ -162,12 +162,27 @@ const RENAME: Record<string, string> = {
   celsius: 'CENTIGRADE',
   AA: 'ANGSTROM',
   angstrom: 'ANGSTROM',
+  /* ⚠️ `\xor`는 LaTeX 명령이 아니다. 되돌릴 때 이 표를 뒤집으므로 여기 적힌
+     이름이 곧 LaTeX 출력이 된다 — 먼저 적힌 진짜 이름이 이겨야 한다. */
+  veebar: 'XOR',
   xor: 'XOR',
   oiint: 'ODINT',
   oiiint: 'OTINT',
+  fallingdotseq: 'image',
+  risingdotseq: 'REIMAGE',
+  Bumpeq: 'ISO',
+  dotplus: 'DSUM',
+  dashv: 'DASHV',
+  diagup: 'LSLANT',
+  diagdown: 'RSLANT',
 }
 
-/** 글자 장식 — 한글도 명령어를 앞에 두고 대상을 뒤에 쓴다. */
+/** 글자 장식 — 한글도 명령어를 앞에 두고 대상을 뒤에 쓴다.
+ *
+ *  뒤쪽 넷(dyad·BOX·OVERBRACE·UNDERBRACE)은 한컴 스펙의 표에는 없고, 실제 HWP
+ *  문서에서 뽑아 만든 OpenBapul/hml-equation-parser의 변환표에 있다. 스펙이
+ *  스스로 "주요한" 명령어만 다룬다고 밝히고 있으니, 실물에서 확인된 이름은
+ *  받아들인다. */
 const ACCENT: Record<string, string> = {
   hat: 'hat',
   widehat: 'hat',
@@ -185,6 +200,10 @@ const ACCENT: Record<string, string> = {
   breve: 'arch',
   underline: 'under',
   underbar: 'under',
+  overleftrightarrow: 'dyad',
+  boxed: 'BOX',
+  overbrace: 'OVERBRACE',
+  underbrace: 'UNDERBRACE',
 }
 
 /** 빈칸. 한글은 `~`가 한 칸, 백틱이 그 1/4이다. */
@@ -444,6 +463,9 @@ export function latexToHwp(source: string): HwpResult {
 
   /* --- 괄호 --- */
 
+  /* 한글의 LEFT·RIGHT는 글자 하나를 괄호로 받는다. 이름이 있는 것도 있지만
+     꺾쇠·바닥·천장은 그냥 그 유니코드 글자를 쓴다 — 한글이 스스로 내보내는
+     문자열도 `LEFT ⌊`처럼 생겼다. */
   const DELIM_CMD: Record<string, string> = {
     '{': '{', '}': '}',
     lbrace: '{', rbrace: '}',
@@ -451,7 +473,12 @@ export function latexToHwp(source: string): HwpResult {
     vert: '|', '|': 'VERT', Vert: 'VERT',
     backslash: 'RSLANT',
     uparrow: 'uparrow', downarrow: 'downarrow',
+    langle: '⟨', rangle: '⟩',
+    lfloor: '⌊', rfloor: '⌋',
+    lceil: '⌈', rceil: '⌉',
   }
+
+  const DELIM_CH = '()[]|./<>⟨⟩⌊⌋⌈⌉'
 
   function delim(): string {
     skipSp()
@@ -459,21 +486,13 @@ export function latexToHwp(source: string): HwpResult {
     if (!t) return '.'
     p++
     if (t.t === 'ch') {
-      if ('()[]|./'.includes(t.v)) return t.v
+      if (DELIM_CH.includes(t.v)) return t.v
       warn(`괄호로 쓸 수 없는 글자 "${t.v}"가 있어 빈 괄호로 두었습니다`)
       return '.'
     }
     if (t.t === 'cmd') {
       const mapped = DELIM_CMD[t.v]
       if (mapped) return mapped
-      if (t.v === 'langle' || t.v === 'rangle') {
-        warn('꺾쇠괄호(⟨ ⟩)는 한글 수식에 없어 부등호(< >)로 바꿨습니다')
-        return t.v === 'langle' ? '<' : '>'
-      }
-      if (/^[lr](floor|ceil)$/.test(t.v)) {
-        warn('바닥·천장 괄호(⌊ ⌉)는 한글 수식에 없어 대괄호로 바꿨습니다')
-        return t.v.startsWith('l') ? '[' : ']'
-      }
     }
     p--
     return '.'
@@ -701,16 +720,12 @@ export function latexToHwp(source: string): HwpResult {
         warn('\\underset은 한글에서 위아래 쌓기(atop)로만 흉내 냈습니다 — 아랫글자가 작아지지 않습니다')
         return { s: `${wrap(base)} atop ${wrap(bottom)}`, atomic: false }
       }
-      case 'overbrace':
-      case 'underbrace':
-      case 'boxed':
       case 'phantom':
       case 'hphantom':
-      case 'vphantom': {
-        const body = parseAtom()
-        warn(`\\${name}는 한글 수식에 대응이 없어 내용만 남겼습니다`)
-        return name.endsWith('phantom') ? { s: '', atomic: true } : body
-      }
+      case 'vphantom':
+        parseAtom()
+        warn(`\\${name}는 한글 수식에 대응이 없어 지웠습니다`)
+        return { s: '', atomic: true }
       case 'substack': {
         /* 안쪽의 `\\`는 이미 #으로 바뀌어 나온다. 한글에서 그 줄들을 실제로
            쌓아 주는 것은 pile이다. */
@@ -866,7 +881,9 @@ const REV_FIX: Record<string, string> = {
   lnot: '\\neg',
   bot: '\\perp',
   exist: '\\exists',
-  identical: '\\equiv',
+  /* IDENTICAL은 ≡가 아니라 비례식의 ∷다. 대응하는 LaTeX 명령이 없어 글자를
+     그대로 쓴다 — ≡로 옮기면 조용히 다른 뜻이 된다. */
+  identical: '\\mathrel{∷}',
   divide: '\\div',
   plusminus: '\\pm',
   minusplus: '\\mp',
@@ -961,11 +978,19 @@ const REV_FONT: Record<string, string> = {
   rmbold: '\\mathbf',
 }
 
-/** 괄호 글자 → LaTeX의 구분자. */
+/** 괄호 글자 → LaTeX의 구분자.
+ *
+ *  ⚠️ `<`는 `\langle`이 아니다. 한글에서 `LEFT <`는 늘어나는 부등호를 그리고,
+ *  꺾쇠괄호를 쓸 때는 `LEFT ⟨`처럼 그 글자를 직접 쓴다. `<`를 ⟨로 되읽으면
+ *  한글에서는 나오지도 않는 괄호가 미리보기에만 그려진다. */
 const REV_DELIM: Record<string, string> = {
   '(': '(', ')': ')', '[': '[', ']': ']',
   '{': '\\{', '}': '\\}',
-  '|': '|', '.': '.', '/': '/', '<': '\\langle', '>': '\\rangle',
+  '|': '|', '.': '.', '/': '/', '<': '<', '>': '>',
+  '⟨': '\\langle', '⟩': '\\rangle',
+  '⌊': '\\lfloor', '⌋': '\\rfloor',
+  '⌈': '\\lceil', '⌉': '\\rceil',
+  '∥': '\\|',
   vert: '|', VERT: '\\|',
   uparrow: '\\uparrow', downarrow: '\\downarrow',
 }
