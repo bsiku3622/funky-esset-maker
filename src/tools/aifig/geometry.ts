@@ -1013,6 +1013,40 @@ export function measureBetween(a: Rect, b: Rect): Measure[] {
   return out
 }
 
+/* The same question asked of the page instead of a neighbour: the four margins.
+ *
+ * A shape's place on a page *is* its distance to each edge — its own size and
+ * the page's are already in the status bar, so there is nothing else to say.
+ * Each bar runs through the middle of the shape on the other axis, which is
+ * what keeps the four of them from piling onto one line.
+ *
+ * A margin of zero is left out and the alignment guide says it instead, the
+ * same way `measureBetween` stays quiet about an axis two shapes share.
+ *
+ * The label is signed, so a shape hanging off the page reads as −12 rather
+ * than as a 12 that looks exactly like the one inside it. The bar is drawn
+ * where the overhang actually is: outside the frame. */
+export function measureToFrame(a: Rect, frame: Rect): Measure[] {
+  const out: Measure[] = []
+  const cx = a.x + a.w / 2
+  const cy = a.y + a.h / 2
+  const bar = (axis: 'x' | 'y', margin: number, edge: number, side: number, at: number) => {
+    if (Math.abs(margin) <= 0.5) return
+    out.push({
+      axis,
+      from: Math.min(edge, side),
+      to: Math.max(edge, side),
+      at,
+      label: `${Math.round(margin)}`,
+    })
+  }
+  bar('x', a.x - frame.x, frame.x, a.x, cy)
+  bar('x', frame.x + frame.w - (a.x + a.w), frame.x + frame.w, a.x + a.w, cy)
+  bar('y', a.y - frame.y, frame.y, a.y, cx)
+  bar('y', frame.y + frame.h - (a.y + a.h), frame.y + frame.h, a.y + a.h, cx)
+  return out
+}
+
 /** Which of the two shapes' edges and centres already line up exactly. */
 export function alignmentsBetween(a: Rect, b: Rect): Guide[] {
   return snapGuides(a, [b], 0.5).guides

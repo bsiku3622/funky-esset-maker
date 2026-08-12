@@ -11,7 +11,15 @@
  * shift really lands on, and stop the choice changing hands under jitter. */
 
 import { describe, expect, it } from 'vitest'
-import { alignmentsBetween, measureBetween, snapGuides, spacingSnap, type Sticky } from './geometry'
+import {
+  alignmentsBetween,
+  measureBetween,
+  measureToFrame,
+  snapGuides,
+  snapPos,
+  spacingSnap,
+  type Sticky,
+} from './geometry'
 import type { Rect } from './types'
 
 const R = (x: number, y: number, w: number, h: number): Rect => ({ x, y, w, h })
@@ -165,5 +173,81 @@ describe('measureBetween', () => {
 
   it('finds no alignment between shapes that share no edge', () => {
     expect(alignmentsBetween(R(100, 100, 96, 48), R(263, 137, 90, 40))).toEqual([])
+  })
+})
+
+/* Pointing at bare canvas asks the same two questions of the page. */
+describe('measureToFrame', () => {
+  const PAGE = R(0, 0, 640, 400)
+  const labels = (m: { axis: string; label: string }[]) =>
+    m.map((x) => `${x.axis}${x.label}`).sort()
+
+  it('reports all four margins', () => {
+    const m = measureToFrame(R(100, 80, 96, 48), PAGE)
+    // left 100, right 640-196, top 80, bottom 400-128
+    expect(labels(m)).toEqual(['x100', 'x444', 'y272', 'y80'])
+  })
+
+  it('draws each bar through the middle of the shape on the other axis', () => {
+    const m = measureToFrame(R(100, 80, 96, 48), PAGE)
+    for (const x of m) expect(x.at).toBe(x.axis === 'x' ? 104 : 148)
+  })
+
+  it('leaves out a margin of zero and lets the guide say it instead', () => {
+    // flush against the left edge: three bars, and an alignment where the
+    // fourth would have been
+    const box = R(0, 80, 96, 48)
+    expect(labels(measureToFrame(box, PAGE))).toEqual(['x544', 'y272', 'y80'])
+    expect(alignmentsBetween(box, PAGE).some((g) => g.axis === 'x' && g.at === 0)).toBe(true)
+  })
+
+  it('signs a margin the shape has spilled past', () => {
+    const m = measureToFrame(R(-12, 80, 96, 48), PAGE)
+    const left = m.find((x) => x.axis === 'x' && x.from < 0)!
+    expect(left.label).toBe('-12')
+    // and draws it where the overhang is, outside the page
+    expect([left.from, left.to]).toEqual([-12, 0])
+  })
+
+  it('finds the shape sitting on the page centre', () => {
+    const g = alignmentsBetween(R(272, 80, 96, 48), PAGE)
+    expect(g.some((q) => q.axis === 'x' && q.at === 320)).toBe(true)
+  })
+})
+
+/* The page is a snap target like any other drawn thing — the editor hands it to
+ * `snapGuides` and `snapSides` as one more rect. What it is *not* is a shape,
+ * and these pin that difference down. */
+describe('snapping to the page', () => {
+  const PAGE = R(0, 0, 460, 380)
+
+  it('pulls a box onto the page centre and draws the line down the whole page', () => {
+    // 460 wide, box 96 wide → centred at x 182; dropped 3px off
+    const r = snapGuides(R(185, 100, 96, 48), [PAGE], 5)
+    expect(r.dx).toBe(-3)
+    const centre = r.guides.find((q) => q.axis === 'x' && q.at === 230)!
+    expect(centre).toBeDefined()
+    expect([centre.from, centre.to]).toEqual([-12, 392])
+  })
+
+  it('lands a box flush against the page edge', () => {
+    const r = snapGuides(R(3, 100, 96, 48), [PAGE], 5)
+    expect(r.dx).toBe(-3)
+    expect(r.guides.some((q) => q.axis === 'x' && q.at === 0)).toBe(true)
+  })
+
+  it('beats the grid, which is the only reason the centre is reachable', () => {
+    // ⚠️ 230 is not on the half-cell lattice of an 8px grid, so a box could
+    // never sit centred on this page if the grid got a say. It does not: the
+    // guide takes the axis outright and `snapPos` is skipped for it.
+    expect(snapPos(230, 8)).not.toBe(230)
+    expect(snapGuides(R(185, 100, 96, 48), [PAGE], 5).hitX).toBe(true)
+  })
+
+  it('never joins a row of shapes as one more block', () => {
+    // one real neighbour plus the page is not two neighbours — an even gap to
+    // the page edge is not a rhythm anyone laid out
+    const neighbour = R(300, 100, 96, 48)
+    expect(spacingSnap(R(180, 100, 96, 48), [neighbour, PAGE], 'x', 5)).toBeNull()
   })
 })

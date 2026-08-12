@@ -69,6 +69,7 @@ import {
   distToPath,
   hitsByOutline,
   measureBetween,
+  measureToFrame,
   nearestT,
   nodeBounds,
   spacingSnap,
@@ -161,6 +162,12 @@ type Drag =
 
 /** How close an edge has to come, on screen, before a guide claims it. */
 const SNAP_PX = 5
+
+/* The page as something to line up with. It is drawn, so it plays by the same
+ * rule as any other drawn thing: its edges and its centre are alignment
+ * targets. It is not a *shape*, though — it has no place in a row's rhythm, so
+ * equal-spacing never sees it. */
+const frameRect = (c: { w: number; h: number }): Rect => ({ x: 0, y: 0, w: c.w, h: c.h })
 
 /* Tie a bend to the end of the connector it belongs to, and store it as an
  * offset from that node's centre.
@@ -290,6 +297,10 @@ export default function AiFigureMaker() {
   const [gaps, setGaps] = useState<Gap[]>([])
   /** Alt held: report the distance to whatever the pointer is over */
   const [measuring, setMeasuring] = useState(false)
+  /* Alt on its own reads as a question about the *page*, so the measurement
+     needs to know the pointer is actually here — otherwise reaching for Alt
+     while in a panel field would throw margins across the canvas. */
+  const [overCanvas, setOverCanvas] = useState(false)
   const [marquee, setMarquee] = useState<Rect | null>(null)
   const [temp, setTemp] = useState<{ a: Pt; b: Pt; target: string | null } | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -486,17 +497,26 @@ export default function AiFigureMaker() {
   const selBox = useMemo(() => selectionBounds(doc, selNodes), [doc, selNodes])
   const hoverNode = hoverId && !dragging ? (nmap.get(hoverId) ?? null) : null
 
-  /* Alt over another shape: how far it is and where the two already agree.
-     Measured between the ink, like everything else that aligns — the box is an
-     editing frame, and nobody wants the distance to an invisible edge. */
+  /* Alt: how far the selection is from whatever the pointer is over, and where
+     the two already agree. Measured between the ink, like everything else that
+     aligns — the box is an editing frame, and nobody wants the distance to an
+     invisible edge.
+
+     Point at another shape and that shape answers; point at nothing and the
+     canvas does, with its four margins. "Nothing under the pointer" is the same
+     answer either way — you asked about the space the selection sits in, and on
+     bare canvas that space *is* the page. */
   const probe = useMemo(() => {
-    if (!measuring || !hoverNode || !selectedNodeObjs.length) return null
-    if (selNodes.includes(hoverNode.id)) return null
+    if (!measuring || !overCanvas || !selectedNodeObjs.length) return null
     const a = unionRect(selectedNodeObjs.map(inkRect))
     if (!a) return null
-    const b = inkRect(hoverNode)
-    return { measures: measureBetween(a, b), aligns: alignmentsBetween(a, b) }
-  }, [measuring, hoverNode, selectedNodeObjs, selNodes])
+    if (hoverNode && !selNodes.includes(hoverNode.id)) {
+      const b = inkRect(hoverNode)
+      return { measures: measureBetween(a, b), aligns: alignmentsBetween(a, b) }
+    }
+    const frame = frameRect(doc.canvas)
+    return { measures: measureToFrame(a, frame), aligns: alignmentsBetween(a, frame) }
+  }, [measuring, overCanvas, hoverNode, selectedNodeObjs, selNodes, doc.canvas])
 
   /* ---- coordinate helpers ---- */
   const toWorld = useCallback(
@@ -1105,12 +1125,25 @@ export default function AiFigureMaker() {
          * the next drag re-quantised. That flip-flop is what made snapping feel
          * arbitrary. An alignment with something you can see beats one with an
          * invisible lattice, so it wins the axis outright and the grid only
-         * gets the axes no guide claimed. */
+         * gets the axes no guide claimed.
+         *
+         * ⚠️ That order is also what lets the page be a target at all. What the
+         * grid quantises is the box's *position*, and centring puts that at
+         * `page/2 - w/2` — 211 for a 106-wide box on a 528px page, which is not
+         * on the half-cell lattice. So if the grid ran first, or even got a say
+         * afterwards, a box could never actually sit centred on the page. Being
+         * tier one means the page takes the axis outright and nothing pulls it
+         * back off. */
         const moving = { x: drag.box.x + dx, y: drag.box.y + dy, w: drag.box.w, h: drag.box.h }
         const others = d.nodes.filter((n) => !drag.ids.includes(n.id) && !n.hidden).map(inkRect)
         const snap = free
           ? { dx: 0, dy: 0, hitX: false, hitY: false, guides: [] as Guide[], atX: null, atY: null }
-          : snapGuides(moving, others, SNAP_PX / viewRef.current.zoom, drag.sticky)
+          : snapGuides(
+              moving,
+              [...others, frameRect(d.canvas)],
+              SNAP_PX / viewRef.current.zoom,
+              drag.sticky,
+            )
         drag.sticky = { x: snap.atX, y: snap.atY }
         /* Three rules per axis, in order of how much they mean to the reader.
            Lining up with something beats an even gap, and an even gap beats the
@@ -1204,7 +1237,12 @@ export default function AiFigureMaker() {
         const free = ev.metaKey || ev.ctrlKey || ev.shiftKey || !!drag.rotation
         if (!free) {
           const others = d.nodes.filter((n) => n.id !== drag.id && !n.hidden).map(inkRect)
-          const g = snapSides({ x, y, w, h }, sides, others, SNAP_PX / viewRef.current.zoom)
+          const g = snapSides(
+            { x, y, w, h },
+            sides,
+            [...others, frameRect(d.canvas)],
+            SNAP_PX / viewRef.current.zoom,
+          )
           setGuides(g.guides)
           const gx = g.guides.some((q) => q.axis === 'x')
           const gy = g.guides.some((q) => q.axis === 'y')
@@ -2105,7 +2143,11 @@ export default function AiFigureMaker() {
             className="af-canvas"
             onPointerDown={onPointerDown}
             onPointerMove={onHoverMove}
-            onPointerLeave={() => setHoverId(null)}
+            onPointerEnter={() => setOverCanvas(true)}
+            onPointerLeave={() => {
+              setHoverId(null)
+              setOverCanvas(false)
+            }}
             onDoubleClick={onDoubleClick}
             style={{ cursor: panning ? 'grabbing' : connecting ? 'crosshair' : 'default' }}
           >
@@ -2344,7 +2386,7 @@ export default function AiFigureMaker() {
             ? connectFrom
               ? '도착 노드를 클릭하세요 · 시작점은 그대로 남아 연속 연결됩니다 · Esc 취소'
               : '연결 모드 — 시작 노드를 클릭하세요 · Esc로 나가기'
-            : '드래그 이동 · C 연결 모드 · 여러 층 선택 후 L 전결합 · 더블클릭 편집 · 직각 연결선은 구간을 끌어 옮김 · ⌥ 누르고 다른 도형에 올리면 거리 · 이미지는 끌어다 놓거나 ⌘V'}
+            : '드래그 이동 · C 연결 모드 · 여러 층 선택 후 L 전결합 · 더블클릭 편집 · 직각 연결선은 구간을 끌어 옮김 · ⌥ 누르면 캔버스 여백, 다른 도형에 올리면 그 도형까지의 거리 · 이미지는 끌어다 놓거나 ⌘V'}
         </span>
       </div>
 
