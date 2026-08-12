@@ -11,7 +11,7 @@
  * shift really lands on, and stop the choice changing hands under jitter. */
 
 import { describe, expect, it } from 'vitest'
-import { snapGuides, spacingSnap, type Sticky } from './geometry'
+import { alignmentsBetween, measureBetween, snapGuides, spacingSnap, type Sticky } from './geometry'
 import type { Rect } from './types'
 
 const R = (x: number, y: number, w: number, h: number): Rect => ({ x, y, w, h })
@@ -125,5 +125,45 @@ describe('spacingSnap', () => {
 
   it('needs two neighbours before spacing means anything', () => {
     expect(spacingSnap(R(200, 100, 60, 40), row([100]), 'x', 6)).toBe(null)
+  })
+})
+
+/* Holding the modifier over another shape asks two questions at once: how far
+ * apart are we, and where do we already agree. */
+describe('measureBetween', () => {
+  it('measures the gap between the facing edges', () => {
+    const m = measureBetween(R(100, 100, 96, 48), R(260, 100, 96, 48))
+    expect(m).toHaveLength(1)
+    expect(m[0].axis).toBe('x')
+    expect(m[0].label).toBe('64')
+    // drawn through the band the two share
+    expect(m[0].at).toBe(124)
+    expect(m[0].reach).toBeUndefined()
+  })
+
+  it('says nothing about an axis the two overlap on', () => {
+    // side by side and vertically overlapping: only a horizontal gap exists
+    const m = measureBetween(R(100, 100, 96, 48), R(260, 120, 96, 48))
+    expect(m.map((x) => x.axis)).toEqual(['x'])
+  })
+
+  it('reports both axes when the shapes share no band at all', () => {
+    const m = measureBetween(R(100, 100, 96, 48), R(300, 300, 96, 48))
+    expect(m.map((x) => x.axis).sort()).toEqual(['x', 'y'])
+    // and reaches out to the far shape, since the bar cannot touch it
+    expect(m.every((x) => x.reach)).toBe(true)
+  })
+
+  it('measures nothing between shapes that overlap both ways', () => {
+    expect(measureBetween(R(100, 100, 96, 48), R(120, 110, 96, 48))).toEqual([])
+  })
+
+  it('finds the edges the two already share', () => {
+    const a = alignmentsBetween(R(100, 100, 96, 48), R(260, 100, 96, 48))
+    expect(ys(a)).toEqual([100, 124, 148])
+  })
+
+  it('finds no alignment between shapes that share no edge', () => {
+    expect(alignmentsBetween(R(100, 100, 96, 48), R(263, 137, 90, 40))).toEqual([])
   })
 })

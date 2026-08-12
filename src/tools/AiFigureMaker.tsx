@@ -65,8 +65,10 @@ import {
 } from './aifig/doc'
 import {
   atLength,
+  alignmentsBetween,
   distToPath,
   hitsByOutline,
+  measureBetween,
   nearestT,
   nodeBounds,
   spacingSnap,
@@ -286,6 +288,8 @@ export default function AiFigureMaker() {
   const [toast, setToast] = useState<string | null>(null)
   const [guides, setGuides] = useState<Guide[]>([])
   const [gaps, setGaps] = useState<Gap[]>([])
+  /** Alt held: report the distance to whatever the pointer is over */
+  const [measuring, setMeasuring] = useState(false)
   const [marquee, setMarquee] = useState<Rect | null>(null)
   const [temp, setTemp] = useState<{ a: Pt; b: Pt; target: string | null } | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -481,6 +485,18 @@ export default function AiFigureMaker() {
   )
   const selBox = useMemo(() => selectionBounds(doc, selNodes), [doc, selNodes])
   const hoverNode = hoverId && !dragging ? (nmap.get(hoverId) ?? null) : null
+
+  /* Alt over another shape: how far it is and where the two already agree.
+     Measured between the ink, like everything else that aligns — the box is an
+     editing frame, and nobody wants the distance to an invisible edge. */
+  const probe = useMemo(() => {
+    if (!measuring || !hoverNode || !selectedNodeObjs.length) return null
+    if (selNodes.includes(hoverNode.id)) return null
+    const a = unionRect(selectedNodeObjs.map(inkRect))
+    if (!a) return null
+    const b = inkRect(hoverNode)
+    return { measures: measureBetween(a, b), aligns: alignmentsBetween(a, b) }
+  }, [measuring, hoverNode, selectedNodeObjs, selNodes])
 
   /* ---- coordinate helpers ---- */
   const toWorld = useCallback(
@@ -1639,10 +1655,22 @@ export default function AiFigureMaker() {
     }
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.key === ' ') spaceRef.current = false
+      if (!e.altKey) setMeasuring(false)
     }
+    /* Alt is reported on every key event, so watching the flag rather than the
+       key itself catches it however the user got there. Releasing it outside
+       the window never fires a keyup, hence the blur. */
+    const onAlt = (e: KeyboardEvent) => setMeasuring(e.altKey)
+    const onBlur = () => setMeasuring(false)
+    window.addEventListener('keydown', onAlt)
+    window.addEventListener('keyup', onAlt)
+    window.addEventListener('blur', onBlur)
     window.addEventListener('keydown', onKey)
     window.addEventListener('keyup', onKeyUp)
     return () => {
+      window.removeEventListener('keydown', onAlt)
+      window.removeEventListener('keyup', onAlt)
+      window.removeEventListener('blur', onBlur)
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('keyup', onKeyUp)
     }
@@ -2232,6 +2260,8 @@ export default function AiFigureMaker() {
                 hoverNode={hoverNode && !hoverNode.locked ? hoverNode : null}
                 guides={guides}
                 gaps={gaps}
+                measures={probe?.measures ?? []}
+                aligns={probe?.aligns ?? []}
                 marquee={marquee}
                 tempEdge={temp ? { a: temp.a, b: temp.b } : null}
                 connectTarget={temp?.target ? nodeBounds(nmap.get(temp.target)!) : null}
@@ -2314,7 +2344,7 @@ export default function AiFigureMaker() {
             ? connectFrom
               ? '도착 노드를 클릭하세요 · 시작점은 그대로 남아 연속 연결됩니다 · Esc 취소'
               : '연결 모드 — 시작 노드를 클릭하세요 · Esc로 나가기'
-            : '드래그 이동 · C 연결 모드 · 여러 층 선택 후 L 전결합 · 더블클릭 편집 · 직각 연결선은 구간을 끌어 옮김 · 이미지는 끌어다 놓거나 ⌘V'}
+            : '드래그 이동 · C 연결 모드 · 여러 층 선택 후 L 전결합 · 더블클릭 편집 · 직각 연결선은 구간을 끌어 옮김 · ⌥ 누르고 다른 도형에 올리면 거리 · 이미지는 끌어다 놓거나 ⌘V'}
         </span>
       </div>
 

@@ -1,5 +1,18 @@
 # 작업 기록
 
+## 2026-08-12 — AI Figure Maker: ⌥ 계측 (피그마 방식)
+
+- 변경 파일: `src/tools/aifig/geometry.ts`, `src/tools/aifig/Overlay.tsx`, `src/tools/AiFigureMaker.tsx`, `src/tools/aifig/snap.test.ts`
+- 요약: Alt를 누른 채 다른 도형에 올리면 선택한 것과의 거리·이미 맞아 있는 모서리를 띄웁니다.
+
+거리는 **마주 보는 모서리 사이**에서만 의미가 있으므로, 어떤 축에서 두 도형이 겹치면 그 축은 아무것도 보고하지 않습니다 — 이름 붙일 간격이 없으니까요. 막대는 두 도형이 공유하는 띠를 지나가게 그리고, 공유하는 띠가 없으면 선택한 쪽에 놓고 상대 도형까지 점선으로 뻗습니다. 그래야 이 측정이 둘 사이의 직선 경로가 **아니라는** 게 보입니다.
+
+정렬은 `snapGuides`를 임계값 0.5로 돌려 얻습니다 — 스냅이 실시간으로 그리는 것과 같은 선이라, 계측과 스냅이 같은 언어를 씁니다.
+
+기준은 다른 정렬과 마찬가지로 **잉크**입니다. 박스는 편집용 액자일 뿐이고, 보이지 않는 모서리까지의 거리를 알고 싶은 사람은 없습니다.
+
+⚠️ Alt는 모든 키 이벤트에 플래그로 실려 오므로 키 자체가 아니라 **플래그를 봅니다**. 창 밖에서 손을 떼면 keyup이 오지 않으므로 `blur`에서도 끕니다. (Alt+드래그는 기존대로 화면 이동입니다.)
+
 ## 2026-08-11 — AI Figure Maker: 짧은 연결선, 노드 삭제 시 그래프 잇기, 죽은 컨트롤
 
 - 변경 파일: `src/tools/aifig/geometry.ts`, `src/tools/aifig/resolve.ts`, `src/tools/aifig/edges.tsx`, `src/tools/aifig/doc.ts`, `src/tools/aifig/types.ts`, `src/tools/aifig/Inspector.tsx`, `src/tools/AiFigureMaker.tsx`, 테스트 2종

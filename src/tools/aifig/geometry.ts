@@ -944,6 +944,80 @@ export function spacingSnap(
   return best
 }
 
+/* ---------- measuring ---------- */
+
+/** A distance being reported between two shapes, with the number to print. */
+export interface Measure {
+  /** the axis the distance is measured along */
+  axis: 'x' | 'y'
+  from: number
+  to: number
+  /** where on the other axis to draw it */
+  at: number
+  /** dashed run out to the far shape, when the two do not share a band */
+  reach?: { from: number; to: number }
+  label: string
+}
+
+/* What holding the modifier over another shape should tell you: how far apart
+ * they are, and where they already agree.
+ *
+ * The distance is only meaningful between the facing edges, so a pair that
+ * overlaps on an axis reports nothing for that axis — there is no gap to name.
+ * The bar is drawn through the band the two shapes share; when they share none,
+ * it sits on the selection and reaches out to the other shape with a dashed
+ * line, which is how you can tell the measurement is not a straight path
+ * between them. */
+export function measureBetween(a: Rect, b: Rect): Measure[] {
+  const out: Measure[] = []
+  const ax = [a.x, a.x + a.w]
+  const bx = [b.x, b.x + b.w]
+  const ay = [a.y, a.y + a.h]
+  const by = [b.y, b.y + b.h]
+
+  const band = (p: number[], q: number[]) => {
+    const lo = Math.max(p[0], q[0])
+    const hi = Math.min(p[1], q[1])
+    return hi > lo ? (lo + hi) / 2 : null
+  }
+
+  const gap = (p: number[], q: number[]) =>
+    q[0] >= p[1] ? [p[1], q[0]] : p[0] >= q[1] ? [q[1], p[0]] : null
+
+  const gx = gap(ax, bx)
+  if (gx && gx[1] - gx[0] > 0.5) {
+    const shared = band(ay, by)
+    const at = shared ?? (ay[0] + ay[1]) / 2
+    out.push({
+      axis: 'x',
+      from: gx[0],
+      to: gx[1],
+      at,
+      label: `${Math.round(gx[1] - gx[0])}`,
+      reach: shared ? undefined : { from: Math.min(at, by[0], by[1]), to: Math.max(at, by[0], by[1]) },
+    })
+  }
+  const gy = gap(ay, by)
+  if (gy && gy[1] - gy[0] > 0.5) {
+    const shared = band(ax, bx)
+    const at = shared ?? (ax[0] + ax[1]) / 2
+    out.push({
+      axis: 'y',
+      from: gy[0],
+      to: gy[1],
+      at,
+      label: `${Math.round(gy[1] - gy[0])}`,
+      reach: shared ? undefined : { from: Math.min(at, bx[0], bx[1]), to: Math.max(at, bx[0], bx[1]) },
+    })
+  }
+  return out
+}
+
+/** Which of the two shapes' edges and centres already line up exactly. */
+export function alignmentsBetween(a: Rect, b: Rect): Guide[] {
+  return snapGuides(a, [b], 0.5).guides
+}
+
 /* Position and size are quantised differently, and that is the whole trick.
  *
  * A box that is an even number of cells across can put its edges *and* its

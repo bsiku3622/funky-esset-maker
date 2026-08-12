@@ -6,7 +6,7 @@
  * handles keep a constant on-screen size. */
 
 import type { FigEdge, FigNode, Pt, Rect } from './types'
-import type { Gap, Guide } from './geometry'
+import type { Gap, Guide, Measure } from './geometry'
 import type { ResolvedEdge } from './resolve'
 import { atLength, nodeBounds } from './geometry'
 import { ANCHOR_UV, CURSOR, HANDLES, HANDLE_UV, anchorHandlePoint } from './handles'
@@ -20,6 +20,10 @@ interface Props {
   guides: Guide[]
   /** equal-spacing bars, drawn while a drag is holding a rhythm */
   gaps: Gap[]
+  /** distances to the shape under the pointer, while Alt is held */
+  measures: Measure[]
+  /** edges the two already share, shown alongside those distances */
+  aligns: Guide[]
   marquee: Rect | null
   tempEdge: { a: Pt; b: Pt } | null
   /** bounds of the node a live connection would land on */
@@ -36,6 +40,8 @@ export default function Overlay({
   hoverNode,
   guides,
   gaps,
+  measures,
+  aligns,
   marquee,
   tempEdge,
   connectTarget,
@@ -83,6 +89,84 @@ export default function Overlay({
               x2={horiz ? x2 : x2 + t}
               y2={horiz ? y2 + t : y2}
             />
+          </g>
+        )
+      })}
+
+      {/* Alt-held measurements: where the two shapes already agree, drawn the
+          same way a live snap would draw it, and how far apart they are. */}
+      {aligns.map((g, i) => (
+        <line
+          key={`al${i}`}
+          x1={g.axis === 'x' ? g.at : g.from}
+          y1={g.axis === 'x' ? g.from : g.at}
+          x2={g.axis === 'x' ? g.at : g.to}
+          y2={g.axis === 'x' ? g.to : g.at}
+          stroke="#ff2d9b"
+          strokeWidth={k}
+          strokeDasharray={`${4 * k} ${3 * k}`}
+        />
+      ))}
+      {measures.map((m, i) => {
+        const horiz = m.axis === 'x'
+        const x1 = horiz ? m.from : m.at
+        const y1 = horiz ? m.at : m.from
+        const x2 = horiz ? m.to : m.at
+        const y2 = horiz ? m.at : m.to
+        const t = 4 * k
+        const mx = (x1 + x2) / 2
+        const my = (y1 + y2) / 2
+        const fs = 11 * k
+        const pad = 3 * k
+        const w = (m.label.length * 6.4 + 8) * k
+        return (
+          <g key={`ms${i}`}>
+            {/* the dashed run out to a shape that shares no band with us */}
+            {m.reach ? (
+              <line
+                x1={horiz ? m.to : m.reach.from}
+                y1={horiz ? m.reach.from : m.to}
+                x2={horiz ? m.to : m.reach.to}
+                y2={horiz ? m.reach.to : m.to}
+                stroke="#ff2d9b"
+                strokeWidth={k}
+                strokeDasharray={`${3 * k} ${3 * k}`}
+              />
+            ) : null}
+            <g stroke="#ff2d9b" strokeWidth={1.2 * k}>
+              <line x1={x1} y1={y1} x2={x2} y2={y2} />
+              <line
+                x1={horiz ? x1 : x1 - t}
+                y1={horiz ? y1 - t : y1}
+                x2={horiz ? x1 : x1 + t}
+                y2={horiz ? y1 + t : y1}
+              />
+              <line
+                x1={horiz ? x2 : x2 - t}
+                y1={horiz ? y2 - t : y2}
+                x2={horiz ? x2 : x2 + t}
+                y2={horiz ? y2 + t : y2}
+              />
+            </g>
+            <rect
+              x={mx - w / 2}
+              y={my - fs / 2 - pad}
+              width={w}
+              height={fs + pad * 2}
+              rx={2 * k}
+              fill="#ff2d9b"
+            />
+            <text
+              x={mx}
+              y={my + fs * 0.35}
+              textAnchor="middle"
+              fontFamily="system-ui, sans-serif"
+              fontSize={fs}
+              fontWeight={600}
+              fill="#fff"
+            >
+              {m.label}
+            </text>
           </g>
         )
       })}
