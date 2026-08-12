@@ -50,8 +50,9 @@ describe('괄호', () => {
     expect(out('\\left\\{ G \\right\\}^{2}')).toBe('LEFT { G RIGHT } ^{2}')
   })
 
-  it('짝이 맞지 않으면 알려준다', () => {
-    expect(warns('\\left( x')[0]).toContain('여는 괄호 1개와 닫는 괄호 0개')
+  it('짝이 맞지 않으면 알려준다 — 다만 한글 탓이 아니다', () => {
+    // 한글은 짝을 강제하지 않는다. 짝이 없다는 건 원본 LaTeX의 문제다
+    expect(warns('\\left( x')[0]).toContain('\\left 1개와 \\right 0개')
   })
 
   it('꺾쇠·바닥 괄호는 이름이 아니라 그 글자를 쓴다', () => {
@@ -382,15 +383,23 @@ describe('이름이 없는 기호', () => {
 })
 
 describe('짝 안 맞는 괄호', () => {
-  it('되돌릴 때도 LEFT·RIGHT 개수를 세어 알려준다', () => {
-    // 손으로 짠 수식에서 가장 흔한 사고. 한글이 먼저 거부하고, 통과해도
-    // `\right.` 하나만 남은 LaTeX는 컴파일되지 않는다
+  /* ⚠️ 한글은 LEFT·RIGHT의 짝을 강제하지 않는다 — 한글이 스스로 내보내는
+     문자열도 `LEFT .` 하나로 시작해 끝까지 닫지 않는 일이 흔하다. 그러니 짝이
+     없는 원본을 나무랄 일이 아니라, LaTeX 쪽에서 컴파일되게 채워 줘야 한다. */
+  it('모자란 쪽에 보이지 않는 짝을 채운다', () => {
     const r = hwpToLatex('LEFT ( x RIGHT ) RIGHT')
+    expect(r.out).toBe('\\left.\\left( x \\right) \\right.')
     expect(r.warnings).toHaveLength(1)
-    expect(r.warnings[0]).toContain('LEFT 1개와 RIGHT 2개')
   })
 
-  it('짝이 맞으면 조용하다', () => {
-    expect(hwpToLatex('LEFT ( LEFT [ x RIGHT ] RIGHT )').warnings).toHaveLength(0)
+  it('채우기는 묶음마다 따로 한다', () => {
+    // LaTeX는 중괄호 묶음 안에서도 짝이 맞아야 한다
+    expect(back('{ LEFT ( x } + RIGHT ) y')).toBe('\\left.{\\left( x\\right.} + \\right) y')
+  })
+
+  it('짝이 맞으면 아무것도 하지 않는다', () => {
+    const r = hwpToLatex('LEFT ( LEFT [ x RIGHT ] RIGHT )')
+    expect(r.out).toBe('\\left( \\left[ x \\right] \\right)')
+    expect(r.warnings).toHaveLength(0)
   })
 })

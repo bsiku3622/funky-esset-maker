@@ -762,12 +762,11 @@ export function latexToHwp(source: string): HwpResult {
         }
       }
       case '{':
-      case '}': {
-        /* 한글에는 글자로서의 중괄호가 없다 — 보이는 중괄호는 LEFT/RIGHT뿐이다 */
-        if (name === '{') opened++
-        else closed++
+      case '}':
+        /* 한글에는 글자로서의 중괄호가 없다 — 보이는 중괄호는 LEFT/RIGHT뿐이다.
+           LaTeX의 `\{`는 짝이 필요 없는 그냥 글자이므로 짝 세기에는 넣지
+           않는다. 한글도 짝을 강제하지 않으니 혼자 남아도 그려진다. */
         return { s: name === '{' ? 'LEFT {' : 'RIGHT }', atomic: false, flat: true }
-      }
       case 'text':
       case 'textrm':
       case 'mathrm':
@@ -948,9 +947,11 @@ export function latexToHwp(source: string): HwpResult {
   /* --- 실행 --- */
 
   const out = join(parseSeq(() => false))
+  /* 한글은 짝을 강제하지 않으니 결과물은 멀쩡하다. 짝이 없다는 건 **원본
+     LaTeX**의 문제이고, 그건 LaTeX 쪽에서 컴파일되지 않는다는 뜻이다. */
   if (opened !== closed)
     warn(
-      `여는 괄호 ${opened}개와 닫는 괄호 ${closed}개의 수가 다릅니다 — 한글 수식은 LEFT와 RIGHT가 짝이 맞아야 합니다`,
+      `\\left ${opened}개와 \\right ${closed}개의 수가 다릅니다 — 한글은 짝이 없어도 그리지만 원본 LaTeX가 이대로면 컴파일되지 않습니다`,
     )
   if (glyphs.size)
     warn(
@@ -1295,9 +1296,16 @@ export function hwpToLatex(source: string): HwpResult {
   let envDepth = 0
   /** LaTeX 명령이 없어 글자로 남긴 기호들 */
   const glyphs = new Set<string>()
-  /** LEFT·RIGHT 짝. 한쪽이 남으면 한글에서도 LaTeX에서도 열리지 않는다 */
-  let opened = 0
-  let closed = 0
+  /* LEFT·RIGHT의 짝을 **묶음마다** 센다.
+   *
+   * ⚠️ 한글은 짝을 강제하지 않는다. 한글이 스스로 내보내는 문자열도 `LEFT .`
+   * 하나로 시작해 끝까지 닫지 않는 일이 흔하다. 그래서 짝이 없다고 원본을
+   * 나무랄 일이 아니다 — 문제는 LaTeX 쪽이다. LaTeX는 `\left`와 `\right`가
+   * 반드시 짝이어야 하고, 그것도 같은 중괄호 묶음 안에서 맞아야 한다. 그래서
+   * 층마다 따로 세고, 모자란 쪽에 보이지 않는 짝(`\left.` · `\right.`)을
+   * 채워 넣는다. 모양은 그대로고 컴파일은 된다. */
+  const frames: { open: number; close: number }[] = []
+  let patched = false
 
   const warn = (m: string) => {
     if (seen.has(m)) return
@@ -1371,6 +1379,19 @@ export function hwpToLatex(source: string): HwpResult {
   }
 
   function parseSeq(stop: LStop): LTerm[] {
+    frames.push({ open: 0, close: 0 })
+    const out = parseTerms(stop)
+    const f = frames.pop()!
+    if (f.open !== f.close) {
+      patched = true
+      // 모자란 쪽에 보이지 않는 짝을 채운다 — 이 층에서, 이 층의 것만
+      for (let i = f.close; i < f.open; i++) out.push(cmdTermOf('\\right.'))
+      for (let i = f.open; i < f.close; i++) out.unshift(cmdTermOf('\\left.'))
+    }
+    return out
+  }
+
+  function parseTerms(stop: LStop): LTerm[] {
     const out: LTerm[] = []
     for (;;) {
       const spaced = skipSp()
@@ -1576,8 +1597,11 @@ export function hwpToLatex(source: string): HwpResult {
       return { s: `\\binom{${a}}{${b}}`, atomic: true, tightLeft: true, tightRight: true }
     }
     if (w === 'left' || w === 'right') {
-      if (w === 'left') opened++
-      else closed++
+      const f = frames[frames.length - 1]
+      if (f) {
+        if (w === 'left') f.open++
+        else f.close++
+      }
       return cmdTermOf(`\\${w}${readDelim()}`)
     }
     if (w === 'lsub' || w === 'lsup') {
@@ -1635,12 +1659,9 @@ export function hwpToLatex(source: string): HwpResult {
   }
 
   const out = ljoin(parseSeq(() => false))
-  /* 짝이 안 맞는 LEFT·RIGHT는 손으로 짠 수식에서 가장 흔한 사고다. 한글이
-     먼저 거부하고, 설령 통과해도 `\right.` 하나만 남은 LaTeX는 컴파일되지
-     않는다. 어느 쪽이 남았는지 알 수 있게 개수를 같이 적는다. */
-  if (opened !== closed)
+  if (patched)
     warn(
-      `LEFT ${opened}개와 RIGHT ${closed}개의 수가 맞지 않습니다 — 짝 없는 쪽을 지워야 한글에서도 LaTeX에서도 열립니다`,
+      '짝 없는 LEFT·RIGHT가 있어 보이지 않는 짝(\\left. · \\right.)을 채웠습니다 — 한글은 짝이 없어도 그리지만 LaTeX는 컴파일되지 않습니다',
     )
   if (glyphs.size)
     warn(
