@@ -30,8 +30,8 @@
  * `mlp.test.ts` for the proof. Rounding the circles individually instead would
  * have broken the equal spacing that requirement asked for in the first place. */
 
-import type { FigNode, NodeProps, Pt } from './types'
-import { distToSeg, rectCenter, rotatePt, type AnchorPoint } from './geometry'
+import type { Anchor, FigNode, NodeProps, Pt } from './types'
+import { distToSeg, rectCenter, rotateDir, rotatePt, type AnchorPoint } from './geometry'
 
 /* ---------- defaults ---------- */
 
@@ -244,22 +244,51 @@ export function mlpDotPoint(n: FigNode, key: string): Pt | null {
 }
 
 /** Where a connector meets one neuron: on its rim, facing the other end. */
+/* ⚠️ The anchor is honoured, not ignored.
+ *
+ * This used to take only "is it the centre?" and otherwise always face the
+ * other end, so picking 위/오른쪽/아래/왼쪽 for an end attached to a neuron did
+ * nothing at all — the panel offered a choice that the geometry threw away.
+ * Two wires leaving the same unit then left from the same point and lay on top
+ * of each other, which is exactly what those four are for. */
 export function mlpAnchorPoint(
   n: FigNode,
   key: string,
+  anchor: Anchor,
   toward: Pt,
-  atCentre = false,
 ): AnchorPoint | null {
   const d = mlpDot(n, key)
   const c = mlpDotPoint(n, key)
   if (!d || !c) return null
-  if (atCentre) return { p: c, dir: { x: 0, y: 0 } }
-  const raw = { x: toward.x - c.x, y: toward.y - c.y }
-  const len = Math.hypot(raw.x, raw.y)
-  // a connector aimed at its own origin has no direction to leave in; point it
-  // along +x so the arrowhead still has something to sit on
-  const dir = len < 1e-6 ? { x: 1, y: 0 } : { x: raw.x / len, y: raw.y / len }
+  if (anchor === 'c') return { p: c, dir: { x: 0, y: 0 } }
+
+  let dir: Pt
+  if (anchor === 'auto') {
+    const raw = { x: toward.x - c.x, y: toward.y - c.y }
+    const len = Math.hypot(raw.x, raw.y)
+    // a connector aimed at its own origin has no direction to leave in; point
+    // it along +x so the arrowhead still has something to sit on
+    dir = len < 1e-6 ? { x: 1, y: 0 } : { x: raw.x / len, y: raw.y / len }
+  } else {
+    /* A neuron is a circle, so a fixed side is a point on its rim rather than
+       a corner of a box — the diagonals are real directions here, not the
+       awkward compromise they are on a rectangle. */
+    const u = FIXED[anchor] ?? { x: 1, y: 0 }
+    dir = n.rotation ? rotateDir(u, n.rotation) : u
+  }
   return { p: { x: c.x + dir.x * d.r, y: c.y + dir.y * d.r }, dir }
+}
+
+const SQ = Math.SQRT1_2
+const FIXED: Record<string, Pt> = {
+  n: { x: 0, y: -1 },
+  s: { x: 0, y: 1 },
+  e: { x: 1, y: 0 },
+  w: { x: -1, y: 0 },
+  ne: { x: SQ, y: -SQ },
+  nw: { x: -SQ, y: -SQ },
+  se: { x: SQ, y: SQ },
+  sw: { x: -SQ, y: SQ },
 }
 
 /* Picking inside a network.

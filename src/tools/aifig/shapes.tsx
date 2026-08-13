@@ -8,7 +8,7 @@
 
 import { memo } from 'react'
 import type { FigNode, NeuronBits, Style } from './types'
-import { dashArray, FONT_STACK, readableOn, shade, tint } from './presets'
+import { dashArray, FONT_STACK, paint, readableOn, shade, tint } from './presets'
 import { fontCss, layoutLabel, textWidth, type LabelLayout } from './latex'
 import { isoOff, labelFont, labelStyle, neuronLabel, placeLabel } from './layout'
 import { hasCaps, mlpCaps, mlpLattice, type MlpDot } from './mlp'
@@ -56,7 +56,7 @@ export const LabelView = memo(function LabelView({
                   fontSize={style.fontSize}
                   fontWeight={style.fontWeight}
                   fontStyle={style.italic ? 'italic' : undefined}
-                  fill={fill}
+                  {...fillProps(fill)}
                   style={{ whiteSpace: 'pre' }}
                   xmlSpace="preserve"
                 >
@@ -66,9 +66,9 @@ export const LabelView = memo(function LabelView({
                 <g
                   key={k}
                   transform={`translate(${(ox + it.x).toFixed(2)} ${by.toFixed(2)}) scale(${(it.scale / 1000).toFixed(5)})`}
-                  color={fill}
-                  fill={fill}
-                  stroke={fill}
+                  color={paint(fill).color}
+                  {...fillProps(fill)}
+                  {...strokeOnly(fill)}
                   dangerouslySetInnerHTML={{ __html: it.box.inner }}
                 />
               ),
@@ -97,14 +97,31 @@ interface BodyProps {
   editing?: string
 }
 
+/* Colours arrive with their alpha baked in and leave as two attributes — see
+ * `paint` in presets.ts for why the document keeps one string and the SVG gets
+ * two. Everything that paints goes through these, so a colour cannot pick up
+ * transparency in one shape and lose it in the next. */
 function strokeProps(s: Style) {
+  const p = paint(s.stroke)
   return {
-    stroke: s.stroke,
+    stroke: p.color,
+    strokeOpacity: p.opacity,
     strokeWidth: s.strokeWidth,
     strokeDasharray: dashArray(s.dash, s.strokeWidth),
     strokeLinejoin: 'round' as const,
     strokeLinecap: 'round' as const,
   }
+}
+
+function fillProps(v: string) {
+  const p = paint(v)
+  return { fill: p.color, fillOpacity: p.opacity }
+}
+
+/** For the places that set a stroke colour without the rest of a Style. */
+function strokeOnly(v: string) {
+  const p = paint(v)
+  return { stroke: p.color, strokeOpacity: p.opacity }
 }
 
 const Rect = ({ n }: BodyProps) => (
@@ -115,7 +132,7 @@ const Rect = ({ n }: BodyProps) => (
     height={n.h}
     rx={n.style.radius}
     ry={n.style.radius}
-    fill={n.style.fill}
+    {...fillProps(n.style.fill)}
     {...strokeProps(n.style)}
   />
 )
@@ -126,7 +143,7 @@ const Ellipse = ({ n }: BodyProps) => (
     cy={n.h / 2}
     rx={n.w / 2}
     ry={n.h / 2}
-    fill={n.style.fill}
+    {...fillProps(n.style.fill)}
     {...strokeProps(n.style)}
   />
 )
@@ -139,7 +156,7 @@ const Diamond = ({ n }: BodyProps) => (
       [n.w / 2, n.h],
       [0, n.h / 2],
     ])}
-    fill={n.style.fill}
+    {...fillProps(n.style.fill)}
     {...strokeProps(n.style)}
   />
 )
@@ -151,7 +168,7 @@ const Triangle = ({ n }: BodyProps) => (
       [n.w, n.h],
       [0, n.h],
     ])}
-    fill={n.style.fill}
+    {...fillProps(n.style.fill)}
     {...strokeProps(n.style)}
   />
 )
@@ -166,7 +183,7 @@ const Parallelogram = ({ n }: BodyProps) => {
         [n.w - k, n.h],
         [0, n.h],
       ])}
-      fill={n.style.fill}
+      {...fillProps(n.style.fill)}
       {...strokeProps(n.style)}
     />
   )
@@ -204,7 +221,7 @@ const Trapezoid = ({ n }: BodyProps) => {
               [n.w, n.h],
               [0, n.h],
             ]
-  return <polygon points={pts(p)} fill={n.style.fill} {...strokeProps(n.style)} />
+  return <polygon points={pts(p)} {...fillProps(n.style.fill)} {...strokeProps(n.style)} />
 }
 
 const Cylinder = ({ n }: BodyProps) => {
@@ -213,8 +230,8 @@ const Cylinder = ({ n }: BodyProps) => {
   const cap = `M0 ${ry} A ${n.w / 2} ${ry} 0 0 0 ${n.w} ${ry} A ${n.w / 2} ${ry} 0 0 0 0 ${ry}`
   return (
     <g>
-      <path d={`${body} A ${n.w / 2} ${ry} 0 0 0 0 ${ry} Z`} fill={n.style.fill} {...strokeProps(n.style)} />
-      <path d={cap} fill={shade(n.style.fill === 'none' ? '#ffffff' : n.style.fill, 0.06)} {...strokeProps(n.style)} />
+      <path d={`${body} A ${n.w / 2} ${ry} 0 0 0 0 ${ry} Z`} {...fillProps(n.style.fill)} {...strokeProps(n.style)} />
+      <path d={cap} {...fillProps(shade(n.style.fill === "none" ? "#ffffff" : n.style.fill, 0.06))} {...strokeProps(n.style)} />
     </g>
   )
 }
@@ -235,7 +252,7 @@ const Cuboid = ({ n }: BodyProps) => {
           [n.w + dx, dy],
           [n.w, 0],
         ])}
-        fill={top}
+        {...fillProps(top)}
         {...sp}
       />
       <polygon
@@ -245,10 +262,10 @@ const Cuboid = ({ n }: BodyProps) => {
           [n.w + dx, n.h + dy],
           [n.w, n.h],
         ])}
-        fill={side}
+        {...fillProps(side)}
         {...sp}
       />
-      <rect x={0} y={0} width={n.w} height={n.h} fill={base} {...sp} />
+      <rect x={0} y={0} width={n.w} height={n.h} {...fillProps(base)} {...sp} />
     </g>
   )
 }
@@ -271,7 +288,7 @@ const Stack = ({ n }: BodyProps) => {
         height={n.h}
         rx={s.radius}
         ry={s.radius}
-        fill={i === 0 ? s.fill : tint(s.fill === 'none' ? '#ffffff' : s.fill, 0.25)}
+        {...fillProps(i === 0 ? s.fill : tint(s.fill === "none" ? "#ffffff" : s.fill, 0.25))}
         {...strokeProps(s)}
       />,
     )
@@ -362,7 +379,7 @@ const Mlp = ({ n, editing }: BodyProps) => {
             y1={w.a.y}
             x2={w.b.x}
             y2={w.b.y}
-            stroke={b?.stroke ?? wireInk}
+            {...strokeOnly(b?.stroke ?? wireInk)}
             strokeWidth={sw}
             strokeDasharray={b?.dash ? dashArray(b.dash, sw) : undefined}
             opacity={b?.opacity ?? wireFade}
@@ -373,7 +390,7 @@ const Mlp = ({ n, editing }: BodyProps) => {
 
       {/* the ⋮ standing in for the units a big layer does not draw */}
       {lat.gaps.map((g) => (
-        <g key={g.key} fill={s.stroke}>
+        <g key={g.key} {...fillProps(s.stroke)}>
           {[-1, 0, 1].map((i) => (
             <circle key={i} cx={g.x} cy={g.y + i * Math.max(3, g.r * 0.62)} r={Math.max(0.7, g.r * 0.16)} />
           ))}
@@ -389,8 +406,8 @@ const Mlp = ({ n, editing }: BodyProps) => {
             cx={d.x}
             cy={d.y}
             r={d.r}
-            fill={b?.fill ?? baseFill}
-            stroke={b?.stroke ?? s.stroke}
+            {...fillProps(b?.fill ?? baseFill)}
+            {...strokeOnly(b?.stroke ?? s.stroke)}
             strokeWidth={sw}
             strokeDasharray={b?.dash ? dashArray(b.dash, sw) : undefined}
             opacity={b?.opacity}
@@ -431,8 +448,8 @@ const Grid = ({ n }: BodyProps) => {
           y={r * (ch + gap)}
           width={cw}
           height={ch}
-          fill={v === null ? s.fill : tint(hi, 1 - v)}
-          stroke={s.stroke}
+          {...fillProps(v === null ? s.fill : tint(hi, 1 - v))}
+          {...strokeOnly(s.stroke)}
           strokeWidth={Math.max(0.3, s.strokeWidth * 0.7)}
         />,
       )
@@ -512,11 +529,11 @@ const Curve = ({ n }: BodyProps) => {
   const axis = s.stroke === 'none' ? '#4A4A4A' : s.stroke
   return (
     <g>
-      <rect x={0} y={0} width={n.w} height={n.h} fill={s.fill} stroke="none" />
+      <rect x={0} y={0} width={n.w} height={n.h} {...fillProps(s.fill)} stroke="none" />
       <path
         d={`M${padL} 0 L${padL} ${ph} L${n.w} ${ph}`}
         fill="none"
-        stroke={axis}
+        {...strokeOnly(axis)}
         strokeWidth={Math.max(0.6, s.strokeWidth * 0.7)}
         opacity={0.7}
       />
@@ -546,7 +563,7 @@ const Frame = ({ n }: BodyProps) => {
         height={n.h}
         rx={s.radius}
         ry={s.radius}
-        fill={s.fill}
+        {...fillProps(s.fill)}
         {...strokeProps(s)}
       />
       {title ? (
@@ -557,7 +574,7 @@ const Frame = ({ n }: BodyProps) => {
               y={-s.fontSize * 1.12}
               width={tw + 8}
               height={s.fontSize * 1.05}
-              fill={bg}
+              {...fillProps(bg)}
             />
           ) : null}
           <text
@@ -566,7 +583,7 @@ const Frame = ({ n }: BodyProps) => {
             fontFamily={FONT_STACK[s.fontFamily]}
             fontSize={s.fontSize}
             fontWeight={600}
-            fill={s.textColor}
+            {...fillProps(s.textColor)}
           >
             {title}
           </text>
@@ -581,10 +598,10 @@ const Img = ({ n }: BodyProps) => {
   if (!n.props.src)
     return (
       <g>
-        <rect x={0} y={0} width={n.w} height={n.h} fill={s.fill} {...strokeProps(s)} />
+        <rect x={0} y={0} width={n.w} height={n.h} {...fillProps(s.fill)} {...strokeProps(s)} />
         <path
           d={`M${n.w * 0.18} ${n.h * 0.72} L${n.w * 0.4} ${n.h * 0.45} L${n.w * 0.56} ${n.h * 0.6} L${n.w * 0.72} ${n.h * 0.42} L${n.w * 0.86} ${n.h * 0.72} Z`}
-          fill={s.stroke}
+          {...fillProps(s.stroke)}
           opacity={0.25}
         />
       </g>
@@ -648,7 +665,7 @@ const Op = ({ n }: BodyProps) => {
       break
     }
     case '.':
-      glyph = <circle cx={cx} cy={cy} r={Math.max(1.2, r * 0.2)} fill={s.stroke} />
+      glyph = <circle cx={cx} cy={cy} r={Math.max(1.2, r * 0.2)} {...fillProps(s.stroke)} />
       break
     case 'c': {
       // concat: two short bars merging
@@ -671,8 +688,8 @@ const Op = ({ n }: BodyProps) => {
         cx={cx}
         cy={cy}
         r={r}
-        fill={s.fill}
-        stroke={s.stroke}
+        {...fillProps(s.fill)}
+        {...strokeOnly(s.stroke)}
         strokeWidth={s.strokeWidth}
         strokeDasharray={dashArray(s.dash, s.strokeWidth)}
       />
@@ -684,7 +701,7 @@ const Op = ({ n }: BodyProps) => {
           textAnchor="middle"
           fontFamily={FONT_STACK[s.fontFamily]}
           fontSize={s.fontSize}
-          fill={s.textColor === 'none' ? readableOn(s.fill) : s.textColor}
+          {...fillProps(s.textColor === "none" ? readableOn(s.fill) : s.textColor)}
         >
           {sym}
         </text>

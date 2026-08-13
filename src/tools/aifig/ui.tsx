@@ -12,6 +12,7 @@ import {
   type ReactNode,
 } from 'react'
 import { createPortal } from 'react-dom'
+import { alphaOf, paint, withAlpha } from './presets'
 
 export function Field({
   label,
@@ -411,12 +412,30 @@ export function ColorBtn({
               </div>
             ))}
           </div>
+          {/* Transparency belongs to the colour, not beside it: a fill and its
+              opacity are one decision, and splitting them across two controls
+              is how you end up with a shape that is the right colour and
+              invisible. The value carries it as an eight-digit hex — see
+              `paint` in presets.ts. */}
+          <div className="af-color__alpha">
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={Math.round(alphaOf(value) * 100)}
+              disabled={value === 'none'}
+              onChange={(e) => onChange(withAlpha(value, Number(e.target.value) / 100))}
+              aria-label="불투명도"
+            />
+            <span>{Math.round(alphaOf(value) * 100)}%</span>
+          </div>
           <div className="af-color__foot">
             <input
               type="color"
               className="af-color__native"
-              value={value === 'none' ? '#ffffff' : value}
-              onChange={(e) => onChange(e.target.value)}
+              // the picker has no alpha of its own, so keep whatever was set
+              value={value === 'none' ? '#ffffff' : paint(value).color}
+              onChange={(e) => onChange(withAlpha(e.target.value, alphaOf(value)))}
             />
             <input
               type="text"

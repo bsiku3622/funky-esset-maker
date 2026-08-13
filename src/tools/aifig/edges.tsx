@@ -8,7 +8,7 @@
 import { memo } from 'react'
 import type { FigEdge, Pt } from './types'
 import { atLength } from './geometry'
-import { dashArray, headGeom } from './presets'
+import { dashArray, headGeom, paint } from './presets'
 import { LabelView } from './shapes'
 import { layoutLabel } from './latex'
 import { edgeLabelStyle, labelFont } from './layout'
@@ -40,8 +40,10 @@ function Head({
         `translate(${at.x.toFixed(2)} ${at.y.toFixed(2)}) rotate(${angle.toFixed(2)})` +
         (scale < 1 ? ` scale(${scale.toFixed(3)})` : '')
       }
-      fill={g.filled ? color : 'none'}
-      stroke={color}
+      fill={g.filled ? paint(color).color : "none"}
+      fillOpacity={g.filled ? paint(color).opacity : undefined}
+      stroke={paint(color).color}
+      strokeOpacity={paint(color).opacity}
       strokeWidth={g.filled ? 0 : Math.max(0.9, sw)}
       strokeLinejoin="round"
       strokeLinecap="round"
@@ -71,7 +73,8 @@ export const EdgeView = memo(function EdgeView({
       <path
         d={r.strokeInfo.d}
         fill="none"
-        stroke={s.stroke}
+        stroke={paint(s.stroke).color}
+        strokeOpacity={paint(s.stroke).opacity}
         strokeWidth={s.strokeWidth}
         strokeDasharray={dashArray(s.dash, s.strokeWidth)}
         strokeLinecap="round"
@@ -105,7 +108,8 @@ export const EdgeView = memo(function EdgeView({
               y={-label.h / 2 - 1.5}
               width={label.w + 6}
               height={label.h + 3}
-              fill={s.labelBg}
+              fill={paint(s.labelBg).color}
+              fillOpacity={paint(s.labelBg).opacity}
               rx={2}
             />
           ) : null}

@@ -157,7 +157,7 @@ export function anchorPoint(n: FigNode, anchor: Anchor, toward: Pt): AnchorPoint
   }
 }
 
-function rotateDir(d: Pt, deg: number): Pt {
+export function rotateDir(d: Pt, deg: number): Pt {
   const a = rad(deg)
   return {
     x: d.x * Math.cos(a) - d.y * Math.sin(a),

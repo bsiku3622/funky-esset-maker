@@ -683,6 +683,26 @@
   outline: 2px solid #7828c8;
   outline-offset: 1px;
 }
+.scope-aifig .af-color__alpha {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 0.72rem;
+}
+
+.scope-aifig .af-color__alpha input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.scope-aifig .af-color__alpha span {
+  flex: 0 0 auto;
+  width: 34px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .scope-aifig .af-color__foot {
   display: flex;
   align-items: center;

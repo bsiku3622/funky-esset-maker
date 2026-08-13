@@ -272,25 +272,44 @@ describe('a connector attached to one neuron', () => {
 
   it('meets the circle on its rim, facing the other end', () => {
     const c = mlpDotPoint(n, dotKey(0, 0))!
-    const a = mlpAnchorPoint(n, dotKey(0, 0), { x: c.x + 500, y: c.y })!
+    const a = mlpAnchorPoint(n, dotKey(0, 0), 'auto', { x: c.x + 500, y: c.y })!
     expect(a.p).toEqual({ x: c.x + 12, y: c.y })
     expect(a.dir).toEqual({ x: 1, y: 0 })
   })
 
+  it('leaves from the side it was told to, whatever is at the other end', () => {
+    /* The whole point of the four fixed sides: two wires out of one unit have
+       to be able to leave from different places, or they lie on top of one
+       another. This used to be ignored for a neuron. */
+    const c = mlpDotPoint(n, dotKey(0, 0))!
+    const away = { x: c.x + 500, y: c.y }
+    expect(mlpAnchorPoint(n, dotKey(0, 0), 'n', away)!.p).toEqual({ x: c.x, y: c.y - 12 })
+    expect(mlpAnchorPoint(n, dotKey(0, 0), 's', away)!.p).toEqual({ x: c.x, y: c.y + 12 })
+    expect(mlpAnchorPoint(n, dotKey(0, 0), 'w', away)!.p).toEqual({ x: c.x - 12, y: c.y })
+  })
+
+  it('puts the diagonals on the rim, which a circle actually has', () => {
+    const c = mlpDotPoint(n, dotKey(0, 0))!
+    const p = mlpAnchorPoint(n, dotKey(0, 0), 'ne', { x: 0, y: 0 })!.p
+    expect(Math.hypot(p.x - c.x, p.y - c.y)).toBeCloseTo(12, 6)
+    expect(p.x).toBeGreaterThan(c.x)
+    expect(p.y).toBeLessThan(c.y)
+  })
+
   it('sits at the centre when the anchor asks for it', () => {
     const c = mlpDotPoint(n, dotKey(0, 0))!
-    expect(mlpAnchorPoint(n, dotKey(0, 0), { x: 0, y: 0 }, true)!.p).toEqual(c)
+    expect(mlpAnchorPoint(n, dotKey(0, 0), 'c', { x: 0, y: 0 })!.p).toEqual(c)
   })
 
   it('still has a direction when both ends are the same point', () => {
     const c = mlpDotPoint(n, dotKey(0, 0))!
-    expect(mlpAnchorPoint(n, dotKey(0, 0), c)!.dir).toEqual({ x: 1, y: 0 })
+    expect(mlpAnchorPoint(n, dotKey(0, 0), 'auto', c)!.dir).toEqual({ x: 1, y: 0 })
   })
 
   it('has no answer for a unit that is not drawn — the caller falls back', () => {
     /* ⚠️ This is why resolve.ts treats null as "use the node instead". Shrinking
        a layer must not delete the connectors that pointed into it. */
-    expect(mlpAnchorPoint(n, dotKey(0, 9), { x: 0, y: 0 })).toBeNull()
+    expect(mlpAnchorPoint(n, dotKey(0, 9), 'auto', { x: 0, y: 0 })).toBeNull()
     expect(mlpDotPoint(n, dotKey(5, 0))).toBeNull()
   })
 })

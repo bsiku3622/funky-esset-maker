@@ -38,7 +38,7 @@ function endPointOf(
   const n = nodes.get(ep.node)
   if (!n) return null
   if (ep.part) {
-    const a = mlpAnchorPoint(n, ep.part, toward, ep.anchor === 'c')
+    const a = mlpAnchorPoint(n, ep.part, ep.anchor, toward)
     // the part may have stopped being drawn; fall back to the node itself
     if (a) return a
   }

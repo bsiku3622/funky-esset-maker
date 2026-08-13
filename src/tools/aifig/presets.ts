@@ -151,6 +151,47 @@ export function readableOn(hex: string) {
   return L > 0.45 ? '#222222' : '#ffffff'
 }
 
+/* ---------- colour with transparency ---------- */
+
+/* A colour carries its own alpha, as an eight-digit hex.
+ *
+ * One string per slot is what keeps the document simple: adding a parallel
+ * `fillOpacity` beside every `fill` would mean two fields to keep in step, on
+ * every shape, every edge, every neuron. But an eight-digit hex is CSS Color 4,
+ * which browsers take and some vector editors still do not — and this app's
+ * whole point is an SVG that opens correctly in Illustrator and Inkscape. So it
+ * is split at drawing time into a plain colour and a matching `*-opacity`,
+ * which every SVG consumer has understood since 1.0.
+ *
+ * ⚠️ Fully opaque colours stay six digits. Files written before this exist in
+ * their thousands and must read back identically. */
+export interface Paint {
+  color: string
+  /** undefined when fully opaque — nothing is written to the attribute */
+  opacity: number | undefined
+}
+
+const HEX8 = /^#([0-9a-f]{6})([0-9a-f]{2})$/i
+
+export function paint(v: string | undefined): Paint {
+  if (!v) return { color: 'none', opacity: undefined }
+  const m = HEX8.exec(v)
+  if (!m) return { color: v, opacity: undefined }
+  return { color: `#${m[1]}`, opacity: parseInt(m[2], 16) / 255 }
+}
+
+/** 0..1, where a colour that says nothing about it is opaque. */
+export const alphaOf = (v: string | undefined) => paint(v).opacity ?? 1
+
+/** Rewrite a colour's alpha, dropping back to six digits at full strength. */
+export function withAlpha(v: string, a: number): string {
+  const base = paint(v).color
+  if (base === 'none') return 'none'
+  const clamped = Math.max(0, Math.min(1, a))
+  if (clamped >= 1) return base
+  return base + Math.round(clamped * 255).toString(16).padStart(2, '0')
+}
+
 /* ---------- fonts ---------- */
 
 export const FONT_STACK: Record<FontKind, string> = {
