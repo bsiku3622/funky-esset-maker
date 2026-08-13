@@ -12,6 +12,8 @@
  *    cheap and never misses a field. */
 
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -110,6 +112,11 @@ import {
   toTikz,
 } from './aifig/export'
 import Inspector from './aifig/Inspector'
+/* MathLive is ~800 kB and only earns its keep once someone actually edits a
+   LaTeX-mode label, which is the same bargain latex.ts strikes with MathJax.
+   Loading it with the tool would put it in front of everyone who opens the
+   editor to move a box. */
+const MathInput = lazy(() => import('./aifig/MathInput'))
 import Overlay from './aifig/Overlay'
 import { HOVER_TOL, onAnchorDot, type HandleKey } from './aifig/handles'
 import { IconBtn, Num, Seg } from './aifig/ui'
@@ -2325,31 +2332,52 @@ export default function AiFigureMaker() {
             </g>
           </svg>
 
+          {/* Editing a label. In LaTeX mode the overlay renders the formula, so
+              what you type into is what the figure will show; the other modes
+              are prose and get a plain box. Either way the right panel holds
+              the same string as raw source. */}
           {editBox && editNode ? (
-            <textarea
-              className="af-edit"
-              autoFocus
-              style={{
-                left: editBox.left,
-                top: editBox.top,
-                width: editBox.width,
-                height: editBox.height,
-                fontSize: Math.max(9, editNode.style.fontSize * view.zoom),
-              }}
-              value={editNode.label}
-              onChange={(e) => live((d) => patchNodes(d, [editNode.id], () => ({ label: e.target.value })))}
-              onBlur={() => {
-                setEditing(null)
-                endDrag(true)
-              }}
-              onFocus={() => beginDrag()}
-              onKeyDown={(e) => {
-                e.stopPropagation()
-                if (e.key === 'Escape' || (e.key === 'Enter' && (e.metaKey || e.ctrlKey))) {
-                  ;(e.target as HTMLTextAreaElement).blur()
-                }
-              }}
-            />
+            editNode.style.fontFamily === 'latex' ? (
+              // nothing to show for the frame or two the editor takes to arrive
+              <Suspense fallback={null}>
+                <MathInput
+                  value={editNode.label}
+                  fontSize={Math.max(11, editNode.style.fontSize * view.zoom)}
+                  style={{ left: editBox.left, top: editBox.top, minWidth: editBox.width }}
+                  onChange={(label) => live((d) => patchNodes(d, [editNode.id], () => ({ label })))}
+                  onStart={() => beginDrag()}
+                  onDone={() => {
+                    setEditing(null)
+                    endDrag(true)
+                  }}
+                />
+              </Suspense>
+            ) : (
+              <textarea
+                className="af-edit"
+                autoFocus
+                style={{
+                  left: editBox.left,
+                  top: editBox.top,
+                  width: editBox.width,
+                  height: editBox.height,
+                  fontSize: Math.max(9, editNode.style.fontSize * view.zoom),
+                }}
+                value={editNode.label}
+                onChange={(e) => live((d) => patchNodes(d, [editNode.id], () => ({ label: e.target.value })))}
+                onBlur={() => {
+                  setEditing(null)
+                  endDrag(true)
+                }}
+                onFocus={() => beginDrag()}
+                onKeyDown={(e) => {
+                  e.stopPropagation()
+                  if (e.key === 'Escape' || (e.key === 'Enter' && (e.metaKey || e.ctrlKey))) {
+                    ;(e.target as HTMLTextAreaElement).blur()
+                  }
+                }}
+              />
+            )
           ) : null}
 
           {dropping ? (

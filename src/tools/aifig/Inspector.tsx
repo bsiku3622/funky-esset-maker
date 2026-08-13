@@ -28,6 +28,7 @@ import {
   presetById,
 } from './presets'
 import { fitNodeToGrid, ptOf } from './layout'
+import { retypeLabel } from './latex'
 import { nodeMap } from './doc'
 import { resolveEdge } from './resolve'
 import { dataUrlBytes, fileToImage, formatBytes } from './image'
@@ -379,7 +380,12 @@ function NodePanel({
             className="af-text"
             rows={2}
             value={n.label}
-            placeholder="텍스트 · $x^2$ 로 수식"
+            /* This box is always the raw source, whatever the canvas is
+               showing — LaTeX mode edits the formula on the shape itself, and
+               this is where you go to see what it is really made of. */
+            placeholder={
+              s.fontFamily === 'latex' ? '\\sigma(Wx + b) — 원문 그대로' : '텍스트 · $x^2$ 로 수식'
+            }
             onChange={(e) => onNode(() => ({ label: e.target.value }))}
             onKeyDown={(e) => e.stopPropagation()}
           />
@@ -390,13 +396,28 @@ function NodePanel({
         <Field label="글꼴">
           <Sel
             value={s.fontFamily}
-            options={(['sans', 'serif', 'mono'] as FontKind[]).map((k) => ({
+            options={(['latex', 'sans', 'serif', 'mono'] as FontKind[]).map((k) => ({
               key: k,
               label: FONT_LABEL[k],
             }))}
-            onChange={(fontFamily) => onStyle({ fontFamily })}
+            /* One patch, not a style change plus a label change: the source has
+               to be rewritten for the new mode, and two commits would make the
+               dropdown take two presses of undo to come back from. */
+            onChange={(fontFamily) =>
+              onNode((n) => ({
+                label: retypeLabel(n.label, n.style.fontFamily, fontFamily),
+                style: { ...n.style, fontFamily },
+              }))
+            }
           />
         </Field>
+        {s.fontFamily === 'latex' ? (
+          <p className="af-note">전체가 수식입니다 — <code>$</code> 없이 바로 쓰세요.</p>
+        ) : (
+          <p className="af-note">
+            글 사이에 수식을 넣으려면 <code>$x^2$</code>, 한 줄로 띄우려면 <code>$$…$$</code>.
+          </p>
+        )}
         <Field label="크기">
           <Num
             value={s.fontSize}
@@ -828,9 +849,28 @@ function EdgePanel({
           <input
             className="af-input"
             value={e.label}
-            placeholder="$\\nabla_\\theta \\mathcal{L}$"
+            placeholder={
+              s.fontFamily === 'latex'
+                ? '\\nabla_\\theta \\mathcal{L}'
+                : '텍스트 · $\\nabla_\\theta \\mathcal{L}$ 로 수식'
+            }
             onChange={(ev) => onEdge(() => ({ label: ev.target.value }))}
             onKeyDown={(ev) => ev.stopPropagation()}
+          />
+        </Field>
+        <Field label="글꼴">
+          <Sel
+            value={s.fontFamily}
+            options={(['latex', 'sans', 'serif', 'mono'] as FontKind[]).map((k) => ({
+              key: k,
+              label: FONT_LABEL[k],
+            }))}
+            onChange={(fontFamily) =>
+              onEdge((ed) => ({
+                label: retypeLabel(ed.label, ed.style.fontFamily, fontFamily),
+                style: { ...ed.style, fontFamily },
+              }))
+            }
           />
         </Field>
         {/* Three separate things — where along the line, how far off it, and

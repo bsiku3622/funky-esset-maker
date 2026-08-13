@@ -361,6 +361,35 @@
   box-shadow: 3px 3px 0 0 rgba(0, 0, 0, 0.2);
 }
 
+/* LaTeX-mode label editing. Same frame as .af-edit so the two feel like one
+   control, but the box hugs the formula instead of matching the shape: a
+   fraction is taller than the block it labels and would otherwise be clipped. */
+.scope-aifig .af-mathedit {
+  position: absolute;
+  z-index: 6;
+  border: 2px solid #7828c8;
+  background: #fffdf3;
+  box-shadow: 3px 3px 0 0 rgba(0, 0, 0, 0.2);
+}
+
+.scope-aifig .af-mathedit__field {
+  display: block;
+  padding: 3px 6px;
+  border: none;
+  background: transparent;
+  outline: none;
+  --caret-color: #7828c8;
+  --selection-background-color: rgba(120, 40, 200, 0.18);
+  --selection-color: #222;
+  /* the popup menu is switched off in code; this hides the affordance for it */
+  --menu-toggle-opacity: 0;
+}
+
+.scope-aifig math-field::part(menu-toggle),
+.scope-aifig math-field::part(virtual-keyboard-toggle) {
+  display: none;
+}
+
 .scope-aifig .af-statusbar {
   flex: 0 0 auto;
   display: flex;

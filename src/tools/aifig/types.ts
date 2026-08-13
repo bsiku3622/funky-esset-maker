@@ -22,9 +22,19 @@ export interface Rect {
 /* ---------- style ---------- */
 
 export type DashKind = 'solid' | 'dashed' | 'dotted' | 'dashdot'
-/** serif = Times-alike (matches most LaTeX body text); sans = Helvetica-alike
- *  (matches matplotlib defaults); mono for code/shape names. */
-export type FontKind = 'serif' | 'sans' | 'mono'
+/* How a label's source text is read, and what it is drawn in.
+ *
+ * The first three are fonts: the label is prose, and maths has to be fenced off
+ * with `$…$` (inline) or `$$…$$` (display) the way it is in a .tex file.
+ * `latex` is not a font but a mode — the *whole* string is one TeX expression,
+ * so `\sigma` is a sigma with no dollars around it. That is the right default
+ * for figure labels, which are mostly symbols; the cost is that prose typed in
+ * this mode comes out as italic maths letters, so a word like "Encoder" wants
+ * one of the others (or `\text{Encoder}`).
+ *
+ * serif = Times-alike (matches most LaTeX body text); sans = Helvetica-alike
+ * (matches matplotlib defaults); mono for code/shape names. */
+export type FontKind = 'serif' | 'sans' | 'mono' | 'latex'
 export type AlignKind = 'left' | 'center' | 'right'
 /** Where a node's label sits relative to its box. */
 export type LabelPos =

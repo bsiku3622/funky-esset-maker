@@ -15,6 +15,7 @@ import type {
   NodeProps,
   Style,
 } from './types'
+import { retypeLabel } from './latex'
 
 /* ---------- units ---------- */
 
@@ -160,11 +161,17 @@ export const FONT_STACK: Record<FontKind, string> = {
   sans:
     'Helvetica, "Helvetica Neue", Arial, "Liberation Sans", "Arimo", sans-serif',
   mono: 'ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+  /* LaTeX mode draws through MathJax, which brings its own glyphs — this stack
+     is only what the fallback text is measured and painted in during the one
+     frame before MathJax finishes loading. Times keeps that frame close. */
+  latex:
+    '"Times New Roman", "Nimbus Roman", "Liberation Serif", "Tinos", Times, serif',
 }
 
 export const FONT_LABEL: Record<FontKind, string> = {
-  serif: 'Serif (Times)',
+  latex: 'LaTeX',
   sans: 'Sans (Helvetica)',
+  serif: 'Times New Roman',
   mono: 'Mono',
 }
 
@@ -321,6 +328,14 @@ export function baseEdgeStyle(p: Palette, font = 11): EdgeStyle {
     labelBg: 'none',
   }
 }
+
+/** Connectors drawn in the editor. Same as the template base, but starting in
+ *  LaTeX mode the way hand-drawn nodes do — a connector label is nearly always
+ *  a symbol. Templates keep `baseEdgeStyle`; their labels carry their own `$`. */
+export const newEdgeStyle = (p: Palette, font = 11): EdgeStyle => ({
+  ...baseEdgeStyle(p, font),
+  fontFamily: 'latex',
+})
 
 /* ---------- shape catalogue ---------- */
 
@@ -554,6 +569,11 @@ export function makeNode(
   const accent = colorIndex >= 0 ? palette.colors[colorIndex % palette.colors.length] : null
   const style: Style = {
     ...baseStyle(palette, baseFont),
+    /* Nodes you draw start in LaTeX mode: figure labels are mostly symbols, and
+       fencing every one of them in dollars is the tax this removes. Templates
+       do not come through here — they build on `baseStyle` directly and their
+       labels are written for the prose-plus-`$…$` convention. */
+    fontFamily: 'latex',
     ...(accent
       ? { stroke: accent, fill: tint(accent, 0.82), textColor: palette.ink }
       : null),
@@ -567,7 +587,12 @@ export function makeNode(
     w: spec.w,
     h: spec.h,
     rotation: 0,
-    label: spec.labelText ?? '',
+    /* The catalogue's seed labels are written the prose way — "Layer",
+       "$\mathcal{L}_{data}$" — so they get converted into whatever mode the
+       node is actually starting in. Left alone in LaTeX mode, "Layer" would
+       come out as five italic variables multiplied together and the loss one
+       would be a hard error. */
+    label: retypeLabel(spec.labelText ?? '', 'sans', style.fontFamily),
     labelPos: kind === 'cuboid' || kind === 'mlp' || kind === 'grid' ? 'bottom' : 'center',
     style,
     props: { ...(spec.props ?? {}) },

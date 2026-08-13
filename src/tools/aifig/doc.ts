@@ -18,6 +18,7 @@ import {
   baseEdgeStyle,
   DEFAULT_CANVAS,
   makeNode,
+  newEdgeStyle,
   paletteById,
   uid,
 } from './presets'
@@ -360,7 +361,7 @@ export function connect(
     bow: 24,
     // a fixed 11, not a fraction of the body size: a connector label is an
     // aside, and scaling it with the body just made it drift between figures
-    style: baseEdgeStyle(p),
+    style: newEdgeStyle(p),
     locked: false,
     hidden: false,
   }
@@ -422,7 +423,7 @@ export function fullyConnect(
   if (cols.length < 2) return { doc, edgeIds: [], columns: cols.length }
 
   const p = paletteById(doc.paletteId)
-  const style = baseEdgeStyle(p)
+  const style = newEdgeStyle(p)
   const edges: FigEdge[] = []
   for (let i = 0; i < cols.length - 1; i++)
     for (const a of cols[i])

@@ -16,6 +16,7 @@ export function labelFont(s: Style) {
     weight: s.fontWeight,
     italic: s.italic,
     lineHeight: s.lineHeight,
+    latex: s.fontFamily === 'latex',
   }
 }
 
