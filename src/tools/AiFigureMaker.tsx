@@ -94,8 +94,10 @@ import { NodeView } from './aifig/shapes'
 import {
   edgeLabelBox,
   fitNodeToGrid,
+  caretOffset,
   inkRect,
   labelCaret,
+  labelFont,
   neuronLabel,
   ptOf,
   refitMlp,
@@ -344,6 +346,9 @@ export default function AiFigureMaker() {
   >(null)
   /** The neuron being typed into. Its text goes straight into the circle. */
   const [editDot, setEditDot] = useState<{ node: string; key: string } | null>(null)
+  /* Where the text cursor is in whichever label is being edited. The field is
+     invisible, so its own caret is too — this is what the drawn one follows. */
+  const [caretAt, setCaretAt] = useState(0)
   // pan gets its own flag so the canvas cursor is driven by state rather than
   // by reading dragRef during render
   const [panning, setPanning] = useState(false)
@@ -2090,6 +2095,10 @@ export default function AiFigureMaker() {
     }
     const placed = neuronLabel(n, d, bits)
     const centre = at(d)
+    /* The label is centred in the circle, so the caret starts from its left
+       edge and steps in by however much of the source is behind the cursor. */
+    const w = placed?.layout.w ?? 0
+    const into = placed ? caretOffset(text, caretAt, labelFont(placed.style)).x : 0
     return {
       n,
       d,
@@ -2100,13 +2109,12 @@ export default function AiFigureMaker() {
         top: view.y + (centre.y - d.r) * view.zoom,
         size: d.r * 2 * view.zoom,
       },
-      // caret in canvas coordinates: after the glyphs, or dead centre when empty
       caret: {
-        p: at({ x: d.x + (placed ? placed.layout.w / 2 : 0), y: d.y }),
+        p: at({ x: d.x - w / 2 + into, y: d.y }),
         h: (placed?.style.fontSize ?? n.style.fontSize) * 1.1,
       },
     }
-  }, [editDot, nmap, view])
+  }, [editDot, nmap, view, caretAt])
 
   const endDotEdit = () => {
     setEditDot(null)
@@ -2130,13 +2138,13 @@ export default function AiFigureMaker() {
     : null
   const editCaret = useMemo(() => {
     if (!editNode) return null
-    const c = labelCaret(editNode)
+    const c = labelCaret(editNode, caretAt)
     const p = { x: editNode.x + c.p.x, y: editNode.y + c.p.y }
     return {
       p: editNode.rotation ? rotatePt(p, rectCenter(editNode), editNode.rotation) : p,
       h: c.h,
     }
-  }, [editNode])
+  }, [editNode, caretAt])
 
   /* ---- render ---- */
   /* One checker square = one grid cell, so its corners are the points you snap
@@ -2600,10 +2608,15 @@ export default function AiFigureMaker() {
               onFocus={(e) => {
                 beginDrag()
                 // caret after the text, so typing adds to a label instead of
-                // landing in front of it — the drawn caret is at the end too
+                // landing in front of it
                 const el = e.currentTarget
                 el.setSelectionRange(el.value.length, el.value.length)
+                setCaretAt(el.value.length)
               }}
+              /* onSelect covers every way the cursor moves — arrows, clicking
+                 inside the field, typing — which is what the drawn caret has to
+                 follow now that the field's own caret is invisible. */
+              onSelect={(e) => setCaretAt(e.currentTarget.selectionStart ?? 0)}
               onKeyDown={(e) => {
                 e.stopPropagation()
                 // Enter breaks the line here — a block label is often two
@@ -2632,7 +2645,9 @@ export default function AiFigureMaker() {
                 beginDrag()
                 const el = e.currentTarget
                 el.setSelectionRange(el.value.length, el.value.length)
+                setCaretAt(el.value.length)
               }}
+              onSelect={(e) => setCaretAt(e.currentTarget.selectionStart ?? 0)}
               onChange={(e) =>
                 live((d) => patchMlpPart(d, editDot!, 'neurons', { label: e.target.value }))
               }

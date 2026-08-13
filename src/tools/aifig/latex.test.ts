@@ -11,6 +11,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { hasMath, labelSegs, parseLabel, retypeLabel } from './latex'
+import { caretOffset } from './layout'
 
 describe('reading a label in prose mode', () => {
   it('treats dollars as fences and everything else as words', () => {
@@ -52,6 +53,39 @@ describe('reading a label in LaTeX mode', () => {
 
   it('is not what prose mode does with the same string', () => {
     expect(labelSegs('\\sigma', false)).toEqual([{ t: 'text', v: '\\sigma' }])
+  })
+})
+
+describe('where the cursor is in a drawn label', () => {
+  /* The field that catches the keystrokes is invisible, so the caret drawn on
+     the figure is the only one there is — it has to move when the cursor does.
+     In prose the source and the glyphs run in step, so this is exact. */
+  const prose = { family: 'sans-serif', size: 10, weight: 400, italic: false, lineHeight: 1.2 }
+
+  it('grows with the cursor', () => {
+    const xs = [0, 2, 4, 7].map((i) => caretOffset('abc def', i, prose).x)
+    expect(xs[0]).toBe(0)
+    for (let i = 1; i < xs.length; i++) expect(xs[i]).toBeGreaterThan(xs[i - 1])
+  })
+
+  it('lands at the end for a cursor past the end', () => {
+    const end = caretOffset('abc', 3, prose)
+    expect(caretOffset('abc', 99, prose)).toEqual(end)
+  })
+
+  it('counts the line an explicit break puts it on', () => {
+    expect(caretOffset('ab\ncd', 4, prose).line).toBe(1)
+    expect(caretOffset('ab\\ncd', 5, prose).line).toBe(1)
+    expect(caretOffset('ab\ncd', 1, prose).line).toBe(0)
+  })
+
+  it('measures only the part of the line behind the cursor', () => {
+    // second line, one character in — not four characters in
+    expect(caretOffset('ab\ncd', 4, prose).x).toBe(caretOffset('c', 1, prose).x)
+  })
+
+  it('never runs off the front', () => {
+    expect(caretOffset('abc', -5, prose).x).toBe(0)
   })
 })
 
