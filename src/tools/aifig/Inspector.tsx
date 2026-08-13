@@ -129,6 +129,8 @@ interface Props {
   part: SelPart | null
   /** merge into that part's overrides; null clears them back to the default */
   onPart: (patch: NeuronBits | WireBits | null) => void
+  /** step back out to the network as a whole */
+  onExitPart: () => void
 }
 
 export interface SelPart {
@@ -150,6 +152,7 @@ export default function Inspector({
   onPalette,
   part,
   onPart,
+  onExitPart,
 }: Props) {
   const pal = paletteById(doc.paletteId)
   const swatches = useMemo(() => [...pal.colors, pal.neutral], [pal])
@@ -159,12 +162,22 @@ export default function Inspector({
       <CanvasPanel doc={doc} onCanvas={onCanvas} onPalette={onPalette} />
     )
 
+  /* ⚠️ A focused part replaces the node panel rather than sitting above it.
+   *
+   * Reaching inside a network makes one neuron the subject, and every control
+   * on screen has to belong to that subject — otherwise the swatch you reach
+   * for repaints the whole network, which is both the wrong thing and an
+   * expensive mistake to undo once you have hand-coloured a dozen units. The
+   * network's own settings are one press of Esc away. */
+  if (part)
+    return (
+      <div className="af-inspector">
+        <PartPanel part={part} swatches={swatches} onPart={onPart} onExit={onExitPart} />
+      </div>
+    )
+
   return (
     <div className="af-inspector">
-      {/* First, because it is the most specific thing selected — you reached
-          past the network to get here, so the network's own settings are not
-          what you came for. */}
-      {part ? <PartPanel part={part} swatches={swatches} onPart={onPart} /> : null}
       {nodes.length ? (
         <NodePanel
           doc={doc}
@@ -785,19 +798,40 @@ function PartPanel({
   part,
   swatches,
   onPart,
+  onExit,
 }: {
   part: SelPart
   swatches: string[]
   onPart: Props['onPart']
+  onExit: () => void
 }) {
   const p = part.node.props
   const where = parseDotKey(part.key)
   const s = part.node.style
 
+  /* The way back. It has to be visible: the node's own panel is gone while a
+     part is focused, and a control that vanished without saying so reads as a
+     bug rather than as a change of subject. */
+  const back = (
+    <Field label="대상">
+      <span className="af-hint-inline">
+        {part.kind === 'wire'
+          ? '연결선 하나'
+          : where
+            ? `${where.li + 1}층 ${where.n + 1}번 뉴런`
+            : '뉴런 하나'}
+      </span>
+      <button type="button" className="af-mini" onClick={onExit}>
+        네트워크 전체로 (Esc)
+      </button>
+    </Field>
+  )
+
   if (part.kind === 'wire') {
     const w: WireBits = p.wires?.[part.key] ?? {}
     return (
       <Group title="연결선 하나">
+        {back}
         <Field label="색">
           <ColorBtn
             value={w.stroke ?? s.stroke}
@@ -841,6 +875,7 @@ function PartPanel({
   const b: NeuronBits = p.neurons?.[part.key] ?? {}
   return (
     <Group title="뉴런 하나">
+      {back}
       <Field label="텍스트" wide>
         <input
           className="af-input"
@@ -869,8 +904,8 @@ function PartPanel({
         </button>
       </Field>
       <p className="af-note">
-        {where ? `${where.li + 1}층 ${where.n + 1}번` : part.key} — 글자는 노드의 글꼴 모드를
-        따릅니다.
+        원을 더블클릭하면 그 자리에서 바로 쓸 수 있습니다 — Tab으로 다음 뉴런, Esc로 나가기.
+        글자는 노드의 글꼴 모드를 따릅니다.
       </p>
     </Group>
   )

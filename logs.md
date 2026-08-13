@@ -1,5 +1,44 @@
 # 작업 기록
 
+## 2026-08-13 — AI Figure Maker: 뉴런을 원 안에서 직접 편집하고, 포커스되면 뉴런만 다루게
+
+- 변경 파일: `src/tools/aifig/latex.ts`, `layout.ts`, `shapes.tsx`, `doc.ts`, `mlp.ts`, `presets.ts`, `Inspector.tsx`, `Overlay.tsx`, `AiFigureMaker.tsx`, `AiFigureMaker.css`, `mlp.test.ts`
+- 요약: 원을 더블클릭하면 그 원 안에서 바로 타이핑됩니다. 뉴런이 포커스되면 우측 패널이 뉴런 것만 보여줍니다. 뉴런 기본 반지름 8 → 16.
+
+### 편집기가 아니라 캐럿만 남겼다
+
+더블클릭이 뉴런이 아니라 **네트워크 노드의 라벨**을 열고 있었고, 그 편집기는 노드 크기의 상자라 그림 위를 가로로 덮었습니다. 가리킨 것과 열린 것이 달랐죠.
+
+이제 원 위에 **완전히 투명한 `<input>`** 을 올립니다 — 글자색·배경·테두리·자체 캐럿까지 전부 transparent. 키를 받고 IME가 조합할 자리가 필요해서 존재할 뿐이고, 글자는 도형 렌더러가 이미 그리고 있습니다. 화면에 남는 chrome은 오버레이가 그리는 **캐럿 한 줄**뿐입니다.
+
+⚠️ `.af-inplace`에 배경이나 테두리를 주면 그 순간 이게 대체한 그 상자로 돌아갑니다.
+
+캐럿을 글자 뒤에 놓으려면 라벨 폭을 알아야 하는데, 그건 렌더러만 알고 있었습니다. `neuronLabel`/`neuronLabelStyle`을 `layout.ts`로 옮겨 렌더러와 캐럿이 **같은 답**을 읽게 했습니다. 답이 둘이면 캐럿이 글자 옆이 아니라 글자 위에 섭니다.
+
+Tab이 열을 따라 다음 뉴런으로 넘어갑니다. 층에 라벨 다는 게 이걸 쓰는 유일한 이유인데, 원마다 마우스로 더블클릭하면 그건 노동입니다.
+
+### MathJax는 에러를 `merror`로 안 준다
+
+타이핑 도중은 **계속 틀린 TeX**입니다 — `\sigma`로 가는 길에 `\sig`를 반드시 거칩니다. 그때 원 안에 빨간 에러 글자가 번쩍이면 못 씁니다.
+
+`parseMathJaxSvg`의 `error` 판정이 `/data-mjx-error|merror/`였는데, **SVG 출력은 둘 다 안 냅니다.** 실제로는 `<g data-mml-node="mtext" fill="red" stroke="red">`입니다. 즉 이 플래그는 처음부터 한 번도 true가 된 적이 없습니다.
+
+마크업을 훑는 대신 TeX 단계에서 잡았습니다. `AllPackages`에 들어 있는 **`noundefined`와 `noerrors`를 빼고** `formatError`가 throw하게 하면, 잘못된 입력에서 `convert`가 예외를 던지고 `measureMath`가 잡아 `error: true`를 줍니다. 그러면 `layoutLabel`이 그 수식 자리에 **원문을 그대로** 씁니다.
+
+이건 원 안뿐 아니라 모든 라벨에 적용됩니다. 빨간 에러 글자보다 원문이 낫습니다 — 고쳐야 할 게 뭔지 보이고, 레이아웃을 망가뜨리지 않고, 실수로 export되지도 않습니다.
+
+### 뉴런 포커스는 노드 포커스와 다른 대상이다
+
+원래는 부분 패널이 노드 패널 **위에** 얹혀 있었습니다. 그러면 스와치를 눌렀을 때 노드 패널 쪽 색 버튼이 네트워크 전체를 칠합니다 — 손으로 색칠해 둔 뉴런이 여럿이면 한 번의 클릭으로 다 날아갑니다.
+
+⚠️ 이제 부분이 포커스되면 **노드 패널을 렌더하지 않습니다.** 화면의 모든 컨트롤이 그 뉴런의 것입니다. 대신 사라진 게 버그로 읽히지 않도록 "네트워크 전체로 (Esc)" 버튼을 패널 맨 위에 뒀습니다.
+
+`patchMlpPart`를 `doc.ts`로 빼서 인스펙터와 원 안 타이핑이 같은 연산을 씁니다. 비워진 bag은 **삭제**합니다 — 부분을 건드린 적 없는 `mlp`는 이 기능이 생기기 전과 똑같이 직렬화되어야 합니다. 그리고 "기본값으로"는 현재 색을 써넣는 게 아니라 항목을 지웁니다. 써넣으면 팔레트를 바꿀 때 그 뉴런만 옛 색에 남습니다.
+
+### 반지름 기본값 16
+
+⚠️ `MLP_R`·`MLP_PITCH`·`MLP_GAP`은 서로 묶여 있습니다. `mlpSnapProps`가 간격을 `2r` 밑으로 못 내려가게 막으므로, 반지름만 올리면 간격은 clamp되고 상수는 실제 결과를 설명하지 못하게 됩니다. r 16이면 지름 32라 pitch를 40으로, gap을 72로 같이 올렸고, 카탈로그의 박스도 176×192로 맞췄습니다(격자 모드에서 박스는 격자에서 재계산되므로 어긋나면 처음 만질 때 도형이 튑니다).
+
 ## 2026-08-13 — AI Figure Maker: MLP를 주소 가능한 격자로 다시 짜고, LaTeX를 글꼴 선택지로 올림
 
 - 변경 파일: `src/tools/aifig/mlp.ts`(신규), `mlp.test.ts`(신규), `MathInput.tsx`(신규), `latex.test.ts`(신규), `types.ts`, `latex.ts`, `layout.ts`, `presets.ts`, `shapes.tsx`, `resolve.ts`, `doc.ts`, `geometry.ts`, `Inspector.tsx`, `Overlay.tsx`, `AiFigureMaker.tsx`, `AiFigureMaker.css`

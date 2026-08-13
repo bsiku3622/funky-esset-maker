@@ -387,12 +387,12 @@ export const SHAPES: ShapeSpec[] = [
     kind: 'mlp',
     label: 'MLP',
     group: 'AI',
-    /* The box a lattice of [4,5,3] at r 8, pitch 24, gap 56 comes out as —
+    /* The box a lattice of [4,5,3] at r 16, pitch 40, gap 72 comes out as —
        2r + 2·gap across, 2r + 4·pitch down. It has to match, because a
        lattice-mode MLP's box is recomputed from its lattice on the next edit
        and a mismatch here would make the shape jump the moment it was touched. */
-    w: 128,
-    h: 112,
+    w: 176,
+    h: 192,
     /* ⚠️ This was five zero-length segments — `M6 5v0` and friends — meaning
        "put a dot here". Nothing drew: the icons are stroked with the default
        butt cap, which gives a segment of length zero no width to show. Drawn
@@ -413,9 +413,9 @@ export const SHAPES: ShapeSpec[] = [
     props: {
       layers: [4, 5, 3],
       showEdges: true,
-      neuronR: 8,
-      pitch: 24,
-      layerGap: 56,
+      neuronR: 16,
+      pitch: 40,
+      layerGap: 72,
       maxDots: 6,
     },
     labelText: '',

@@ -24,7 +24,25 @@ import {
 } from './mlp'
 import { snapPos } from './geometry'
 import { resolveEdge } from './resolve'
-import type { FigNode, NodeProps } from './types'
+import { patchMlpPart } from './doc'
+import { neuronLabelStyle } from './layout'
+import type { FigDoc, FigNode, NodeProps, Style } from './types'
+
+const STYLE: Style = {
+  fill: '#ffffff',
+  stroke: '#222222',
+  strokeWidth: 1,
+  dash: 'solid',
+  opacity: 1,
+  radius: 0,
+  fontFamily: 'latex',
+  fontSize: 13,
+  fontWeight: 400,
+  italic: false,
+  textColor: '#222222',
+  align: 'center',
+  lineHeight: 1.25,
+}
 
 const node = (props: NodeProps, box?: Partial<FigNode>): FigNode =>
   ({
@@ -35,6 +53,7 @@ const node = (props: NodeProps, box?: Partial<FigNode>): FigNode =>
     w: 128,
     h: 112,
     rotation: 0,
+    style: STYLE,
     props,
     ...box,
   }) as FigNode
@@ -321,6 +340,69 @@ describe('a connector whose neuron disappeared', () => {
     expect(r).not.toBeNull()
     // no longer on a circle: it is now an anchor on the network's own outline
     expect(mlpDotPoint(small, dotKey(1, 5))).toBeNull()
+  })
+})
+
+describe('overriding one part', () => {
+  const net = fitted({ layers: [2, 2], pitch: 40, layerGap: 96, neuronR: 16 })
+  const doc = { nodes: [net, { ...net, id: 'other' }], edges: [], canvas: {}, paletteId: 'muted' } as never as FigDoc
+  const at = { node: 'm1', key: dotKey(0, 0) }
+
+  it('creates the bag on first use', () => {
+    const d = patchMlpPart(doc, at, 'neurons', { fill: '#f00' })
+    expect(d.nodes[0].props.neurons).toEqual({ l0n0: { fill: '#f00' } })
+  })
+
+  it('merges rather than replaces', () => {
+    let d = patchMlpPart(doc, at, 'neurons', { fill: '#f00' })
+    d = patchMlpPart(d, at, 'neurons', { label: 'x' })
+    expect(d.nodes[0].props.neurons?.l0n0).toEqual({ fill: '#f00', label: 'x' })
+  })
+
+  it('leaves the other neurons and the other node alone', () => {
+    const d = patchMlpPart(doc, at, 'neurons', { fill: '#f00' })
+    expect(d.nodes[0].props.neurons?.[dotKey(0, 1)]).toBeUndefined()
+    expect(d.nodes[1].props.neurons).toBeUndefined()
+  })
+
+  it('never touches the node style — that is the whole point', () => {
+    /* Focusing a neuron makes it the subject; a swatch press has to land on it
+       and not on the network, or one click repaints every unit. */
+    const d = patchMlpPart(doc, at, 'neurons', { fill: '#f00' })
+    expect(d.nodes[0].style.fill).toBe(net.style.fill)
+  })
+
+  it('clears an entry back to the default rather than freezing the current colour', () => {
+    let d = patchMlpPart(doc, at, 'neurons', { fill: '#f00' })
+    d = patchMlpPart(d, at, 'neurons', null)
+    // and the emptied bag goes too, so an untouched network serialises as before
+    expect(d.nodes[0].props.neurons).toBeUndefined()
+  })
+
+  it('keeps the bag while anything is left in it', () => {
+    let d = patchMlpPart(doc, at, 'neurons', { fill: '#f00' })
+    d = patchMlpPart(d, { node: 'm1', key: dotKey(0, 1) }, 'neurons', { fill: '#0f0' })
+    d = patchMlpPart(d, at, 'neurons', null)
+    expect(Object.keys(d.nodes[0].props.neurons ?? {})).toEqual([dotKey(0, 1)])
+  })
+
+  it('does the same for wires', () => {
+    const d = patchMlpPart(doc, { node: 'm1', key: wireKey(0, 0, 1) }, 'wires', { hidden: true })
+    expect(d.nodes[0].props.wires).toEqual({ [wireKey(0, 0, 1)]: { hidden: true } })
+  })
+})
+
+describe('text inside a circle', () => {
+  it('shrinks to fit the circle but never grows to fill it', () => {
+    const n = fitted({ layers: [1], pitch: 40, layerGap: 96, neuronR: 16 })
+    // r 16 allows 24; a 15px label stays 15
+    expect(neuronLabelStyle({ ...n, style: { ...n.style, fontSize: 40 } }, 16).fontSize).toBe(24)
+    expect(neuronLabelStyle({ ...n, style: { ...n.style, fontSize: 15 } }, 16).fontSize).toBe(15)
+  })
+
+  it('centres it, whatever the node alignment was', () => {
+    const n = fitted({ layers: [1], pitch: 40, layerGap: 96, neuronR: 16 })
+    expect(neuronLabelStyle({ ...n, style: { ...n.style, align: 'right' } }, 16).align).toBe('center')
   })
 })
 

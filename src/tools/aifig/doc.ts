@@ -9,9 +9,11 @@ import type {
   FigDoc,
   FigEdge,
   FigNode,
+  NeuronBits,
   Pt,
   Rect,
   Style,
+  WireBits,
 } from './types'
 import { nodeBounds, unionRect } from './geometry'
 import {
@@ -239,6 +241,28 @@ export function equalize(doc: FigDoc, ids: string[], axis: 'w' | 'h' | 'both'): 
     ...(axis === 'w' || axis === 'both' ? { w } : null),
     ...(axis === 'h' || axis === 'both' ? { h } : null),
   }))
+}
+
+/* Overrides for one neuron or one synapse of a network node.
+ *
+ * They live in a bag keyed by part, and an emptied bag is removed rather than
+ * left behind: an `mlp` nobody has touched part by part must serialise exactly
+ * as it did before any of this existed. `null` clears the entry, which is what
+ * "back to the default" means — writing the current colour in instead would
+ * leave that unit stranded on the old palette the next time the figure's
+ * colours changed. */
+export function patchMlpPart(
+  doc: FigDoc,
+  at: { node: string; key: string },
+  bag: 'neurons' | 'wires',
+  patch: NeuronBits | WireBits | null,
+): FigDoc {
+  return patchNodes(doc, [at.node], (n) => {
+    const next: Record<string, object> = { ...(n.props[bag] ?? {}) }
+    if (patch === null) delete next[at.key]
+    else next[at.key] = { ...next[at.key], ...patch }
+    return { props: { ...n.props, [bag]: Object.keys(next).length ? next : undefined } }
+  })
 }
 
 /* ---------- grouping ---------- */

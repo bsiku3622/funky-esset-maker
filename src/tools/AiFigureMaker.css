@@ -361,6 +361,42 @@
   box-shadow: 3px 3px 0 0 rgba(0, 0, 0, 0.2);
 }
 
+/* Typing straight into a neuron.
+ *
+ * The field is only here to catch keystrokes and to give the IME somewhere to
+ * compose — every part of it is invisible, including its own caret, because the
+ * figure draws the text and the overlay draws the caret. Do not give this a
+ * background or a border: the moment it has either, it is the box this replaced. */
+.scope-aifig .af-inplace {
+  position: absolute;
+  z-index: 6;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  text-align: center;
+  /* the glyphs are never painted, but a huge font would still scroll the field */
+  font-size: 12px;
+}
+
+.scope-aifig .af-caret {
+  animation: af-blink 1.06s steps(1, end) infinite;
+}
+
+@keyframes af-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
 /* LaTeX-mode label editing. Same frame as .af-edit so the two feel like one
    control, but the box hugs the formula instead of matching the shape: a
    fraction is taller than the block it labels and would otherwise be clipped. */

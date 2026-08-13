@@ -35,9 +35,13 @@ import { distToSeg, rectCenter, rotatePt, type AnchorPoint } from './geometry'
 
 /* ---------- defaults ---------- */
 
-export const MLP_R = 8
-export const MLP_PITCH = 24
-export const MLP_GAP = 56
+/* ⚠️ These three are interlocked: `mlpSnapProps` will not let a spacing fall
+ * below `2 * r`, so raising the radius without raising the spacings just gets
+ * them clamped back up and the defaults stop describing what you actually get.
+ * A circle of r 16 is 32 across, which is why the pitch starts at 40. */
+export const MLP_R = 16
+export const MLP_PITCH = 40
+export const MLP_GAP = 72
 /** Drawn circles per column before the rest collapse into a ⋮. */
 export const MLP_MAX_DOTS = 6
 /** Hard ceiling on drawn circles, ellipsis or not — the old shape's clamp. */

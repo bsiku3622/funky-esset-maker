@@ -126,6 +126,43 @@ export function edgeLabelBox(e: FigEdge, r: ResolvedEdge): Rect | null {
   return { x: left, y: y - l.h / 2, w: l.w, h: l.h }
 }
 
+/* ---------- text inside a neuron ---------- */
+
+/* A neuron's inner label is measured here rather than in the renderer, because
+ * the renderer is no longer the only thing that needs it: typing into a circle
+ * draws a caret, and the caret has to sit where the glyphs end. Two answers to
+ * "how wide is this label" would put the caret next to the text instead of
+ * after it. */
+export function neuronLabelStyle(n: FigNode, r: number): Style {
+  // never up: a one-letter label would balloon to fill the circle
+  return { ...n.style, fontSize: Math.min(n.style.fontSize, r * 1.5), align: 'center' }
+}
+
+export interface NeuronLabel {
+  layout: LabelLayout
+  style: Style
+  /** baseline-block top, in the node's local frame */
+  y: number
+  /** true when the source is being shown because TeX would not take it */
+  raw: boolean
+}
+
+/** Lay out what a neuron draws inside itself, or null when it draws nothing. */
+export function neuronLabel(n: FigNode, dot: { x: number; y: number; r: number }, text: string): NeuronLabel | null {
+  if (!text) return null
+  const style = neuronLabelStyle(n, dot.r)
+  /* Half-typed maths is rejected maths — `\sig` on the way to `\sigma` — and
+     layoutLabel answers a rejection with the source itself, so a circle being
+     typed into shows what was typed rather than going blank or red. */
+  const layout = layoutLabel(text, labelFont(style))
+  const raw = layout.error
+  if (!layout.lines.length) return null
+  const y = layout.ink
+    ? dot.y - (layout.ink.top + layout.ink.bottom) / 2
+    : dot.y - layout.h / 2
+  return { layout, style, y, raw }
+}
+
 /* ---------- ink bounds ---------- */
 
 /** Text nodes that size themselves to their glyphs. Absent on nodes from an

@@ -44,6 +44,8 @@ interface Props {
     | { kind: 'dot'; c: Pt; r: number }
     | { kind: 'wire'; a: Pt; b: Pt }
     | null
+  /** caret for text being typed straight into a neuron, in canvas coordinates */
+  caret: { p: Pt; h: number } | null
   /** true while a drag is in flight — handles are hidden to reduce noise */
   dragging: boolean
 }
@@ -62,6 +64,7 @@ export default function Overlay({
   tempEdge,
   connectTarget,
   partMark,
+  caret,
   dragging,
 }: Props) {
   const k = 1 / zoom
@@ -211,6 +214,22 @@ export default function Overlay({
           stroke="#7828c8"
           strokeWidth={4 * k}
           opacity={0.4}
+          strokeLinecap="round"
+        />
+      ) : null}
+
+      {/* The only chrome of typing into a circle. The text itself is drawn by
+          the figure — there is no field to look at, so this line is the whole
+          of "you are editing here". */}
+      {caret ? (
+        <line
+          className="af-caret"
+          x1={caret.p.x}
+          y1={caret.p.y - caret.h / 2}
+          x2={caret.p.x}
+          y2={caret.p.y + caret.h / 2}
+          stroke="#7828c8"
+          strokeWidth={1.4 * k}
           strokeLinecap="round"
         />
       ) : null}

@@ -10,7 +10,7 @@ import { memo } from 'react'
 import type { FigNode, NeuronBits, Style } from './types'
 import { dashArray, FONT_STACK, readableOn, shade, tint } from './presets'
 import { fontCss, layoutLabel, textWidth, type LabelLayout } from './latex'
-import { isoOff, labelFont, labelStyle, placeLabel } from './layout'
+import { isoOff, labelFont, labelStyle, neuronLabel, placeLabel } from './layout'
 import { hasCaps, mlpCaps, mlpLattice, type MlpDot } from './mlp'
 
 /* ---------- label ---------- */
@@ -285,23 +285,14 @@ const Stack = ({ n }: BodyProps) => {
 const MLP_CAP_GAP = 5
 
 const NeuronLabel = ({ n, d, bits }: { n: FigNode; d: MlpDot; bits?: NeuronBits }) => {
-  const text = bits?.label ?? ''
-  if (!text) return null
+  const placed = neuronLabel(n, d, bits?.label ?? '')
+  if (!placed) return null
   const fill = bits?.fill ?? n.style.fill
   const color =
     bits?.textColor ?? (n.style.textColor === 'none' ? readableOn(fill) : n.style.textColor)
-  /* Text inside a circle wants to fit the circle, so it is measured at a size
-     that does — down only, never up, or a one-letter label would balloon. */
-  const size = Math.min(n.style.fontSize, d.r * 1.5)
-  const style: Style = { ...n.style, fontSize: size, align: 'center' }
-  const layout = layoutLabel(text, labelFont(style))
-  if (!layout.lines.length) return null
-  /* Centre the glyphs, not the line box — `ink` is exact whenever the label is
-     all maths, which inside a neuron it usually is. */
-  const y = layout.ink
-    ? d.y - (layout.ink.top + layout.ink.bottom) / 2
-    : d.y - layout.h / 2
-  return <LabelView layout={layout} x={d.x} y={y} style={style} color={color} />
+  return (
+    <LabelView layout={placed.layout} x={d.x} y={placed.y} style={placed.style} color={color} />
+  )
 }
 
 const Mlp = ({ n }: BodyProps) => {

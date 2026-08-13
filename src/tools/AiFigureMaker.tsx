@@ -57,6 +57,7 @@ import {
   nodeMap,
   patchEdgeStyle,
   patchEdges,
+  patchMlpPart,
   patchNodeStyle,
   patchNodes,
   removeItems,
@@ -96,6 +97,7 @@ import {
   edgeLabelBox,
   fitNodeToGrid,
   inkRect,
+  neuronLabel,
   ptOf,
   refitMlp,
   refitText,
@@ -108,6 +110,7 @@ import {
   MLP_PITCH,
   MLP_R,
   isLattice,
+  mlpDot,
   mlpDotAt,
   mlpDotPoint,
   mlpLattice,
@@ -345,6 +348,8 @@ export default function AiFigureMaker() {
   const [selPart, setSelPart] = useState<
     { node: string; key: string; kind: 'dot' | 'wire' } | null
   >(null)
+  /** The neuron being typed into. Its text goes straight into the circle. */
+  const [editDot, setEditDot] = useState<{ node: string; key: string } | null>(null)
   // pan gets its own flag so the canvas cursor is driven by state rather than
   // by reading dragRef during render
   const [panning, setPanning] = useState(false)
@@ -670,23 +675,10 @@ export default function AiFigureMaker() {
     commit((d) => patchNodes(d, selNodesRef.current, patch))
   const patchSelStyle = (patch: Partial<Style>) =>
     commit((d) => patchNodeStyle(d, selNodesRef.current, patch))
-  /* Overrides for one neuron or synapse.
-   *
-   * They live in a bag on the network node keyed by part, and an empty bag is
-   * deleted rather than kept — an `mlp` that has never been touched part by
-   * part should serialise exactly as it did before any of this existed. */
   const patchPart = (patch: NeuronBits | WireBits | null) => {
     const sel = selPart
     if (!sel) return
-    commit((d) =>
-      patchNodes(d, [sel.node], (n) => {
-        const bag = sel.kind === 'dot' ? 'neurons' : 'wires'
-        const next: Record<string, object> = { ...(n.props[bag] ?? {}) }
-        if (patch === null) delete next[sel.key]
-        else next[sel.key] = { ...next[sel.key], ...patch }
-        return { props: { ...n.props, [bag]: Object.keys(next).length ? next : undefined } }
-      }),
-    )
+    commit((d) => patchMlpPart(d, sel, sel.kind === 'dot' ? 'neurons' : 'wires', patch))
   }
   const patchSelProps = (patch: Record<string, unknown>) =>
     commit((d) =>
@@ -1683,6 +1675,20 @@ export default function AiFigureMaker() {
     const el = ev.target as Element
     const hitNode = el.getAttribute?.('data-hit-node')
     if (hitNode) {
+      /* Double-clicking a circle types into *that circle*, not into the
+         network's own label. Without this the whole glyph answers, and the
+         label editor opens across the top of the drawing — which is nothing
+         like the thing that was pointed at. */
+      const n = nmap.get(hitNode)
+      const dot = n?.kind === 'mlp' ? mlpDotAt(n, toWorld(ev.clientX, ev.clientY), 2) : null
+      if (n && dot) {
+        setSelNodes([n.id])
+        setSelEdges([])
+        setSelPart({ node: n.id, key: dot.key, kind: 'dot' })
+        setEditDot({ node: n.id, key: dot.key })
+        setEditing(null)
+        return
+      }
       setEditing(hitNode)
       setSelNodes([hitNode])
       setSelEdges([])
@@ -1799,6 +1805,7 @@ export default function AiFigureMaker() {
       }
       if (K === 'Escape') {
         setEditing(null)
+        setEditDot(null)
         // step out of connector mode one stage at a time: disarm the source
         // first, leave the mode only on a second press
         if (connectFromRef.current) {
@@ -2036,6 +2043,48 @@ export default function AiFigureMaker() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [exportKeys])
+
+  /* ---- typing straight into a neuron ---- */
+  /* There is no visible field. A transparent input takes the keystrokes — the
+     browser will not give us a caret or an IME without one — and the figure
+     itself shows the result, because the shape renderer is already drawing that
+     text. The only chrome is the caret, drawn in the overlay where the glyphs
+     end, so what you are editing and what you will get are the same picture. */
+  const dotEdit = useMemo(() => {
+    if (!editDot) return null
+    const n = nmap.get(editDot.node)
+    if (!n) return null
+    const d = mlpDot(n, editDot.key)
+    if (!d) return null
+    const text = n.props.neurons?.[editDot.key]?.label ?? ''
+    const at = (p: Pt) => {
+      const q = { x: n.x + p.x, y: n.y + p.y }
+      return n.rotation ? rotatePt(q, rectCenter(n), n.rotation) : q
+    }
+    const placed = neuronLabel(n, d, text)
+    const centre = at(d)
+    return {
+      n,
+      d,
+      text,
+      // the box the invisible input occupies on screen, over the circle
+      box: {
+        left: view.x + (centre.x - d.r) * view.zoom,
+        top: view.y + (centre.y - d.r) * view.zoom,
+        size: d.r * 2 * view.zoom,
+      },
+      // caret in canvas coordinates: after the glyphs, or dead centre when empty
+      caret: {
+        p: at({ x: d.x + (placed ? placed.layout.w / 2 : 0), y: d.y }),
+        h: (placed?.style.fontSize ?? n.style.fontSize) * 1.1,
+      },
+    }
+  }, [editDot, nmap, view])
+
+  const endDotEdit = () => {
+    setEditDot(null)
+    endDrag(true)
+  }
 
   /* ---- label editing overlay ---- */
   const editNode = editing ? nmap.get(editing) : null
@@ -2480,6 +2529,7 @@ export default function AiFigureMaker() {
                 tempEdge={temp ? { a: temp.a, b: temp.b } : null}
                 connectTarget={temp?.target ? nodeBounds(nmap.get(temp.target)!) : null}
                 partMark={partMark}
+                caret={dotEdit?.caret ?? null}
                 dragging={dragging}
               />
             </g>
@@ -2533,6 +2583,49 @@ export default function AiFigureMaker() {
             )
           ) : null}
 
+          {/* The invisible half of typing into a circle. Everything is
+              transparent — text, caret, background, border — so the only thing
+              on screen is the figure and the caret the overlay draws. */}
+          {dotEdit ? (
+            <input
+              className="af-inplace"
+              autoFocus
+              value={dotEdit.text}
+              style={{
+                left: dotEdit.box.left,
+                top: dotEdit.box.top,
+                width: dotEdit.box.size,
+                height: dotEdit.box.size,
+              }}
+              onFocus={() => beginDrag()}
+              onChange={(e) =>
+                live((d) => patchMlpPart(d, editDot!, 'neurons', { label: e.target.value }))
+              }
+              onBlur={endDotEdit}
+              onKeyDown={(e) => {
+                e.stopPropagation()
+                if (e.key === 'Escape' || e.key === 'Enter') {
+                  e.preventDefault()
+                  ;(e.target as HTMLInputElement).blur()
+                  return
+                }
+                /* Tab walks the column, then the next one — labelling a layer
+                   is the reason anyone types in these at all, and reaching for
+                   the mouse between every unit makes it a chore. */
+                if (e.key === 'Tab') {
+                  e.preventDefault()
+                  const dots = mlpLattice(dotEdit.n).dots
+                  const i = dots.findIndex((x) => x.key === editDot!.key)
+                  const next = dots[(i + (e.shiftKey ? -1 : 1) + dots.length) % dots.length]
+                  if (next) {
+                    setEditDot({ node: dotEdit.n.id, key: next.key })
+                    setSelPart({ node: dotEdit.n.id, key: next.key, kind: 'dot' })
+                  }
+                }
+              }}
+            />
+          ) : null}
+
           {dropping ? (
             <div className="af-drop">
               <span>이미지를 놓으면 그 자리에 들어갑니다</span>
@@ -2565,6 +2658,10 @@ export default function AiFigureMaker() {
             onPalette={(id) => commit((d) => applyPalette(d, id))}
             part={activePart}
             onPart={patchPart}
+            onExitPart={() => {
+              setSelPart(null)
+              setEditDot(null)
+            }}
           />
         </aside>
       </div>
