@@ -90,3 +90,46 @@
 .cell__input::selection {
   background: rgba(120, 40, 200, 0.28);
 }
+
+/* A column dragged to a width stops sizing itself to its text. The caps that
+   let a cell find its own width have to come off both the sizer and the
+   textarea together — see the note on the header weight above. */
+.cell--fixed .cell__box {
+  width: 100%;
+}
+.cell--fixed .cell__sizer,
+.cell--fixed .cell__input {
+  max-width: none;
+  width: 100%;
+}
+
+/* Editor chrome. Both are absolutely positioned and carry data-ui: they take
+   up no room, so the exporter can drop them without the table shifting. */
+.cell__pick {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 2px #7828c8;
+  background: rgba(120, 40, 200, 0.1);
+}
+
+.cell__grip {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  width: 9px;
+  height: 100%;
+  cursor: col-resize;
+  /* invisible until wanted: a grip per column would otherwise read as a rule */
+  background: transparent;
+}
+.cell__grip:hover {
+  background: rgba(120, 40, 200, 0.35);
+}
+
+/* The wash a cell is painted with is a background for black type, so the
+   header's white-on-purple text rule must not follow it. */
+.cell--header .cell__sizer,
+.cell--header .cell__input {
+  color: inherit;
+}
