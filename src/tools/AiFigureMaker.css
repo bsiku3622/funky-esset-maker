@@ -347,13 +347,18 @@
   user-select: none;
 }
 
-/* Typing into a label or a neuron.
+/* Editing a label where it is drawn.
  *
- * The field is only here to catch keystrokes and to give the IME somewhere to
- * compose — every part of it is invisible, including its own caret, because the
- * figure draws the text and the overlay draws the caret. Do not give this a
- * background or a border: the moment it has either, it is the box this replaced. */
-.scope-aifig .af-inplace {
+ * ⚠️ No background, no border, no shadow — on either of these. The field is
+ * meant to be indistinguishable from the drawing underneath it; the moment it
+ * has a frame it is a dialog standing on the figure, which is what this
+ * replaced. Colour, font and size are set from the element in JS, because they
+ * belong to the shape rather than to the stylesheet.
+ *
+ * The caret and the selection are the browser's here. That is the entire point
+ * of the technique: drawing them by hand means also building drag-select,
+ * select-all, IME composition and hit-testing from pixels back to characters. */
+.scope-aifig .af-textedit {
   position: absolute;
   z-index: 6;
   margin: 0;
@@ -361,28 +366,38 @@
   border: 0;
   outline: 0;
   background: transparent;
-  color: transparent;
-  caret-color: transparent;
-  text-align: center;
-  /* the glyphs are never painted, but a huge font would still scroll the field */
-  font-size: 12px;
   resize: none;
   overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  caret-color: #7828c8;
 }
 
-.scope-aifig .af-caret {
-  animation: af-blink 1.06s steps(1, end) infinite;
+.scope-aifig .af-mathhost {
+  position: absolute;
+  z-index: 6;
+  display: flex;
+  align-items: center;
 }
 
-@keyframes af-blink {
-  0%,
-  49% {
-    opacity: 1;
-  }
-  50%,
-  100% {
-    opacity: 0;
-  }
+.scope-aifig .af-mathfield {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  --caret-color: #7828c8;
+  --selection-background-color: rgba(120, 40, 200, 0.18);
+  --selection-color: currentColor;
+  /* the popup menu is switched off in code; this hides the affordance for it */
+  --menu-toggle-opacity: 0;
+}
+
+.scope-aifig math-field::part(menu-toggle),
+.scope-aifig math-field::part(virtual-keyboard-toggle) {
+  display: none;
 }
 
 .scope-aifig .af-statusbar {

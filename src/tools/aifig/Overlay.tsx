@@ -22,6 +22,11 @@ import {
   anchorHandlePoint,
 } from './handles'
 
+/** One selected neuron or synapse, ready to draw. */
+export type PartMark =
+  | { kind: 'dot'; c: Pt; r: number }
+  | { kind: 'wire'; a: Pt; b: Pt }
+
 interface Props {
   zoom: number
   nodes: FigNode[] // selected nodes
@@ -39,13 +44,8 @@ interface Props {
   tempEdge: { a: Pt; b: Pt } | null
   /** bounds of the node a live connection would land on */
   connectTarget: Rect | null
-  /** the neuron or synapse reached inside a network, in canvas coordinates */
-  partMark:
-    | { kind: 'dot'; c: Pt; r: number }
-    | { kind: 'wire'; a: Pt; b: Pt }
-    | null
-  /** caret for text being typed straight into a neuron, in canvas coordinates */
-  caret: { p: Pt; h: number } | null
+  /** the neurons and synapses reached inside a network, in canvas coordinates */
+  partMarks: PartMark[]
   /** true while a drag is in flight — handles are hidden to reduce noise */
   dragging: boolean
 }
@@ -63,8 +63,7 @@ export default function Overlay({
   marquee,
   tempEdge,
   connectTarget,
-  partMark,
-  caret,
+  partMarks,
   dragging,
 }: Props) {
   const k = 1 / zoom
@@ -195,44 +194,31 @@ export default function Overlay({
           along the synapse rather than as a box, because the thing selected is
           round or is a line — a bounding box would say "this region", and the
           whole point is that one part was singled out. */}
-      {partMark?.kind === 'dot' ? (
-        <circle
-          cx={partMark.c.x}
-          cy={partMark.c.y}
-          r={partMark.r + 3 * k}
-          fill="none"
-          stroke="#7828c8"
-          strokeWidth={1.6 * k}
-        />
-      ) : null}
-      {partMark?.kind === 'wire' ? (
-        <line
-          x1={partMark.a.x}
-          y1={partMark.a.y}
-          x2={partMark.b.x}
-          y2={partMark.b.y}
-          stroke="#7828c8"
-          strokeWidth={4 * k}
-          opacity={0.4}
-          strokeLinecap="round"
-        />
-      ) : null}
-
-      {/* The only chrome of typing into a circle. The text itself is drawn by
-          the figure — there is no field to look at, so this line is the whole
-          of "you are editing here". */}
-      {caret ? (
-        <line
-          className="af-caret"
-          x1={caret.p.x}
-          y1={caret.p.y - caret.h / 2}
-          x2={caret.p.x}
-          y2={caret.p.y + caret.h / 2}
-          stroke="#7828c8"
-          strokeWidth={1.4 * k}
-          strokeLinecap="round"
-        />
-      ) : null}
+      {partMarks.map((m, i) =>
+        m.kind === 'dot' ? (
+          <circle
+            key={i}
+            cx={m.c.x}
+            cy={m.c.y}
+            r={m.r + 3 * k}
+            fill="none"
+            stroke="#7828c8"
+            strokeWidth={1.6 * k}
+          />
+        ) : (
+          <line
+            key={i}
+            x1={m.a.x}
+            y1={m.a.y}
+            x2={m.b.x}
+            y2={m.b.y}
+            stroke="#7828c8"
+            strokeWidth={4 * k}
+            opacity={0.4}
+            strokeLinecap="round"
+          />
+        ),
+      )}
 
       {/* selected node outlines */}
       {nodes.map((n) => {

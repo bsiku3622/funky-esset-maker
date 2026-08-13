@@ -10,13 +10,12 @@ import type {
   FigEdge,
   FigNode,
   NeuronBits,
-  Pt,
   Rect,
   Style,
 } from './types'
 import { FONT_STACK } from './presets'
 import { atLength, rotatePt, snapPos, snapSize } from './geometry'
-import { layoutLabel, type LabelFont, type LabelLayout } from './latex'
+import { layoutLabel, type LabelLayout } from './latex'
 import { hasCaps, mlpNaturalSize } from './mlp'
 import type { ResolvedEdge } from './resolve'
 
@@ -93,65 +92,6 @@ export function placeLabel(n: FigNode): PlacedLabel | null {
   return { layout, x, y }
 }
 
-/* Where the text cursor lands on a *drawn* label: which line, and how far into
- * it, given an offset into the source.
- *
- * Typeset the prefix and measure it. For prose that is exact, because the
- * source and the glyphs run in step. For maths it is not exact — `\frac{a}{b}`
- * is eleven characters and one drawn fraction, so "between the a and the b" has
- * no place on screen — but a prefix of a linear formula does have a width, and
- * `\sigma(Wx` is where the cursor visibly is.
- *
- * ⚠️ A prefix cut mid-command is not TeX at all, so it has no width: `x_` on
- * the way through `x_1` is a syntax error. Walking back a character at a time
- * to the last prefix that *does* typeset puts the caret after the `x`, which is
- * both true and stable — it stops the caret jumping to the end every time the
- * cursor rests inside a command. */
-export function caretOffset(
-  src: string,
-  cursor: number,
-  f: LabelFont,
-): { line: number; x: number } {
-  const upto = src.slice(0, Math.max(0, Math.min(cursor, src.length)))
-  const parts = upto.split(/\\n|\n/)
-  const line = parts.length - 1
-  let head = parts[line]
-  for (let i = 0; i < 24; i++) {
-    const l = layoutLabel(head, f)
-    if (!l.error) return { line, x: l.w }
-    if (!head) break
-    head = head.slice(0, -1)
-  }
-  return { line, x: 0 }
-}
-
-/* Where the caret goes when a label is being typed into, in the node's frame. */
-export function labelCaret(n: FigNode, cursor?: number): { p: Pt; h: number } {
-  const s = labelStyle(n)
-  /* An empty label has nothing to place, so it is laid out as a zero-width
-     space: that puts one empty line exactly where the first real one will go,
-     rather than duplicating placeLabel's rules for where a block starts. */
-  const placed = placeLabel(n.label ? n : { ...n, label: '​' })
-  const fs = s.fontSize
-  if (!placed) return { p: { x: n.w / 2, y: n.h / 2 }, h: fs * 1.1 }
-  const lines = placed.layout.lines
-  /* Word wrap breaks the correspondence — the source has no character standing
-     for a line the layout invented — so a wrapped label keeps the caret at the
-     end of its ink rather than pointing at the wrong line. */
-  const breaks = (n.label.match(/\\n|\n/g) ?? []).length
-  const at =
-    cursor === undefined || lines.length > breaks + 1
-      ? null
-      : caretOffset(n.label, cursor, labelFont(s))
-  const li = at ? Math.min(at.line, lines.length - 1) : lines.length - 1
-  const line = lines[li]
-  if (!line) return { p: { x: placed.x, y: placed.y }, h: fs * 1.1 }
-  // mirror LabelView's per-line origin, then step into the run
-  const ox =
-    s.align === 'center' ? placed.x - line.w / 2 : s.align === 'right' ? placed.x - line.w : placed.x
-  return { p: { x: ox + (at ? at.x : line.w), y: placed.y + line.baseline - fs * 0.3 }, h: fs * 1.1 }
-}
-
 /** Side labels always face outward, regardless of the style alignment. */
 export function labelStyle(n: FigNode): Style {
   if (n.labelPos === 'left') return { ...n.style, align: 'right' }
@@ -198,17 +138,21 @@ export function edgeLabelBox(e: FigEdge, r: ResolvedEdge): Rect | null {
 /* ---------- text inside a neuron ---------- */
 
 /* A neuron's inner label is measured here rather than in the renderer, because
- * the renderer is no longer the only thing that needs it: typing into a circle
- * draws a caret, and the caret has to sit where the glyphs end. Two answers to
- * "how wide is this label" would put the caret next to the text instead of
- * after it. */
+ * the renderer is no longer the only thing that needs it: the in-place editor
+ * wears this style so the field it opens draws the same text at the same size
+ * as the circle it covers. */
 export function neuronLabelStyle(n: FigNode, r: number, bits?: NeuronBits): Style {
   return {
     ...n.style,
     // a unit may read its label its own way; absent, it reads the network's
     fontFamily: bits?.fontFamily ?? n.style.fontFamily,
-    // never up: a one-letter label would balloon to fill the circle
-    fontSize: Math.min(n.style.fontSize, r * 1.5),
+    /* An inherited size is capped to the circle, because the network's size was
+       chosen for its own label and would swamp a 32px circle. A size asked for
+       *on this unit* is meant, so it is used as given — overflowing a circle is
+       a thing figures do on purpose. */
+    fontSize: bits?.fontSize ?? Math.min(n.style.fontSize, r * 1.5),
+    fontWeight: bits?.fontWeight ?? n.style.fontWeight,
+    italic: bits?.italic ?? n.style.italic,
     align: 'center',
   }
 }

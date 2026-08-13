@@ -88,6 +88,13 @@ const pts = (arr: [number, number][]) => arr.map(([x, y]) => `${x},${y}`).join('
 
 interface BodyProps {
   n: FigNode
+  /* Text currently being typed into, which the editor is drawing itself. The
+   * editor is a real DOM field with the same font sitting over this drawing —
+   * the browser owns the caret and the selection that way — so whatever it is
+   * showing has to come out of here, or the two render on top of each other a
+   * pixel or two apart and the label looks doubled. `''` names the node's own
+   * label; anything else names a neuron. */
+  editing?: string
 }
 
 function strokeProps(s: Style) {
@@ -295,13 +302,16 @@ const NeuronLabel = ({ n, d, bits }: { n: FigNode; d: MlpDot; bits?: NeuronBits 
   )
 }
 
-const Mlp = ({ n }: BodyProps) => {
+const Mlp = ({ n, editing }: BodyProps) => {
   const s = n.style
   const lat = mlpLattice(n)
   const parts = n.props.neurons ?? {}
   const wireBits = n.props.wires ?? {}
   const baseFill = s.fill === 'none' ? '#ffffff' : s.fill
-  const thin = Math.max(0.35, s.strokeWidth * 0.42)
+  // the synapses' own ink, falling back to the node's when nothing was said
+  const wireInk = n.props.wireStroke ?? s.stroke
+  const thin = n.props.wireWidth ?? Math.max(0.35, s.strokeWidth * 0.42)
+  const wireFade = n.props.wireOpacity ?? 0.55
 
   /* ⚠️ Captions are prose even when the node's label is not.
    *
@@ -352,10 +362,10 @@ const Mlp = ({ n }: BodyProps) => {
             y1={w.a.y}
             x2={w.b.x}
             y2={w.b.y}
-            stroke={b?.stroke ?? s.stroke}
+            stroke={b?.stroke ?? wireInk}
             strokeWidth={sw}
             strokeDasharray={b?.dash ? dashArray(b.dash, sw) : undefined}
-            opacity={b?.opacity ?? 0.55}
+            opacity={b?.opacity ?? wireFade}
             data-mlp-wire={w.key}
           />
         )
@@ -372,6 +382,7 @@ const Mlp = ({ n }: BodyProps) => {
 
       {lat.dots.map((d) => {
         const b = parts[d.key]
+        const sw = b?.strokeWidth ?? s.strokeWidth
         return (
           <circle
             key={d.key}
@@ -380,15 +391,19 @@ const Mlp = ({ n }: BodyProps) => {
             r={d.r}
             fill={b?.fill ?? baseFill}
             stroke={b?.stroke ?? s.stroke}
-            strokeWidth={s.strokeWidth}
+            strokeWidth={sw}
+            strokeDasharray={b?.dash ? dashArray(b.dash, sw) : undefined}
+            opacity={b?.opacity}
             data-mlp-dot={d.key}
           />
         )
       })}
 
-      {lat.dots.map((d) => (
-        <NeuronLabel key={`t${d.key}`} n={n} d={d} bits={parts[d.key]} />
-      ))}
+      {lat.dots.map((d) =>
+        d.key === editing ? null : (
+          <NeuronLabel key={`t${d.key}`} n={n} d={d} bits={parts[d.key]} />
+        ),
+      )}
 
       {caps}
     </g>
@@ -703,21 +718,24 @@ const BODIES: Partial<Record<FigNode['kind'], (p: BodyProps) => React.ReactEleme
 
 export const NodeView = memo(function NodeView({
   n,
+  editing,
 }: {
   n: FigNode
   /** bumped when MathJax finishes loading; only here to bust memo */
   rev?: number
+  /** the label being typed into, which the editor draws instead — see BodyProps */
+  editing?: string
 }) {
   if (n.hidden) return null
   const Body = BODIES[n.kind] ?? Rect
-  const placed = placeLabel(n)
+  const placed = editing === '' ? null : placeLabel(n)
   const cx = n.w / 2
   const cy = n.h / 2
   const transform =
     `translate(${n.x} ${n.y})` + (n.rotation ? ` rotate(${n.rotation} ${cx} ${cy})` : '')
   return (
     <g transform={transform} opacity={n.style.opacity} data-node={n.id}>
-      <Body n={n} />
+      <Body n={n} editing={editing} />
       {placed ? (
         <LabelView
           layout={placed.layout}

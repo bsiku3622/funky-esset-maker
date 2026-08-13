@@ -20,6 +20,7 @@ import {
   mlpSlots,
   mlpWireAt,
   parseDotKey,
+  retypeLayers,
   wireKey,
 } from './mlp'
 import { snapPos } from './geometry'
@@ -412,6 +413,72 @@ describe('text inside a circle', () => {
     expect(neuronLabelStyle(n, 16, {}).fontFamily).toBe('latex')
     // one circle carrying a word among a column of symbols
     expect(neuronLabelStyle(n, 16, { fontFamily: 'sans' }).fontFamily).toBe('sans')
+  })
+})
+
+describe('splicing the layer list', () => {
+  /* Keys carry the layer index, so the layer axis moving under them is the one
+     change they cannot absorb on their own. Adding a hidden layer used to leave
+     the output unit's colour and label filed under the old number, and the
+     labelled circle jumped backwards into the middle of the network. */
+  const props: NodeProps = {
+    layers: [4, 64, 64, 64, 1],
+    neurons: { [dotKey(0, 0)]: { label: 't' }, [dotKey(4, 0)]: { label: 'T' } },
+    wires: { [wireKey(3, 0, 0)]: { stroke: '#f00' } },
+    capTop: ['in', '', '', '', 'out'],
+  }
+
+  it('carries the output unit to its new layer', () => {
+    const next = retypeLayers(props, [4, 64, 64, 64, 64, 1])
+    expect(next.neurons?.[dotKey(5, 0)]).toEqual({ label: 'T' })
+    expect(next.neurons?.[dotKey(4, 0)]).toBeUndefined()
+  })
+
+  it('leaves the layers before the new one alone', () => {
+    const next = retypeLayers(props, [4, 64, 64, 64, 64, 1])
+    expect(next.neurons?.[dotKey(0, 0)]).toEqual({ label: 't' })
+  })
+
+  it('carries the captions with them', () => {
+    const next = retypeLayers(props, [4, 64, 64, 64, 64, 1])
+    expect(next.capTop).toEqual(['in', '', '', '', '', 'out'])
+  })
+
+  it('moves the wires that still describe the same connection', () => {
+    // this one runs from layer 0, well before the splice
+    const p2 = { ...props, wires: { [wireKey(0, 0, 0)]: { stroke: '#f00' } } }
+    const next = retypeLayers(p2, [4, 64, 64, 64, 64, 1])
+    expect(next.wires?.[wireKey(0, 0, 0)]).toEqual({ stroke: '#f00' })
+  })
+
+  it('drops the wires whose connection the new layer broke', () => {
+    /* ⚠️ The coloured synapse ran from layer 3 to layer 4. A layer dropped in
+       between means those two are no longer joined, so the override describes
+       nothing — keeping it would repaint some other synapse instead. */
+    const next = retypeLayers(props, [4, 64, 64, 64, 64, 1])
+    expect(next.wires).toBeUndefined()
+  })
+
+  it('drops what was on a removed layer and pulls the rest back', () => {
+    const next = retypeLayers(props, [4, 64, 64, 1])
+    expect(next.neurons?.[dotKey(3, 0)]).toEqual({ label: 'T' })
+    expect(next.capTop).toEqual(['in', '', '', 'out'])
+  })
+
+  it('drops the overrides of the layer that went', () => {
+    const gone = retypeLayers({ ...props, layers: [4, 1] }, [4])
+    expect(gone.neurons?.[dotKey(1, 0)]).toBeUndefined()
+  })
+
+  it('says nothing about the keys when only a count changed', () => {
+    /* The return is a patch, so leaving a field out is how "unchanged" is
+       expressed — the layer axis did not move, and neither did the keys. */
+    const next = retypeLayers(props, [4, 64, 32, 64, 1])
+    expect(next).toEqual({ layers: [4, 64, 32, 64, 1] })
+  })
+
+  it('gives up rather than guessing when the list was rewritten wholesale', () => {
+    expect(retypeLayers(props, [2, 3])).toEqual({ layers: [2, 3] })
   })
 })
 

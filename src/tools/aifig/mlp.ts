@@ -343,6 +343,89 @@ export function mlpSnapProps(p: NodeProps, grid: number): Partial<NodeProps> {
   }
 }
 
+/* ---------- editing the layer list ---------- */
+
+/* ⚠️ Inserting a layer renumbers every layer after it, and the keys do not
+ * follow on their own.
+ *
+ * Part keys carry the layer index — `l4n0` is the first unit of layer 4 — which
+ * survives a layer changing *size*, and that was the case the keys were
+ * designed for. It does not survive the layer *axis* being spliced: add a
+ * hidden layer to [4,64,64,64,1] and the output unit is layer 5, while its
+ * colour and its label are still filed under layer 4. On screen the labelled
+ * circle jumps backwards into the middle of the network. `capTop` and
+ * `capBottom` are plain arrays indexed the same way, so they slide too.
+ *
+ * The change arrives as a whole new array, so the insertion point has to be
+ * recovered by comparison. Scanning from the front finds the first index that
+ * differs, which keeps the longest run of keys where they were. Inserting a
+ * layer whose size equals its neighbour's is genuinely ambiguous — [4,64,64]
+ * to [4,64,64,64] could be a new layer at any of three places — and the front
+ * scan simply picks the earliest reading. */
+function layerSplice(prev: number[], next: number[]): { at: number; delta: 1 | -1 } | null {
+  if (Math.abs(next.length - prev.length) !== 1) return null
+  const delta = next.length > prev.length ? 1 : -1
+  const short = delta === 1 ? prev : next
+  let at = short.length
+  for (let i = 0; i < short.length; i++)
+    if (prev[i] !== next[i]) {
+      at = i
+      break
+    }
+  return { at, delta }
+}
+
+/** Move a layer index across a splice; -1 means the layer is gone. */
+const shiftLayer = (li: number, at: number, delta: 1 | -1) =>
+  delta === 1 ? (li >= at ? li + 1 : li) : li === at ? -1 : li > at ? li - 1 : li
+
+/* `span` marks a bag whose keys name a *pair* of layers — the synapses, which
+ * run from their own layer to the next one. Those have a second way of going
+ * stale: a layer dropped into the gap they crossed leaves them pointing at
+ * something that was not there before. The connection they were describing no
+ * longer exists, so neither should they; carrying them over would silently
+ * repaint a different synapse than the one that was coloured. */
+const rekey = <T,>(
+  bag: Record<string, T> | undefined,
+  at: number,
+  delta: 1 | -1,
+  span = false,
+) => {
+  if (!bag) return undefined
+  const out: Record<string, T> = {}
+  for (const [key, v] of Object.entries(bag)) {
+    const m = /^l(\d+)(n.*)$/.exec(key)
+    if (!m) continue
+    const from = +m[1]
+    if (span && from === at - 1) continue
+    const li = shiftLayer(from, at, delta)
+    if (li >= 0) out[`l${li}${m[2]}`] = v
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
+const spliceCaps = (caps: string[] | undefined, at: number, delta: 1 | -1) => {
+  if (!caps) return undefined
+  const out = [...caps]
+  if (delta === 1) out.splice(at, 0, '')
+  else out.splice(at, 1)
+  return out.some(Boolean) ? out : undefined
+}
+
+/** A new layer list, with every key and caption moved to match. */
+export function retypeLayers(p: NodeProps, next: number[]): Partial<NodeProps> {
+  const move = layerSplice(mlpLayers(p), next)
+  if (!move) return { layers: next }
+  const { at, delta } = move
+  return {
+    layers: next,
+    neurons: rekey(p.neurons, at, delta),
+    wires: rekey(p.wires, at, delta, true),
+    capTop: spliceCaps(p.capTop, at, delta),
+    capBottom: spliceCaps(p.capBottom, at, delta),
+  }
+}
+
 /* ---------- captions ---------- */
 
 /** The caption above and below a column, if either was written. */

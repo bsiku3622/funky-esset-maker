@@ -43,6 +43,7 @@ import {
   mlpLayers,
   mlpSnapProps,
   parseDotKey,
+  retypeLayers,
 } from './mlp'
 import { nodeMap } from './doc'
 import { resolveEdge } from './resolve'
@@ -128,17 +129,18 @@ interface Props {
   onEdgeStyle: (patch: Partial<FigEdge['style']>) => void
   onCanvas: (patch: Partial<CanvasCfg>) => void
   onPalette: (id: string) => void
-  /** one neuron or synapse reached inside a selected network */
-  part: SelPart | null
-  /** merge into that part's overrides; null clears them back to the default */
+  /** the neurons or synapses reached inside a selected network */
+  parts: SelParts | null
+  /** merge into their overrides; null clears them back to the default */
   onPart: (patch: NeuronBits | WireBits | null) => void
   /** step back out to the network as a whole */
   onExitPart: () => void
 }
 
-export interface SelPart {
+export interface SelParts {
   node: FigNode
-  key: string
+  /** part keys, all of one kind and all inside `node` */
+  keys: string[]
   kind: 'dot' | 'wire'
 }
 
@@ -153,7 +155,7 @@ export default function Inspector({
   onEdgeStyle,
   onCanvas,
   onPalette,
-  part,
+  parts,
   onPart,
   onExitPart,
 }: Props) {
@@ -172,10 +174,10 @@ export default function Inspector({
    * for repaints the whole network, which is both the wrong thing and an
    * expensive mistake to undo once you have hand-coloured a dozen units. The
    * network's own settings are one press of Esc away. */
-  if (part)
+  if (parts)
     return (
       <div className="af-inspector">
-        <PartPanel part={part} swatches={swatches} onPart={onPart} onExit={onExitPart} />
+        <PartPanel parts={parts} swatches={swatches} onPart={onPart} onExit={onExitPart} />
       </div>
     )
 
@@ -572,7 +574,7 @@ function KindPanel({
         </Group>
       )
     case 'mlp':
-      return <MlpPanel n={n} canvas={canvas} onProps={onProps} />
+      return <MlpPanel n={n} canvas={canvas} swatches={swatches} onProps={onProps} />
 
     case 'grid':
       return (
@@ -791,51 +793,64 @@ function KindPanel({
   }
 }
 
-/* ---------- one part of an MLP ---------- */
+/* ---------- parts of an MLP ---------- */
 
-/* Everything here is an *override*. A neuron with no entry draws in the
- * network's own colours, and "기본값으로" deletes the entry rather than writing
- * the current colour into it — otherwise recolouring the network would leave
- * every hand-touched unit behind on the old palette. */
+/* A neuron is a circle with text in it, so it gets what a circle gets. The
+ * earlier version of this panel offered four fields and nothing else, on the
+ * theory that a part should be simpler than a shape — which is backwards. The
+ * lattice owns where a unit is and how big it is, because that is what keeps
+ * the drawing on the grid; everything about how it *looks* is the user's, and
+ * withholding it just means the figure cannot be drawn.
+ *
+ * Every field is an override. Absent follows the network, and "기본값으로"
+ * deletes the entry rather than writing the current value into it — otherwise
+ * recolouring the network would leave every hand-touched unit on the old
+ * palette. Edits apply to all selected parts at once. */
 function PartPanel({
-  part,
+  parts,
   swatches,
   onPart,
   onExit,
 }: {
-  part: SelPart
+  parts: SelParts
   swatches: string[]
   onPart: Props['onPart']
   onExit: () => void
 }) {
-  const p = part.node.props
-  const where = parseDotKey(part.key)
-  const s = part.node.style
+  const p = parts.node.props
+  const s = parts.node.style
+  const many = parts.keys.length > 1
+  const first = parts.keys[0]
+  const where = parseDotKey(first)
 
-  /* The way back. It has to be visible: the node's own panel is gone while a
-     part is focused, and a control that vanished without saying so reads as a
-     bug rather than as a change of subject. */
   const back = (
     <Field label="대상">
       <span className="af-hint-inline">
-        {part.kind === 'wire'
-          ? '연결선 하나'
-          : where
-            ? `${where.li + 1}층 ${where.n + 1}번 뉴런`
-            : '뉴런 하나'}
+        {many
+          ? `${parts.keys.length}개`
+          : parts.kind === 'wire'
+            ? '연결선 하나'
+            : where
+              ? `${where.li + 1}층 ${where.n + 1}번`
+              : '뉴런 하나'}
       </span>
       <button type="button" className="af-mini" onClick={onExit}>
         네트워크 전체로 (Esc)
       </button>
     </Field>
   )
+  const reset = (
+    <button type="button" className="af-mini" onClick={() => onPart(null)}>
+      기본값으로
+    </button>
+  )
 
-  if (part.kind === 'wire') {
-    const w: WireBits = p.wires?.[part.key] ?? {}
+  if (parts.kind === 'wire') {
+    const w: WireBits = p.wires?.[first] ?? {}
     return (
-      <Group title="연결선 하나">
+      <Group title={many ? `연결선 ${parts.keys.length}개` : '연결선 하나'}>
         {back}
-        <Field label="색">
+        <Field label="색 · 굵기">
           <ColorBtn
             value={w.stroke ?? s.stroke}
             swatches={swatches}
@@ -864,21 +879,19 @@ function PartPanel({
         </Field>
         <Field label="표시">
           <Chk checked={!w.hidden} onChange={(on) => onPart({ hidden: !on })} label="그리기" />
-          <button type="button" className="af-mini" onClick={() => onPart(null)}>
-            기본값으로
-          </button>
+          {reset}
         </Field>
         <p className="af-note">
-          {part.key} — 이 시냅스 하나만 바뀝니다. 층 크기를 바꿔도 같은 두 뉴런을 따라갑니다.
+          층 크기를 바꿔도 같은 두 뉴런을 따라갑니다. Shift로 여러 개 고를 수 있습니다.
         </p>
       </Group>
     )
   }
 
-  const b: NeuronBits = p.neurons?.[part.key] ?? {}
+  const b: NeuronBits = p.neurons?.[first] ?? {}
   const mode = b.fontFamily ?? s.fontFamily
   return (
-    <Group title="뉴런 하나">
+    <Group title={many ? `뉴런 ${parts.keys.length}개` : '뉴런 하나'}>
       {back}
       <Field label="텍스트" wide>
         <input
@@ -890,9 +903,6 @@ function PartPanel({
         />
       </Field>
       <Field label="글꼴">
-        {/* Almost every unit wants the network's mode, so that is the default
-            and it stays the default — picking it again clears the override
-            rather than freezing today's value into this one circle. */}
         <Sel
           value={b.fontFamily ?? INHERIT}
           options={[
@@ -909,12 +919,27 @@ function PartPanel({
           }}
         />
       </Field>
-      <Field label="채우기 · 테두리">
-        <ColorBtn value={b.fill ?? s.fill} swatches={swatches} onChange={(fill) => onPart({ fill })} />
-        <ColorBtn
-          value={b.stroke ?? s.stroke}
-          swatches={swatches}
-          onChange={(stroke) => onPart({ stroke })}
+      <Field label="글자 크기">
+        <Num
+          value={b.fontSize ?? s.fontSize}
+          min={2}
+          max={200}
+          onChange={(fontSize) => onPart({ fontSize })}
+          suffix="px"
+          width={56}
+        />
+        <Num
+          value={b.fontWeight ?? s.fontWeight}
+          min={100}
+          max={900}
+          step={100}
+          onChange={(fontWeight) => onPart({ fontWeight })}
+          width={56}
+        />
+        <Chk
+          checked={b.italic ?? s.italic}
+          onChange={(italic) => onPart({ italic })}
+          label="기울임"
         />
       </Field>
       <Field label="글자색">
@@ -923,13 +948,39 @@ function PartPanel({
           swatches={swatches}
           onChange={(textColor) => onPart({ textColor })}
         />
-        <button type="button" className="af-mini" onClick={() => onPart(null)}>
-          기본값으로
-        </button>
+      </Field>
+      <Field label="채우기 · 테두리">
+        <ColorBtn value={b.fill ?? s.fill} swatches={swatches} onChange={(fill) => onPart({ fill })} />
+        <ColorBtn
+          value={b.stroke ?? s.stroke}
+          swatches={swatches}
+          onChange={(stroke) => onPart({ stroke })}
+        />
+        <Num
+          value={b.strokeWidth ?? s.strokeWidth}
+          step={0.1}
+          min={0}
+          max={20}
+          onChange={(strokeWidth) => onPart({ strokeWidth })}
+          suffix="px"
+          width={56}
+        />
+      </Field>
+      <Field label="선 모양 · 투명도">
+        <Sel value={b.dash ?? 'solid'} options={DASHES} onChange={(dash) => onPart({ dash })} />
+        <Num
+          value={b.opacity ?? 1}
+          step={0.05}
+          min={0}
+          max={1}
+          onChange={(opacity) => onPart({ opacity })}
+          width={46}
+        />
+        {reset}
       </Field>
       <p className="af-note">
         원을 더블클릭하면 그 자리에서 바로 쓸 수 있습니다 — Tab으로 다음 뉴런, Esc로 나가기.
-        {mode === 'latex' ? ' 지금은 수식 모드라 $ 없이 씁니다.' : ' 수식은 $x_1$ 처럼 감싸세요.'}
+        Shift로 여러 개를 고르면 한꺼번에 바뀝니다.
       </p>
     </Group>
   )
@@ -949,10 +1000,12 @@ function PartPanel({
 function MlpPanel({
   n,
   canvas,
+  swatches,
   onProps,
 }: {
   n: FigNode
   canvas: CanvasCfg
+  swatches: string[]
   onProps: Props['onProps']
 }) {
   const p = n.props
@@ -979,12 +1032,14 @@ function MlpPanel({
         <Field label="층 구성" wide>
           {/* A layer may stand for far more units than it draws — the ellipsis
               below decides how many circles that becomes. */}
+          {/* Not a plain set: adding or removing a layer renumbers the ones
+              after it, and every per-part override is filed by layer number. */}
           <NumList
             value={layers}
             max={MLP_MAX_UNITS}
             maxItems={MLP_MAX_LAYERS}
             placeholder="4, 5, 3"
-            onChange={(v) => onProps({ layers: v })}
+            onChange={(v) => onProps(retypeLayers(p, v) as Record<string, unknown>)}
           />
         </Field>
         <Field label="배치">
@@ -1019,6 +1074,32 @@ function MlpPanel({
             checked={p.showEdges !== false}
             onChange={(showEdges) => onProps({ showEdges })}
             label="연결선"
+          />
+        </Field>
+        {/* The synapses have their own ink: a network usually wants dark
+            circles and pale wires, which one colour cannot express. */}
+        <Field label="연결선 색">
+          <ColorBtn
+            value={p.wireStroke ?? n.style.stroke}
+            swatches={swatches}
+            onChange={(wireStroke) => onProps({ wireStroke })}
+          />
+          <Num
+            value={p.wireWidth ?? +Math.max(0.35, n.style.strokeWidth * 0.42).toFixed(2)}
+            step={0.1}
+            min={0.1}
+            max={20}
+            onChange={(wireWidth) => onProps({ wireWidth })}
+            suffix="px"
+            width={58}
+          />
+          <Num
+            value={p.wireOpacity ?? 0.55}
+            step={0.05}
+            min={0}
+            max={1}
+            onChange={(wireOpacity) => onProps({ wireOpacity })}
+            width={46}
           />
         </Field>
         <Field label="생략">

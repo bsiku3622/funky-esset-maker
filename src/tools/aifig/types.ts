@@ -92,16 +92,29 @@ export type NodeKind =
  * recoloured or dropped without becoming its own edge. Keeping them here rather
  * than exploding the glyph into real nodes is what lets the lattice stay
  * algorithmic — a unit you could drag away from the grid would not be on it. */
+/* A neuron is a circle with text in it, and everything a circle can be told is
+ * on offer here. Absent means "whatever the network is set to" — that is the
+ * default rather than a limit, so a unit only carries what has been said about
+ * it specifically and still follows the figure when its colours change.
+ *
+ * ⚠️ What is deliberately *not* here is position and radius. Those belong to
+ * the lattice — a unit you could move or resize by hand would not be on the
+ * grid, and being on the grid is the whole point of mlp.ts. Everything else is
+ * appearance, and appearance is the user's. */
 export interface NeuronBits {
   /** drawn inside the circle */
   label?: string
-  /* How that label is read. Absent means "whatever the network is set to",
-   * which is what nearly every unit wants — the exception is the odd circle
-   * carrying a word among a column of symbols, or the reverse. */
   fontFamily?: FontKind
+  /** absent lets the network's size be capped to fit the circle; set is exact */
+  fontSize?: number
+  fontWeight?: number
+  italic?: boolean
+  textColor?: string
   fill?: string
   stroke?: string
-  textColor?: string
+  strokeWidth?: number
+  dash?: DashKind
+  opacity?: number
 }
 
 export interface WireBits {
@@ -136,6 +149,13 @@ export interface NodeProps {
   layerGap?: number
   /** circles drawn per column before the remainder becomes a ⋮ */
   maxDots?: number
+  /* The synapses have their own ink. They used to borrow the node's stroke,
+   * which meant a network could not have dark circles and pale wires — the
+   * ordinary look for a figure with more than three units a layer. Absent
+   * still falls back to the node, so nothing already drawn changes. */
+  wireStroke?: string
+  wireWidth?: number
+  wireOpacity?: number
   /** per-neuron overrides, keyed `l0n2` (layer, unit) */
   neurons?: Record<string, NeuronBits>
   /** per-wire overrides, keyed `l0n2-n1` (layer, from unit, to unit) */
