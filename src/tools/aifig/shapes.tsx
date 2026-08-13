@@ -285,7 +285,7 @@ const Stack = ({ n }: BodyProps) => {
 const MLP_CAP_GAP = 5
 
 const NeuronLabel = ({ n, d, bits }: { n: FigNode; d: MlpDot; bits?: NeuronBits }) => {
-  const placed = neuronLabel(n, d, bits?.label ?? '')
+  const placed = neuronLabel(n, d, bits)
   if (!placed) return null
   const fill = bits?.fill ?? n.style.fill
   const color =

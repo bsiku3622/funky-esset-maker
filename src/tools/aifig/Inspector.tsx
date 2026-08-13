@@ -49,6 +49,9 @@ import { resolveEdge } from './resolve'
 import { dataUrlBytes, fileToImage, formatBytes } from './image'
 import { Chk, ColorBtn, Field, Group, Num, NumList, Sel, Seg } from './ui'
 
+/** Sentinel for "no override" in a dropdown whose real values are all strings. */
+const INHERIT = '__inherit'
+
 const DASHES: { key: DashKind; label: string }[] = [
   { key: 'solid', label: '───' },
   { key: 'dashed', label: '- - -' },
@@ -873,6 +876,7 @@ function PartPanel({
   }
 
   const b: NeuronBits = p.neurons?.[part.key] ?? {}
+  const mode = b.fontFamily ?? s.fontFamily
   return (
     <Group title="뉴런 하나">
       {back}
@@ -880,9 +884,29 @@ function PartPanel({
         <input
           className="af-input"
           value={b.label ?? ''}
-          placeholder={s.fontFamily === 'latex' ? 'x_1' : '$x_1$'}
+          placeholder={mode === 'latex' ? 'x_1' : '$x_1$'}
           onChange={(e) => onPart({ label: e.target.value })}
           onKeyDown={(e) => e.stopPropagation()}
+        />
+      </Field>
+      <Field label="글꼴">
+        {/* Almost every unit wants the network's mode, so that is the default
+            and it stays the default — picking it again clears the override
+            rather than freezing today's value into this one circle. */}
+        <Sel
+          value={b.fontFamily ?? INHERIT}
+          options={[
+            { key: INHERIT, label: `네트워크를 따름 (${FONT_LABEL[s.fontFamily]})` },
+            ...(['latex', 'sans', 'serif', 'mono'] as FontKind[]).map((k) => ({
+              key: k,
+              label: FONT_LABEL[k],
+            })),
+          ]}
+          onChange={(v) => {
+            const next = v === INHERIT ? undefined : (v as FontKind)
+            // the source has to be rewritten for the new mode, same as a node's
+            onPart({ fontFamily: next, label: retypeLabel(b.label ?? '', mode, next ?? s.fontFamily) })
+          }}
         />
       </Field>
       <Field label="채우기 · 테두리">
@@ -905,7 +929,7 @@ function PartPanel({
       </Field>
       <p className="af-note">
         원을 더블클릭하면 그 자리에서 바로 쓸 수 있습니다 — Tab으로 다음 뉴런, Esc로 나가기.
-        글자는 노드의 글꼴 모드를 따릅니다.
+        {mode === 'latex' ? ' 지금은 수식 모드라 $ 없이 씁니다.' : ' 수식은 $x_1$ 처럼 감싸세요.'}
       </p>
     </Group>
   )

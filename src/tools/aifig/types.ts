@@ -93,8 +93,12 @@ export type NodeKind =
  * than exploding the glyph into real nodes is what lets the lattice stay
  * algorithmic — a unit you could drag away from the grid would not be on it. */
 export interface NeuronBits {
-  /** drawn inside the circle, in the node's own text mode */
+  /** drawn inside the circle */
   label?: string
+  /* How that label is read. Absent means "whatever the network is set to",
+   * which is what nearly every unit wants — the exception is the odd circle
+   * carrying a word among a column of symbols, or the reverse. */
+  fontFamily?: FontKind
   fill?: string
   stroke?: string
   textColor?: string

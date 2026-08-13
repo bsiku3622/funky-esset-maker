@@ -2082,12 +2082,13 @@ export default function AiFigureMaker() {
     if (!n) return null
     const d = mlpDot(n, editDot.key)
     if (!d) return null
-    const text = n.props.neurons?.[editDot.key]?.label ?? ''
+    const bits = n.props.neurons?.[editDot.key]
+    const text = bits?.label ?? ''
     const at = (p: Pt) => {
       const q = { x: n.x + p.x, y: n.y + p.y }
       return n.rotation ? rotatePt(q, rectCenter(n), n.rotation) : q
     }
-    const placed = neuronLabel(n, d, text)
+    const placed = neuronLabel(n, d, bits)
     const centre = at(d)
     return {
       n,

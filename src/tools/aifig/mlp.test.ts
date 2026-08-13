@@ -404,6 +404,15 @@ describe('text inside a circle', () => {
     const n = fitted({ layers: [1], pitch: 40, layerGap: 96, neuronR: 16 })
     expect(neuronLabelStyle({ ...n, style: { ...n.style, align: 'right' } }, 16).align).toBe('center')
   })
+
+  it('reads the network mode unless the unit says otherwise', () => {
+    const n = fitted({ layers: [1], pitch: 40, layerGap: 96, neuronR: 16 })
+    expect(n.style.fontFamily).toBe('latex')
+    expect(neuronLabelStyle(n, 16).fontFamily).toBe('latex')
+    expect(neuronLabelStyle(n, 16, {}).fontFamily).toBe('latex')
+    // one circle carrying a word among a column of symbols
+    expect(neuronLabelStyle(n, 16, { fontFamily: 'sans' }).fontFamily).toBe('sans')
+  })
 })
 
 describe('part keys', () => {

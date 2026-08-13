@@ -3,7 +3,17 @@
  * Split out of shapes.tsx so the pure geometry can be imported by the editor,
  * the exporter and the hit layer without dragging a component module along. */
 
-import type { CanvasCfg, EdgeStyle, FigDoc, FigEdge, FigNode, Pt, Rect, Style } from './types'
+import type {
+  CanvasCfg,
+  EdgeStyle,
+  FigDoc,
+  FigEdge,
+  FigNode,
+  NeuronBits,
+  Pt,
+  Rect,
+  Style,
+} from './types'
 import { FONT_STACK } from './presets'
 import { atLength, rotatePt, snapPos, snapSize } from './geometry'
 import { layoutLabel, type LabelLayout } from './latex'
@@ -158,9 +168,15 @@ export function edgeLabelBox(e: FigEdge, r: ResolvedEdge): Rect | null {
  * draws a caret, and the caret has to sit where the glyphs end. Two answers to
  * "how wide is this label" would put the caret next to the text instead of
  * after it. */
-export function neuronLabelStyle(n: FigNode, r: number): Style {
-  // never up: a one-letter label would balloon to fill the circle
-  return { ...n.style, fontSize: Math.min(n.style.fontSize, r * 1.5), align: 'center' }
+export function neuronLabelStyle(n: FigNode, r: number, bits?: NeuronBits): Style {
+  return {
+    ...n.style,
+    // a unit may read its label its own way; absent, it reads the network's
+    fontFamily: bits?.fontFamily ?? n.style.fontFamily,
+    // never up: a one-letter label would balloon to fill the circle
+    fontSize: Math.min(n.style.fontSize, r * 1.5),
+    align: 'center',
+  }
 }
 
 export interface NeuronLabel {
@@ -173,9 +189,14 @@ export interface NeuronLabel {
 }
 
 /** Lay out what a neuron draws inside itself, or null when it draws nothing. */
-export function neuronLabel(n: FigNode, dot: { x: number; y: number; r: number }, text: string): NeuronLabel | null {
+export function neuronLabel(
+  n: FigNode,
+  dot: { x: number; y: number; r: number },
+  bits?: NeuronBits,
+): NeuronLabel | null {
+  const text = bits?.label ?? ''
   if (!text) return null
-  const style = neuronLabelStyle(n, dot.r)
+  const style = neuronLabelStyle(n, dot.r, bits)
   /* Half-typed maths is rejected maths — `\sig` on the way to `\sigma` — and
      layoutLabel answers a rejection with the source itself, so a circle being
      typed into shows what was typed rather than going blank or red. */
