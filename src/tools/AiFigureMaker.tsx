@@ -692,7 +692,30 @@ export default function AiFigureMaker() {
     commit((d) => ({ ...d, canvas: { ...d.canvas, ...patch } }))
 
   /** Paint the palette accent onto the selection (outline + pale fill). */
+  /* The part the toolbar is acting on, if any.
+   *
+   * ⚠️ Every toolbar action that paints has to ask this first. Reaching inside
+   * a network makes one neuron the subject, and a button that skipped the
+   * question would repaint the whole network from a control that looks like it
+   * is about the thing you just clicked. The inspector already hides the node's
+   * own panel while a part is focused; the toolbar is the other way in. */
+  const focusedPart = () => {
+    const p = selPartRef.current
+    return p && selNodesRef.current.includes(p.node) ? p : null
+  }
+
+  /** Paint the focused part instead of the node. True when it did. */
+  const paintPart = (bits: NeuronBits, wireBits: WireBits) => {
+    const part = focusedPart()
+    if (!part) return false
+    commit((d) =>
+      patchMlpPart(d, part, part.kind === 'dot' ? 'neurons' : 'wires', part.kind === 'dot' ? bits : wireBits),
+    )
+    return true
+  }
+
   const applyAccent = (hex: string) => {
+    if (paintPart({ stroke: hex, fill: tint(hex, 0.84) }, { stroke: hex })) return
     if (selNodesRef.current.length)
       commit((d) => patchNodeStyle(d, selNodesRef.current, { stroke: hex, fill: tint(hex, 0.84) }))
     if (selEdgesRef.current.length)
@@ -857,6 +880,15 @@ export default function AiFigureMaker() {
     setSelNodes(res.nodeIds)
   }
   const deleteSel = () => {
+    /* ⚠️ Same trap as the swatches, with a worse ending: a neuron cannot be
+       deleted — the lattice decides how many there are — so Delete used to fall
+       through and take the entire network with it. The nearest thing a part can
+       lose is what has been done to it, so that is what goes. */
+    const part = focusedPart()
+    if (part) {
+      commit((d) => patchMlpPart(d, part, part.kind === 'dot' ? 'neurons' : 'wires', null))
+      return
+    }
     if (!selNodesRef.current.length && !selEdgesRef.current.length) return
     commit((d) => removeItems(d, selNodesRef.current, selEdgesRef.current))
     clearSel()
@@ -2241,6 +2273,7 @@ export default function AiFigureMaker() {
             className="af-swatch af-swatch--plain"
             title="무채색 (흰 배경 + 먹선)"
             onClick={() => {
+              if (paintPart({ fill: '#ffffff', stroke: pal.ink }, { stroke: pal.ink })) return
               if (!selNodesRef.current.length) return flash('먼저 요소를 선택하세요')
               commit((d) => patchNodeStyle(d, selNodesRef.current, { fill: '#ffffff', stroke: pal.ink }))
             }}
