@@ -372,6 +372,8 @@ export default function AiFigureMaker() {
   const [panelOpen, setPanelOpen] = useState(() => window.innerWidth >= AF_WIDE)
   const [dpi, setDpi] = useState(600)
   const [trim, setTrim] = useState(true)
+  /** export the selection alone — one block out of a figure, for a slide */
+  const [onlySel, setOnlySel] = useState(false)
   const [busy, setBusy] = useState(false)
   const [dropping, setDropping] = useState(false)
   /* The undo stacks live in a ref (pushing must not re-render mid-drag), so the
@@ -2129,10 +2131,30 @@ export default function AiFigureMaker() {
     }
   }
 
+  /* What an export covers. With "선택만" on, the selected nodes and edges —
+     plus the connectors *between* two selected nodes, because a pair of blocks
+     without the arrow between them is not the thing that was selected. */
+  const exportOnly = () => {
+    if (!onlySel) return undefined
+    const nodes = new Set(selNodesRef.current)
+    if (!nodes.size && !selEdgesRef.current.length) return undefined
+    const d = docRef.current
+    const spans = (ep: FigEdge['from']) => 'node' in ep && nodes.has(ep.node)
+    const edges = d.edges
+      .filter((e) => selEdgesRef.current.includes(e.id) || (spans(e.from) && spans(e.to)))
+      .map((e) => e.id)
+    return [...nodes, ...edges]
+  }
+
   const framed = () => {
     const g = figRef.current
     if (!g) throw new Error('canvas not ready')
-    return buildSvg(g, docRef.current, { ...DEFAULT_EXPORT, trim, pad: trim ? 6 : 0 })
+    return buildSvg(g, docRef.current, {
+      ...DEFAULT_EXPORT,
+      trim,
+      pad: trim ? 6 : 0,
+      only: exportOnly(),
+    })
   }
 
   const exportSvg = () =>
@@ -2162,7 +2184,19 @@ export default function AiFigureMaker() {
 
   const exportTikz = () =>
     withBusy(async () => {
-      const code = toTikz(docRef.current)
+      // TikZ is generated from the document rather than the DOM, so the same
+      // choice has to be made again here rather than reused from `framed`
+      const only = exportOnly()
+      const d = docRef.current
+      const code = toTikz(
+        only
+          ? {
+              ...d,
+              nodes: d.nodes.filter((n) => only.includes(n.id)),
+              edges: d.edges.filter((e) => only.includes(e.id)),
+            }
+          : d,
+      )
       try {
         await navigator.clipboard.writeText(code)
         flash('TikZ 코드를 클립보드에 복사했습니다')
@@ -2488,6 +2522,22 @@ export default function AiFigureMaker() {
           >
             복사
           </Button>
+          <label
+            className="af-chk af-chk--tool"
+            title={
+              selNodes.length || selEdges.length
+                ? '고른 것만 내보냅니다 — 두 도형 사이의 연결선은 함께 갑니다'
+                : '먼저 도형을 고르세요'
+            }
+          >
+            <input
+              type="checkbox"
+              checked={onlySel}
+              disabled={!selNodes.length && !selEdges.length}
+              onChange={(e) => setOnlySel(e.target.checked)}
+            />
+            <span>선택만</span>
+          </label>
           <label className="af-chk af-chk--tool">
             <input type="checkbox" checked={trim} onChange={(e) => setTrim(e.target.checked)} />
             <span>여백 자르기</span>

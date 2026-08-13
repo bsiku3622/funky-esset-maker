@@ -19,6 +19,13 @@ export interface ExportOpts {
   pad: number
   /** paint the canvas background even when it is set to transparent */
   opaque: boolean
+  /* Export only these nodes and edges.
+   *
+   * ⚠️ The cut happens on the *clone*, so the live drawing is untouched — and
+   * it has to, because the frame is measured from what remains. Measuring the
+   * original group's bbox and then removing half of it would leave a figure
+   * floating in the space its neighbours used to fill. */
+  only?: string[]
 }
 
 export const DEFAULT_EXPORT: ExportOpts = { trim: true, pad: 6, opaque: false }
@@ -37,6 +44,28 @@ export function buildSvg(
   doc: FigDoc,
   opts: ExportOpts = DEFAULT_EXPORT,
 ): Framed {
+  /* Cut first, then measure. A partial export is framed by what survives, and
+     `getBBox` only reports what is in the document — so the trimmed copy has to
+     be mounted for long enough to be measured, hidden well out of the way. */
+  const clone = group.cloneNode(true) as SVGGElement
+  let measured: SVGGElement = group
+  let host: SVGSVGElement | null = null
+  if (opts.only) {
+    const keep = new Set(opts.only)
+    clone.querySelectorAll('[data-node],[data-edge]').forEach((el) => {
+      const id = el.getAttribute('data-node') ?? el.getAttribute('data-edge')
+      if (id && !keep.has(id)) el.remove()
+    })
+    host = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    host.setAttribute('aria-hidden', 'true')
+    host.style.cssText =
+      'position:absolute;left:-99999px;top:0;width:1px;height:1px;overflow:hidden'
+    const held = clone.cloneNode(true) as SVGGElement
+    host.appendChild(held)
+    document.body.appendChild(host)
+    measured = held
+  }
+
   let x = 0
   let y = 0
   let w = doc.canvas.w
@@ -44,7 +73,7 @@ export function buildSvg(
   if (opts.trim) {
     let box: DOMRect | null
     try {
-      box = group.getBBox()
+      box = measured.getBBox()
     } catch {
       box = null
     }
@@ -55,8 +84,7 @@ export function buildSvg(
       h = Math.ceil(box.height + opts.pad * 2)
     }
   }
-
-  const clone = group.cloneNode(true) as SVGGElement
+  host?.remove()
   // strip editor-only attributes so the file stays clean
   for (const attr of ['transform', 'class', 'pointer-events'])
     clone.removeAttribute(attr)

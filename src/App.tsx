@@ -70,6 +70,8 @@ export default function App() {
   const [reloadNonce, setReloadNonce] = useState(0)
   const [toast, setToast] = useState<string | null>(null)
   const [dropping, setDropping] = useState(false)
+  /** the paste box's text, or null when it is closed */
+  const [pasting, setPasting] = useState<string | null>(null)
 
   /* Render mode. App-level rather than per-tool: it answers "what am I making
      today", and that does not change when you switch from the table to the
@@ -324,6 +326,21 @@ export default function App() {
               </span>
               <span className="fem__action-text">저장</span>
             </button>
+            {/* A project often arrives as text rather than as a file — pasted
+                out of a chat with a model, or out of a message. Making that
+                round trip through Save-as-file and Open-file is a detour
+                around something the clipboard already had. */}
+            <button
+              type="button"
+              className="fem__action"
+              onClick={() => setPasting('')}
+              title="JSON을 붙여넣어 불러오기"
+            >
+              <span className="fem__action-icon" aria-hidden="true">
+                ⌘V
+              </span>
+              <span className="fem__action-text">붙여넣기</span>
+            </button>
           </div>
         </div>
 
@@ -365,6 +382,56 @@ export default function App() {
       {dropping && (
         <div className="fem__dropzone" aria-hidden="true">
           <span>프로젝트 .json 놓기</span>
+        </div>
+      )}
+      {pasting !== null && (
+        <div
+          className="fem__paste"
+          role="dialog"
+          aria-label="JSON 붙여넣기"
+          onPointerDown={(e) => {
+            if (e.target === e.currentTarget) setPasting(null)
+          }}
+        >
+          <div className="fem__paste-box">
+            <h2>JSON 붙여넣기</h2>
+            <textarea
+              autoFocus
+              value={pasting}
+              placeholder='{"tool":"aifig", …} 또는 도구의 원본 JSON'
+              onChange={(e) => setPasting(e.target.value)}
+              /* ⌘Enter loads without reaching for the mouse; Escape closes.
+                 Plain Enter is a newline — this is a text field holding a
+                 document, not a search box. */
+              onKeyDown={(e) => {
+                e.stopPropagation()
+                if (e.key === 'Escape') setPasting(null)
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  loadText(pasting)
+                  setPasting(null)
+                }
+              }}
+            />
+            <p className="fem__paste-note">
+              현재 도구의 원본 JSON도 됩니다 — 도구 이름이 없으면 지금 열린 도구로 읽습니다.
+            </p>
+            <div className="fem__paste-row">
+              <button type="button" className="fem__action" onClick={() => setPasting(null)}>
+                취소
+              </button>
+              <button
+                type="button"
+                className="fem__action fem__action--go"
+                disabled={!pasting.trim()}
+                onClick={() => {
+                  loadText(pasting)
+                  setPasting(null)
+                }}
+              >
+                불러오기 (⌘↵)
+              </button>
+            </div>
+          </div>
         </div>
       )}
       {toast && (
