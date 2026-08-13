@@ -138,6 +138,9 @@ import { IconBtn, Num, Seg } from './aifig/ui'
 
 /* ---------- drag state ---------- */
 
+/** One neuron or synapse inside a network node, by the keys mlp.ts mints. */
+type PartRef = { node: string; key: string; kind: 'dot' | 'wire' }
+
 type Drag =
   | {
       t: 'move'
@@ -148,6 +151,11 @@ type Drag =
       moved: boolean
       /** which alignment each axis locked onto, so it stays locked */
       sticky: Sticky
+      /* The neuron or synapse this press landed on, if it landed on one. It is
+       * only acted on if the press never becomes a drag — see the pointer-up
+       * handler. Deciding on the way down instead would make a selected network
+       * nearly impossible to move, because its synapses cross most of its box. */
+      part?: PartRef
     }
   | {
       t: 'resize'
@@ -341,9 +349,7 @@ export default function AiFigureMaker() {
   const [connectFrom, setConnectFrom] = useState<{ id: string; part?: string } | null>(null)
   /** One neuron or synapse inside a selected network — the thing the inspector
    *  edits when you have reached inside a network glyph. */
-  const [selPart, setSelPart] = useState<
-    { node: string; key: string; kind: 'dot' | 'wire' } | null
-  >(null)
+  const [selPart, setSelPart] = useState<PartRef | null>(null)
   /** The neuron being typed into. Its text goes straight into the circle. */
   const [editDot, setEditDot] = useState<{ node: string; key: string } | null>(null)
   /* Where the text cursor is in whichever label is being edited. The field is
@@ -1149,20 +1155,24 @@ export default function AiFigureMaker() {
         /* Reaching inside a network.
          *
          * The first click selects the network, the way clicking any shape does.
-         * Once it is selected, a click on one of its circles or synapses picks
-         * that part instead — the same "select the group, then select within
-         * it" idiom a drawing program uses, and it costs no new mode. Shift is
-         * left alone so multi-select still means what it always did. */
-        if (n.kind === 'mlp' && already && !ev.shiftKey && !n.locked) {
+         * Once it is on its own, a *click* on one of its circles or synapses
+         * picks that part instead — the "select the group, then select within
+         * it" idiom, and it costs no new mode.
+         *
+         * ⚠️ Two conditions, and both were learned the hard way. It has to be
+         * the only thing selected, or a marquee that swept up a network along
+         * with three other shapes would collapse to one synapse the moment you
+         * pressed to move them. And it is decided on the way *up*, not here,
+         * because a network's synapses cross most of its box — grabbing one on
+         * the way down would leave almost nowhere to grab the network itself. */
+        const solo = already && selNodesRef.current.length === 1
+        let part: PartRef | undefined
+        if (n.kind === 'mlp' && solo && !ev.shiftKey && !n.locked) {
           const dot = mlpDotAt(n, world, 2)
           const wire = dot ? null : mlpWireAt(n, world, 3 / viewRef.current.zoom)
-          if (dot || wire) {
-            setSelPart({ node: n.id, key: (dot ?? wire!).key, kind: dot ? 'dot' : 'wire' })
-            setSelEdges([])
-            return
-          }
+          if (dot || wire) part = { node: n.id, key: (dot ?? wire!).key, kind: dot ? 'dot' : 'wire' }
         }
-        setSelPart(null)
+        if (!part) setSelPart(null)
         let ids = already ? selNodesRef.current : expandGroups(d, [n.id])
         if (ev.shiftKey) {
           ids = already
@@ -1194,6 +1204,7 @@ export default function AiFigureMaker() {
           box,
           moved: false,
           sticky: { x: null, y: null },
+          part,
         }
         return
       }
@@ -1655,6 +1666,16 @@ export default function AiFigureMaker() {
         )
         endDrag(true)
         return
+      }
+
+      /* A press on a network's insides that never turned into a drag was a
+         click, and a click means "select this part". Doing it here rather than
+         on the way down is what lets the same gesture still move the network:
+         the synapses cross most of its box, so if grabbing one selected instead
+         of moved, there would be almost nowhere left to drag from. */
+      if (drag.t === 'move' && !drag.moved && drag.part) {
+        setSelPart(drag.part)
+        setSelEdges([])
       }
 
       if (drag.t === 'marquee' || drag.t === 'pan') return
