@@ -543,6 +543,75 @@ describe('a group of neurons', () => {
   })
 })
 
+/* ⚠️ An orthogonal connector that starts on a neuron used to begin with a
+ * diagonal.
+ *
+ * `anchorPoint` snaps a shape's 'auto' direction to the dominant axis so that
+ * an ortho route's first leg is square; `mlpAnchorPoint` points straight at the
+ * target instead, because a circle has no faces. Nobody reconciled the two, so
+ * the stub off a neuron came out slanted and the "orthogonal" route opened with
+ * a short diagonal. The resolver squares a part's anchor for ortho routes. */
+describe('an orthogonal connector leaving a neuron', () => {
+  const net = fitted({ layers: [2, 2], pitch: 48, layerGap: 96, neuronR: 12 })
+  const box = { ...net, id: 'dst', kind: 'rect', x: 420, y: 260, w: 90, h: 50, props: {} } as FigNode
+  const nodes = new Map<string, FigNode>([
+    [net.id, net],
+    ['dst', box],
+  ])
+  const wire = {
+    id: 'e1',
+    from: { node: net.id, anchor: 'auto' as const, part: dotKey(1, 0) },
+    to: { node: 'dst', anchor: 'auto' as const },
+    route: 'ortho' as const,
+    waypoints: [],
+    startHead: 'none' as const,
+    endHead: 'arrow' as const,
+    label: '',
+    labelT: 0.5,
+    labelDx: 0,
+    labelDy: 0,
+    bow: 0,
+    style: {
+      stroke: '#000',
+      strokeWidth: 1,
+      dash: 'solid' as const,
+      opacity: 1,
+      fontFamily: 'sans' as const,
+      fontSize: 11,
+      textColor: '#000',
+      labelBg: 'none',
+    },
+    locked: false,
+    hidden: false,
+  }
+
+  it('has no diagonal in it', () => {
+    const r = resolveEdge(wire, nodes)!
+    expect(r.corners.length).toBeGreaterThan(2)
+    for (let i = 1; i < r.corners.length; i++) {
+      const dx = Math.abs(r.corners[i].x - r.corners[i - 1].x)
+      const dy = Math.abs(r.corners[i].y - r.corners[i - 1].y)
+      expect(dx < 0.01 || dy < 0.01).toBe(true)
+    }
+  })
+
+  it('leaves the circle at a cardinal point, so the stub is square', () => {
+    const r = resolveEdge(wire, nodes)!
+    const c = mlpPartCentre(net, dotKey(1, 0))!
+    const off = { x: r.a.p.x - c.x, y: r.a.p.y - c.y }
+    expect(Math.min(Math.abs(off.x), Math.abs(off.y))).toBeLessThan(0.01)
+    expect(Math.hypot(off.x, off.y)).toBeCloseTo(12, 6)
+  })
+
+  it('still lets a curve aim wherever it likes', () => {
+    // squaring is a rule about orthogonal routes, not a rule about neurons
+    const r = resolveEdge({ ...wire, route: 'curve' as const }, nodes)!
+    const c = mlpPartCentre(net, dotKey(1, 0))!
+    expect(Math.abs(r.a.p.x - c.x)).toBeGreaterThan(0.5)
+    expect(Math.abs(r.a.p.y - c.y)).toBeGreaterThan(0.5)
+  })
+})
+
 /* ⚠️ The bug this closes: a network's rectangle was its click target, and a
    network is mostly holes. Anything drawn in the space between two columns
    could not be reached, because every press inside the bounds was answered by

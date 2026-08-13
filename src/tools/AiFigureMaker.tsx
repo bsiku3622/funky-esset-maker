@@ -221,6 +221,14 @@ type Drag =
 /** How close an edge has to come, on screen, before a guide claims it. */
 const SNAP_PX = 5
 
+/* How near a network's ink still counts as pressing it, in *screen* px.
+ *
+ * ⚠️ Screen, not world. A group's outline is one line however far out the
+ * canvas is zoomed, so a tolerance measured in world units shrinks to nothing
+ * at 50% — the box you can plainly see becomes a two-pixel target — and swells
+ * into a fat halo at 400%. Divide by the zoom at the call site. */
+const PART_TOL = 7
+
 /* The page as something to line up with. It is drawn, so it plays by the same
  * rule as any other drawn thing: its edges and its centre are alignment
  * targets. It is not a *shape*, though — it has no place in a row's rhythm, so
@@ -1323,7 +1331,7 @@ export default function AiFigureMaker() {
          insisting on `pointOnNode` there would take that reach away. */
       const direct = nmap.get(hitNode)
       const usable =
-        direct && !direct.locked && (direct.kind !== 'mlp' || mlpHit(direct, world, 4))
+        direct && !direct.locked && (direct.kind !== 'mlp' || mlpHit(direct, world, PART_TOL / viewRef.current.zoom))
           ? direct
           : null
       const n = usable ?? pickNodeAt(world)
@@ -1967,7 +1975,8 @@ export default function AiFigureMaker() {
          columns belongs to whatever is drawn there, not to the network. */
       const first = nmap.get(hitNode)
       const n =
-        first && first.kind === 'mlp' && !mlpHit(first, toWorld(ev.clientX, ev.clientY), 4)
+        first && first.kind === 'mlp' &&
+        !mlpHit(first, toWorld(ev.clientX, ev.clientY), PART_TOL / viewRef.current.zoom)
           ? pickNodeAt(toWorld(ev.clientX, ev.clientY))
           : first
       /* Inside a network the gesture is a ladder, one rung per press: select

@@ -1,7 +1,7 @@
 /* Turn an edge's endpoints into concrete path geometry. Pure, so the editor
  * (hit testing, overlay handles) and the renderer share one answer. */
 
-import type { EndPoint, FigEdge, FigNode, Pt, Rect } from './types'
+import type { Anchor, EndPoint, FigEdge, FigNode, Pt, Rect } from './types'
 import {
   anchorPoint,
   nodeBounds,
@@ -45,6 +45,10 @@ function endPointOf(
   return anchorPoint(n, ep.anchor, toward)
 }
 
+/** The fixed side an 'auto' anchor has ended up using. */
+const sideOf = (d: Pt): Anchor =>
+  Math.abs(d.x) >= Math.abs(d.y) ? (d.x >= 0 ? 'e' : 'w') : d.y >= 0 ? 's' : 'n'
+
 const centerOf = (ep: EndPoint, nodes: Map<string, FigNode>): Pt | null => {
   if ('free' in ep) return ep.free
   const n = nodes.get(ep.node)
@@ -79,9 +83,37 @@ export function resolveEdge(
   // the side the line actually leaves from
   const towardA = wps[0] ?? cb
   const towardB = wps[wps.length - 1] ?? ca
-  const a = endPointOf(e.from, nodes, towardA)
-  const b = endPointOf(e.to, nodes, towardB)
+  let a = endPointOf(e.from, nodes, towardA)
+  let b = endPointOf(e.to, nodes, towardB)
   if (!a || !b) return null
+
+  /* Two things an orthogonal route needs from its ends that the others do not.
+   *
+   * ⚠️ It must leave along an *axis*. `anchorPoint` snaps a shape's 'auto'
+   * direction to the dominant one for exactly this reason, but a neuron or a
+   * group resolves through `mlpAnchorPoint`, which points straight at the
+   * target — so a connector leaving a circle began with a short diagonal stub
+   * before its first right angle, a diagonal in a route that is square by
+   * definition.
+   *
+   * ⚠️ And it must stop sliding once it has been routed by hand. An 'auto'
+   * anchor slides along the face toward whatever it is aimed at, and with bends
+   * it is aimed at the first bend. Dragging a run stores the route's corners as
+   * bends — so the anchor moved, which moved the corners, which moved the
+   * anchor, and each drag left a fresh jog behind as the line crept off the
+   * shape.
+   *
+   * Both are answered by committing to the side already in use. A shape with no
+   * bends is left alone: its direction is square already, and a point that
+   * slides along an edge is what lets a row of connectors fan out. */
+  if (e.route === 'ortho') {
+    const square = (ep: EndPoint, at: AnchorPoint, toward: Pt) =>
+      'node' in ep && ep.anchor === 'auto' && (ep.part || wps.length)
+        ? (endPointOf({ ...ep, anchor: sideOf(at.dir) }, nodes, toward) ?? at)
+        : at
+    a = square(e.from, a, towardA)
+    b = square(e.to, b, towardB)
+  }
 
   /* An 'auto' anchor already faces the other end, so it never routes back over
      itself; a hand-picked side can, which is what makes an ortho skip

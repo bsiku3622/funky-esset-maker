@@ -8,8 +8,9 @@
  * you sweep the whole spacing range, which is what the sweep below does. */
 
 import { describe, expect, it } from 'vitest'
-import { anchorPoint, atLength, pathInfo, route, type PathSeg } from './geometry'
-import type { FigNode } from './types'
+import { anchorPoint, atLength, orthoCorners, pathInfo, route, type PathSeg } from './geometry'
+import type { Anchor, FigEdge, FigNode, Pt } from './types'
+import { resolveEdge } from './resolve'
 
 const RADIUS = 8
 
@@ -166,6 +167,133 @@ describe('orthogonal routing', () => {
     // horizontally aligned neighbours: a straight shot, no corners at all
     const segs = ortho(node(0, 0), node(400, 0))
     expect(segs.every((s) => s.t === 'L')).toBe(true)
+  })
+})
+
+/* ⚠️ Routing *through the user's bends* used to be a different, much dumber
+ * function than routing without them: a horizontal-then-vertical dog-leg that
+ * never looked at either anchor. So the moment a route had a single bend it
+ * stopped leaving its shape properly — it set off sideways out of a top edge,
+ * or turned straight back across the shape it had just left. */
+describe('an orthogonal route with bends', () => {
+  /** The corner polyline — the thing the router actually decides. */
+  const corners = (
+    a: FigNode,
+    b: FigNode,
+    wps: Pt[],
+    anchors: [Anchor, Anchor] = ['auto', 'auto'],
+  ) =>
+    orthoCorners(
+      anchorPoint(a, anchors[0], wps[0] ?? center(b)),
+      anchorPoint(b, anchors[1], wps[wps.length - 1] ?? center(a)),
+      wps,
+      RADIUS,
+    )
+
+  it('keeps every run axis-aligned', () => {
+    const p = corners(node(0, 0), node(400, 300), [{ x: 200, y: 40 }, { x: 260, y: 250 }])
+    for (let i = 1; i < p.length; i++)
+      expect(
+        Math.abs(p[i].x - p[i - 1].x) < 0.01 || Math.abs(p[i].y - p[i - 1].y) < 0.01,
+      ).toBe(true)
+  })
+
+  it('leaves along the anchor it was given, not sideways off it', () => {
+    /* North anchor, bend directly to the left: the old router ran straight out
+       of the middle of the top edge and read as a T-junction. */
+    const a = node(200, 200)
+    const p = corners(a, node(0, 0), [{ x: 40, y: 230 }], ['n', 'auto'])
+    expect(p[0].y).toBeCloseTo(a.y, 6)
+    // the first movement is upward, out of the shape
+    expect(p[1].y).toBeLessThan(p[0].y - 1)
+    expect(Math.abs(p[1].x - p[0].x)).toBeLessThan(0.5)
+  })
+
+  it('arrives along the far anchor rather than backing into the shape', () => {
+    const b = node(400, 200)
+    const p = corners(node(0, 0), b, [{ x: 200, y: 400 }], ['auto', 'w'])
+    const last = p[p.length - 1]
+    const before = p[p.length - 2]
+    expect(last.x).toBeCloseTo(b.x, 6)
+    // the final leg runs east into the west face, not north or south past it
+    expect(before.y).toBeCloseTo(last.y, 6)
+    expect(before.x).toBeLessThan(last.x)
+  })
+
+  /* Only the leg that *leaves* is promised: a bend placed behind the far end
+     genuinely demands a U-turn, and honouring the bend is the right answer
+     there. Turning back over the shape you just left never is. */
+  it('never turns back over the shape it just left', () => {
+    const cases: Pt[][] = [
+      [{ x: 60, y: 300 }],
+      [{ x: -80, y: 40 }, { x: 300, y: 260 }],
+      [{ x: 300, y: -60 }, { x: 100, y: 400 }],
+    ]
+    for (const wps of cases) {
+      const p = corners(node(0, 0), node(400, 300), wps)
+      const lead = { x: p[1].x - p[0].x, y: p[1].y - p[0].y }
+      const next = { x: p[2].x - p[1].x, y: p[2].y - p[1].y }
+      expect(lead.x * next.x + lead.y * next.y).toBeGreaterThan(-0.01)
+    }
+  })
+
+  it('passes through every bend it was given', () => {
+    const wps = [{ x: 200, y: 40 }, { x: 260, y: 250 }]
+    const p = corners(node(0, 0), node(400, 300), wps)
+    for (const w of wps)
+      expect(p.some((q) => Math.abs(q.x - w.x) < 0.02 && Math.abs(q.y - w.y) < 0.02)).toBe(true)
+  })
+
+  /* ⚠️ Replaying a route's own corners must land on exactly the same route.
+   *
+   * Dragging a run sideways stores every corner as a bend, and an 'auto' anchor
+   * aims at the first bend — so the anchor moved, which moved the corners,
+   * which moved the anchor. Each drag left a fresh jog behind and the line
+   * crept off the shape. This is the fixed point that stops it, and it lives in
+   * the resolver rather than the router: it is the *anchor* that has to settle
+   * down. */
+  it('replays its own corners unchanged', () => {
+    const a = node(0, 0)
+    const b = node(400, 300)
+    const nodes = new Map([a, b].map((n) => [n.id, n] as const))
+    const edge = (wps: Pt[]): FigEdge => ({
+      id: 'e1',
+      from: { node: a.id, anchor: 'auto' },
+      to: { node: b.id, anchor: 'auto' },
+      route: 'ortho',
+      waypoints: wps.map((p) => ({ ...p })),
+      startHead: 'none',
+      endHead: 'arrow',
+      label: '',
+      labelT: 0.5,
+      labelDx: 0,
+      labelDy: 0,
+      bow: 0,
+      style: {
+        stroke: '#222',
+        strokeWidth: 1,
+        dash: 'solid',
+        opacity: 1,
+        fontFamily: 'sans',
+        fontSize: 11,
+        textColor: '#222',
+        labelBg: 'none',
+      },
+      locked: false,
+      hidden: false,
+    })
+    const first = resolveEdge(edge([{ x: 200, y: 40 }]), nodes)!.corners
+    let prev = first
+    // three drags' worth: the creep only showed up on repetition
+    for (let round = 0; round < 3; round++) {
+      const next = resolveEdge(edge(prev.slice(1, -1)), nodes)!.corners
+      expect(next.length).toBe(first.length)
+      for (let i = 0; i < first.length; i++) {
+        expect(next[i].x).toBeCloseTo(first[i].x, 6)
+        expect(next[i].y).toBeCloseTo(first[i].y, 6)
+      }
+      prev = next
+    }
   })
 })
 

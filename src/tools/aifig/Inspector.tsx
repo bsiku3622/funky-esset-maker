@@ -1337,8 +1337,11 @@ function EdgePanel({
         </Field>
         {e.waypoints.length ? (
           <Field label="경유점">
+            {/* Named for what it does, not for what it counts: "4개 초기화"
+                reads as a number you can set. This is the way back from a
+                route that has been dragged into knots. */}
             <button type="button" className="af-mini" onClick={() => onEdge(() => ({ waypoints: [] }))}>
-              {e.waypoints.length}개 초기화
+              곧게 펴기 ({e.waypoints.length}개)
             </button>
           </Field>
         ) : null}

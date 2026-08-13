@@ -378,19 +378,7 @@ function orthoPoints(
   radius: number,
   avoid: Rect[],
 ): Pt[] {
-  if (waypoints.length) {
-    // route through the waypoints with axis-aligned dog-legs
-    const chain = [a.p, ...waypoints, b.p]
-    const out: Pt[] = [chain[0]]
-    for (let i = 1; i < chain.length; i++) {
-      const p = out[out.length - 1]
-      const q = chain[i]
-      if (Math.abs(p.x - q.x) > 0.5 && Math.abs(p.y - q.y) > 0.5)
-        out.push({ x: q.x, y: p.y })
-      out.push(q)
-    }
-    return dedupe(out)
-  }
+  if (waypoints.length) return orthoThrough(a, b, waypoints)
 
   const horizA = Math.abs(a.dir.x) > Math.abs(a.dir.y)
   const horizB = Math.abs(b.dir.x) > Math.abs(b.dir.y)
@@ -478,6 +466,71 @@ function orthoPoints(
     }
   }
   return dedupe([a.p, s, ...cands[0], e, b.p])
+}
+
+/* An orthogonal route that has to pass through the user's bends.
+ *
+ * ⚠️ This was a plain horizontal-then-vertical dog-leg through the chain, and
+ * it threw away both things that make an ortho route read as one: the anchors'
+ * directions and the stubs. Two visible failures came out of that. A connector
+ * leaving the *top* of a shape would set off sideways from the middle of that
+ * edge — a T-junction, not a connector. And a bend placed behind the anchor
+ * turned the first leg straight back across the shape it had just left.
+ *
+ * So: leave along `a.dir`, arrive along `b.dir`, and pick each corner's
+ * handedness from the direction already being travelled instead of always
+ * turning the same way. The bends themselves are untouched — they are the
+ * user's, and a router that quietly moved them would be a worse bug than the
+ * one it fixed. */
+function orthoThrough(a: AnchorPoint, b: AnchorPoint, waypoints: Pt[]): Pt[] {
+  const first = waypoints[0]
+  const last = waypoints[waypoints.length - 1]
+  /* Is `q` out in front of the shape, the way the anchor faces? A bend that is
+     already out there *is* the stub, which is what keeps this idempotent: a
+     run dragged sideways stores its corners, and re-routing them must not
+     grow a second stub every time. */
+  const ahead = (p: Pt, q: Pt, d: Pt) => (q.x - p.x) * d.x + (q.y - p.y) * d.y > 0.5
+
+  const chain: Pt[] = [a.p]
+  if (len2(a.dir) && !ahead(a.p, first, a.dir))
+    chain.push({ x: a.p.x + a.dir.x * STUB, y: a.p.y + a.dir.y * STUB })
+  chain.push(...waypoints)
+  if (len2(b.dir) && !ahead(b.p, last, b.dir))
+    chain.push({ x: b.p.x + b.dir.x * STUB, y: b.p.y + b.dir.y * STUB })
+  chain.push(b.p)
+
+  const pts = dedupe(chain)
+  const out: Pt[] = [pts[0]]
+  // the leg just travelled, seeded by the anchor so the first turn continues
+  // the way the line leaves its shape
+  let t: Pt = a.dir
+  for (let i = 1; i < pts.length; i++) {
+    const p = out[out.length - 1]
+    const q = pts[i]
+    const dx = q.x - p.x
+    const dy = q.y - p.y
+    if (Math.abs(dx) > 0.5 && Math.abs(dy) > 0.5) {
+      /* Carry on along the current axis and turn late — that reads as one
+         corner rather than two — unless carrying on would double back over the
+         leg just drawn, in which case turn first and travel after. The corner
+         into the far end is the exception: the leg that arrives has to point
+         the way that endpoint faces, or the line finishes by running into the
+         shape and backing out of it. */
+      const arriving = i === pts.length - 1 && len2(b.dir)
+      const horizFirst = arriving
+        ? Math.abs(b.dir.y) > Math.abs(b.dir.x)
+        : !len2(t)
+          ? true
+          : Math.abs(t.x) > Math.abs(t.y)
+            ? dx * t.x >= 0
+            : dy * t.y < 0
+      out.push(horizFirst ? { x: q.x, y: p.y } : { x: p.x, y: q.y })
+    }
+    const prev = out[out.length - 1]
+    out.push(q)
+    t = { x: q.x - prev.x, y: q.y - prev.y }
+  }
+  return dedupe(out)
 }
 
 /** Does an axis-aligned leg run through `r`? The margin keeps a stub that
