@@ -111,6 +111,7 @@ import {
   MLP_R,
   isLattice,
   mlpDot,
+  mlpDotAnchors,
   mlpDotAt,
   mlpDotPoint,
   mlpLattice,
@@ -133,7 +134,7 @@ import {
 import Inspector from './aifig/Inspector'
 import LabelEditor from './aifig/LabelEditor'
 import Overlay, { type PartMark } from './aifig/Overlay'
-import { HOVER_TOL, onAnchorDot, type HandleKey } from './aifig/handles'
+import { ANCHOR_OUT, HOVER_TOL, onAnchorDot, type HandleKey } from './aifig/handles'
 import { IconBtn, Num, Seg } from './aifig/ui'
 
 /* ---------- drag state ---------- */
@@ -170,7 +171,8 @@ type Drag =
   | { t: 'rotate'; id: string; center: Pt; startAngle: number; origRot: number; moved: boolean }
   | { t: 'marquee'; start: Pt; add: boolean }
   | { t: 'pan'; sx: number; sy: number; ox: number; oy: number }
-  | { t: 'connect'; node: string; anchor: string; from: Pt }
+  /** `part` is set when the wire is being pulled out of one neuron */
+  | { t: 'connect'; node: string; anchor: string; from: Pt; part?: string }
   | { t: 'endpoint'; edge: string; which: 'from' | 'to' }
   | { t: 'waypoint'; edge: string; index: number; moved: boolean }
   /** sliding a connector's label along its own path; `base` is where on the
@@ -551,6 +553,19 @@ export default function AiFigureMaker() {
     const node = kept.length ? (doc.nodes.find((n) => n.id === kept[0].node) ?? null) : null
     return node ? { node, keys: kept.map((p) => p.key), kind: kept[0].kind, refs: kept } : null
   }, [selParts, selNodes, doc.nodes])
+  /* Connection dots on a single selected neuron. Only one, because four dots
+     around every unit of a selected layer is a thicket, and pulling a wire is a
+     one-at-a-time job anyway. */
+  const partAnchors = useMemo(() => {
+    if (!activeParts || activeParts.kind !== 'dot' || activeParts.keys.length !== 1) return []
+    const key = activeParts.keys[0]
+    const n = activeParts.node
+    return mlpDotAnchors(n, key, ANCHOR_OUT / view.zoom).map((a) => ({
+      ...a,
+      node: n.id,
+      part: key,
+    }))
+  }, [activeParts, view.zoom])
   /** Rings and halos saying which parts are selected. */
   const partMarks = useMemo((): PartMark[] => {
     if (!activeParts) return []
@@ -1095,6 +1110,8 @@ export default function AiFigureMaker() {
     const anchorNode = el.getAttribute?.('data-anchor-node')
     if (anchorNode) {
       const a = el.getAttribute('data-anchor') ?? 'auto'
+      // set when the dot belongs to one neuron rather than to the whole shape
+      const part = el.getAttribute('data-anchor-part') ?? undefined
       const n = nmap.get(anchorNode)
       if (n) {
         beginDrag()
@@ -1106,8 +1123,10 @@ export default function AiFigureMaker() {
           w: { x: 0, y: 0.5 },
         }
         const u = uv[a] ?? { x: 0.5, y: 0.5 }
-        const from = { x: n.x + n.w * u.x, y: n.y + n.h * u.y }
-        dragRef.current = { t: 'connect', node: n.id, anchor: a, from }
+        const from = part
+          ? (mlpDotPoint(n, part) ?? rectCenter(n))
+          : { x: n.x + n.w * u.x, y: n.y + n.h * u.y }
+        dragRef.current = { t: 'connect', node: n.id, anchor: a, from, part }
         setTemp({ a: from, b: world, target: null })
         return
       }
@@ -1666,14 +1685,17 @@ export default function AiFigureMaker() {
         const hit = connectTargetAt(world)
         const target = hit?.node
         setTemp(null)
-        if (target && target.id !== drag.node) {
+        /* Same node twice is fine when the two ends are different units of it —
+           that is how a skip connection inside one network gets drawn. */
+        const sameSpot = target?.id === drag.node && hit?.part === drag.part
+        if (target && !sameSpot) {
           const { doc: next, id } = connectNodes(
             docRef.current,
             drag.node,
             target.id,
             drag.anchor as never,
             'auto',
-            undefined,
+            drag.part,
             hit.part,
           )
           live(next)
@@ -2664,6 +2686,7 @@ export default function AiFigureMaker() {
                 tempEdge={temp ? { a: temp.a, b: temp.b } : null}
                 connectTarget={temp?.target ? nodeBounds(nmap.get(temp.target)!) : null}
                 partMarks={partMarks}
+                partAnchors={partAnchors}
                 dragging={dragging}
               />
             </g>

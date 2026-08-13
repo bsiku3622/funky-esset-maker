@@ -46,6 +46,8 @@ interface Props {
   connectTarget: Rect | null
   /** the neurons and synapses reached inside a network, in canvas coordinates */
   partMarks: PartMark[]
+  /** connection dots on the selected neuron, so a wire can start there */
+  partAnchors: { anchor: string; p: Pt; node: string; part: string }[]
   /** true while a drag is in flight — handles are hidden to reduce noise */
   dragging: boolean
 }
@@ -64,6 +66,7 @@ export default function Overlay({
   tempEdge,
   connectTarget,
   partMarks,
+  partAnchors,
   dragging,
 }: Props) {
   const k = 1 / zoom
@@ -297,6 +300,26 @@ export default function Overlay({
           })}
         </g>
       ) : null}
+
+      {/* the same dots, on a neuron that has been reached inside a network */}
+      {!dragging
+        ? partAnchors.map((a) => (
+            <circle
+              key={`${a.part}${a.anchor}`}
+              cx={a.p.x}
+              cy={a.p.y}
+              r={ANCHOR_R * k}
+              fill="#00c22a"
+              stroke="#fff"
+              strokeWidth={1.4 * k}
+              pointerEvents="all"
+              data-anchor={a.anchor}
+              data-anchor-node={a.node}
+              data-anchor-part={a.part}
+              style={{ cursor: 'crosshair' }}
+            />
+          ))
+        : null}
 
       {/* connection anchors on hover, floating clear of the resize grips */}
       {hoverNode && !dragging ? (

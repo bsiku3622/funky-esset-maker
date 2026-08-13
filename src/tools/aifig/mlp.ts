@@ -276,6 +276,30 @@ const toLocal = (n: FigNode, p: Pt): Pt => {
   return { x: q.x - n.x, y: q.y - n.y }
 }
 
+const DIRS: Record<string, Pt> = {
+  n: { x: 0, y: -1 },
+  s: { x: 0, y: 1 },
+  e: { x: 1, y: 0 },
+  w: { x: -1, y: 0 },
+}
+
+/* Connection dots around one neuron, floated `out` past its rim.
+ *
+ * A unit that can be *landed on* but not *left from* is only half connected,
+ * and until these existed the only way to start a wire at a neuron was connect
+ * mode. They sit outside the circle for the same reason the shape ones sit
+ * outside a box: a dot on the rim covers the thing it is attached to, and then
+ * the two gestures fight over one point. */
+export function mlpDotAnchors(n: FigNode, key: string, out: number): { anchor: string; p: Pt }[] {
+  const d = mlpDot(n, key)
+  if (!d) return []
+  const c = rectCenter(n)
+  return Object.entries(DIRS).map(([anchor, u]) => {
+    const p = { x: n.x + d.x + u.x * (d.r + out), y: n.y + d.y + u.y * (d.r + out) }
+    return { anchor, p: n.rotation ? rotatePt(p, c, n.rotation) : p }
+  })
+}
+
 /** The neuron under a point, in canvas coordinates. `pad` widens the circle. */
 export function mlpDotAt(n: FigNode, p: Pt, pad = 0): MlpDot | null {
   const local = toLocal(n, p)
