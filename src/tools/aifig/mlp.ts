@@ -30,7 +30,7 @@
  * `mlp.test.ts` for the proof. Rounding the circles individually instead would
  * have broken the equal spacing that requirement asked for in the first place. */
 
-import type { Anchor, FigNode, NodeProps, Pt } from './types'
+import type { Anchor, FigNode, NeuronGroup, NodeProps, Pt, Rect } from './types'
 import { distToSeg, rectCenter, rotateDir, rotatePt, type AnchorPoint } from './geometry'
 
 /* ---------- defaults ---------- */
@@ -64,6 +64,18 @@ export const MLP_DEFAULT_LAYERS = [4, 64, 64, 64, 1]
 export const dotKey = (li: number, n: number) => `l${li}n${n}`
 export const wireKey = (li: number, a: number, b: number) => `l${li}n${a}-n${b}`
 export const gapKey = (li: number) => `l${li}gap`
+
+/* Group keys share the part namespace with neurons and synapses, so they are
+ * spelled so they cannot be mistaken for either: `g0` matches neither `l0n2`
+ * nor `l0n2-n1`. An endpoint stores one exactly the way it stores a unit. */
+export const groupKey = (i: number) => `g${i}`
+export const isGroupKey = (k: string) => /^g\d+$/.test(k)
+
+/** The next unused group key, so removing one does not strand the numbering. */
+export function freshGroupKey(p: NodeProps): string {
+  const used = new Set(Object.keys(p.groups ?? {}))
+  for (let i = 0; ; i++) if (!used.has(groupKey(i))) return groupKey(i)
+}
 
 const KEY_RE = /^l(\d+)n(\d+)$/
 /** Read a neuron key back, or null if it is not one. */
@@ -151,7 +163,7 @@ export function mlpSlots(p: NodeProps): number[][] {
 /* Where everything in an MLP node is, in the node's *local* frame — origin at
  * its top-left, before any rotation. That is the frame the renderer draws in,
  * because the surrounding <g> already carries the node's translate and rotate.
- * Anything that needs canvas coordinates goes through `mlpDotPoint`. */
+ * Anything that needs canvas coordinates goes through `mlpPartCentre`. */
 export function mlpLattice(n: FigNode): MlpLattice {
   const p = n.props
   const counts = mlpLayers(p)
@@ -234,12 +246,35 @@ export function mlpDot(n: FigNode, key: string): MlpDot | null {
   return mlpLattice(n).dots.find((d) => d.key === key) ?? null
 }
 
-/** A neuron's centre in canvas coordinates, rotation included — what a
- *  connector attaches to and what the hit layer measures against. */
-export function mlpDotPoint(n: FigNode, key: string): Pt | null {
-  const d = mlpDot(n, key)
-  if (!d) return null
-  const p = { x: n.x + d.x, y: n.y + d.y }
+/** How far a group's outline stands off the units it holds. */
+export const GROUP_PAD = 7
+
+/* The box a part occupies, in the node's local frame: a unit's own square, or
+ * everything a group holds. Null when the key names nothing that is drawn —
+ * a unit the ellipsis swallowed, or a group whose members have all gone. */
+export function mlpPartRect(n: FigNode, key: string): Rect | null {
+  const lat = mlpLattice(n)
+  if (isGroupKey(key)) {
+    const g = n.props.groups?.[key]
+    if (!g) return null
+    const held = lat.dots.filter((d) => g.parts.includes(d.key))
+    if (!held.length) return null
+    const xs = held.flatMap((d) => [d.x - d.r, d.x + d.r])
+    const ys = held.flatMap((d) => [d.y - d.r, d.y + d.r])
+    const x = Math.min(...xs) - GROUP_PAD
+    const y = Math.min(...ys) - GROUP_PAD
+    return { x, y, w: Math.max(...xs) + GROUP_PAD - x, h: Math.max(...ys) + GROUP_PAD - y }
+  }
+  const d = lat.dots.find((x) => x.key === key)
+  return d ? { x: d.x - d.r, y: d.y - d.r, w: d.r * 2, h: d.r * 2 } : null
+}
+
+/** A part's centre in canvas coordinates, rotation included — what a connector
+ *  attaches to and what the hit layer measures against. */
+export function mlpPartCentre(n: FigNode, key: string): Pt | null {
+  const r = mlpPartRect(n, key)
+  if (!r) return null
+  const p = { x: n.x + r.x + r.w / 2, y: n.y + r.y + r.h / 2 }
   return n.rotation ? rotatePt(p, rectCenter(n), n.rotation) : p
 }
 
@@ -257,9 +292,9 @@ export function mlpAnchorPoint(
   anchor: Anchor,
   toward: Pt,
 ): AnchorPoint | null {
-  const d = mlpDot(n, key)
-  const c = mlpDotPoint(n, key)
-  if (!d || !c) return null
+  const rect = mlpPartRect(n, key)
+  const c = mlpPartCentre(n, key)
+  if (!rect || !c) return null
   if (anchor === 'c') return { p: c, dir: { x: 0, y: 0 } }
 
   let dir: Pt
@@ -276,7 +311,19 @@ export function mlpAnchorPoint(
     const u = FIXED[anchor] ?? { x: 1, y: 0 }
     dir = n.rotation ? rotateDir(u, n.rotation) : u
   }
-  return { p: { x: c.x + dir.x * d.r, y: c.y + dir.y * d.r }, dir }
+  /* Where that direction leaves the part. A unit is round, so it is simply the
+     radius; a group is a box, so the ray has to be stopped by whichever side it
+     reaches first — otherwise a wire into a tall group would start floating
+     out beyond its corner. */
+  const local = n.rotation ? rotateDir(dir, -n.rotation) : dir
+  const half = isGroupKey(key)
+    ? (() => {
+        const sx = local.x === 0 ? Infinity : rect.w / 2 / Math.abs(local.x)
+        const sy = local.y === 0 ? Infinity : rect.h / 2 / Math.abs(local.y)
+        return Math.min(sx, sy)
+      })()
+    : rect.w / 2
+  return { p: { x: c.x + dir.x * half, y: c.y + dir.y * half }, dir }
 }
 
 const SQ = Math.SQRT1_2
@@ -319,14 +366,42 @@ const DIRS: Record<string, Pt> = {
  * mode. They sit outside the circle for the same reason the shape ones sit
  * outside a box: a dot on the rim covers the thing it is attached to, and then
  * the two gestures fight over one point. */
-export function mlpDotAnchors(n: FigNode, key: string, out: number): { anchor: string; p: Pt }[] {
-  const d = mlpDot(n, key)
-  if (!d) return []
+export function mlpPartAnchors(n: FigNode, key: string, out: number): { anchor: string; p: Pt }[] {
+  const rect = mlpPartRect(n, key)
+  if (!rect) return []
   const c = rectCenter(n)
+  const mid = { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 }
   return Object.entries(DIRS).map(([anchor, u]) => {
-    const p = { x: n.x + d.x + u.x * (d.r + out), y: n.y + d.y + u.y * (d.r + out) }
+    // the side of the part, then `out` further along the same direction
+    const p = {
+      x: n.x + mid.x + u.x * (rect.w / 2 + out),
+      y: n.y + mid.y + u.y * (rect.h / 2 + out),
+    }
     return { anchor, p: n.rotation ? rotatePt(p, c, n.rotation) : p }
   })
+}
+
+/* A group is picked by its outline rather than its interior — the units inside
+ * it have to stay clickable, and a group that swallowed every press on its
+ * members would make the thing it groups unreachable. */
+export function mlpGroupAt(n: FigNode, p: Pt, tol = 4): string | null {
+  const local = toLocal(n, p)
+  for (const key of Object.keys(n.props.groups ?? {})) {
+    const r = mlpPartRect(n, key)
+    if (!r) continue
+    const inOuter =
+      local.x >= r.x - tol &&
+      local.x <= r.x + r.w + tol &&
+      local.y >= r.y - tol &&
+      local.y <= r.y + r.h + tol
+    const inInner =
+      local.x > r.x + tol &&
+      local.x < r.x + r.w - tol &&
+      local.y > r.y + tol &&
+      local.y < r.y + r.h - tol
+    if (inOuter && !inInner) return key
+  }
+  return null
 }
 
 /** The neuron under a point, in canvas coordinates. `pad` widens the circle. */
@@ -457,6 +532,28 @@ const rekey = <T,>(
   return Object.keys(out).length ? out : undefined
 }
 
+/* A group's key says nothing about layers — its *members* do. Splicing moves
+ * each member and drops the ones whose layer went; a group left holding nothing
+ * goes with them, since an empty group is a rectangle around no units. */
+const regroup = (
+  groups: Record<string, NeuronGroup> | undefined,
+  at: number,
+  delta: 1 | -1,
+) => {
+  if (!groups) return undefined
+  const out: Record<string, NeuronGroup> = {}
+  for (const [key, g] of Object.entries(groups)) {
+    const parts = g.parts.flatMap((k) => {
+      const m = parseDotKey(k)
+      if (!m) return []
+      const li = shiftLayer(m.li, at, delta)
+      return li >= 0 ? [dotKey(li, m.n)] : []
+    })
+    if (parts.length) out[key] = { ...g, parts }
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
 const spliceCaps = (caps: string[] | undefined, at: number, delta: 1 | -1) => {
   if (!caps) return undefined
   const out = [...caps]
@@ -474,6 +571,7 @@ export function retypeLayers(p: NodeProps, next: number[]): Partial<NodeProps> {
     layers: next,
     neurons: rekey(p.neurons, at, delta),
     wires: rekey(p.wires, at, delta, true),
+    groups: regroup(p.groups, at, delta),
     capTop: spliceCaps(p.capTop, at, delta),
     capBottom: spliceCaps(p.capBottom, at, delta),
   }

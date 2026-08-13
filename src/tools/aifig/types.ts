@@ -117,6 +117,21 @@ export interface NeuronBits {
   opacity?: number
 }
 
+/* Several units taken together — an input vector, a block that repeats, the
+ * half of a layer that carries one thing. It exists so a connector can point at
+ * the four of them at once instead of four connectors saying the same thing.
+ *
+ * ⚠️ Members are named by neuron key, so anything that renumbers the layer axis
+ * has to renumber these too. */
+export interface NeuronGroup {
+  parts: string[]
+  label?: string
+  fill?: string
+  stroke?: string
+  /** the enclosing outline; absent draws it */
+  bare?: boolean
+}
+
 export interface WireBits {
   stroke?: string
   strokeWidth?: number
@@ -160,6 +175,8 @@ export interface NodeProps {
   neurons?: Record<string, NeuronBits>
   /** per-wire overrides, keyed `l0n2-n1` (layer, from unit, to unit) */
   wires?: Record<string, WireBits>
+  /** neuron groups, keyed `g0` — a connector may point at one */
+  groups?: Record<string, NeuronGroup>
   /** caption above each column — "no bias" and friends */
   capTop?: string[]
   /** caption below each column */

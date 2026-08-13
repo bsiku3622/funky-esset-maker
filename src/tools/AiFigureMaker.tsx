@@ -30,6 +30,7 @@ import type {
   FigEdge,
   FigNode,
   NeuronBits,
+  NeuronGroup,
   NodeKind,
   Pt,
   Rect,
@@ -109,11 +110,13 @@ import {
   MLP_GAP,
   MLP_PITCH,
   MLP_R,
+  freshGroupKey,
   isLattice,
   mlpDot,
-  mlpDotAnchors,
+  mlpPartAnchors,
   mlpDotAt,
-  mlpDotPoint,
+  mlpGroupAt,
+  mlpPartCentre,
   mlpLattice,
   mlpNaturalSize,
   mlpSlots,
@@ -140,7 +143,7 @@ import { IconBtn, Num, Seg } from './aifig/ui'
 /* ---------- drag state ---------- */
 
 /** One neuron or synapse inside a network node, by the keys mlp.ts mints. */
-type PartRef = { node: string; key: string; kind: 'dot' | 'wire' }
+type PartRef = { node: string; key: string; kind: 'dot' | 'wire' | 'group' }
 
 type Drag =
   | {
@@ -560,7 +563,7 @@ export default function AiFigureMaker() {
     if (!activeParts || activeParts.kind !== 'dot' || activeParts.keys.length !== 1) return []
     const key = activeParts.keys[0]
     const n = activeParts.node
-    return mlpDotAnchors(n, key, ANCHOR_OUT / view.zoom).map((a) => ({
+    return mlpPartAnchors(n, key, ANCHOR_OUT / view.zoom).map((a) => ({
       ...a,
       node: n.id,
       part: key,
@@ -701,12 +704,32 @@ export default function AiFigureMaker() {
     commit((d) => patchNodes(d, selNodesRef.current, patch))
   const patchSelStyle = (patch: Partial<Style>) =>
     commit((d) => patchNodeStyle(d, selNodesRef.current, patch))
-  const patchPart = (patch: NeuronBits | WireBits | null) => {
+  const bagOf = (kind: PartRef['kind']) =>
+    kind === 'dot' ? 'neurons' : kind === 'group' ? 'groups' : 'wires'
+
+  const patchPart = (patch: NeuronBits | WireBits | Partial<NeuronGroup> | null) => {
     const sel = activeParts?.refs ?? []
     if (!sel.length) return
+    commit((d) => sel.reduce((acc, p) => patchMlpPart(acc, p, bagOf(p.kind), patch), d))
+  }
+
+  /* Take the selected units as one thing. The group holds keys, not positions,
+     so it survives the lattice being re-spaced underneath it. */
+  const groupParts = () => {
+    const sel = activeParts
+    if (!sel || sel.kind !== 'dot' || sel.keys.length < 2) return
+    const key = freshGroupKey(sel.node.props)
     commit((d) =>
-      sel.reduce((acc, p) => patchMlpPart(acc, p, p.kind === 'dot' ? 'neurons' : 'wires', patch), d),
+      patchMlpPart(d, { node: sel.node.id, key }, 'groups', { parts: [...sel.keys] }),
     )
+    setSelPart({ node: sel.node.id, key, kind: 'group' })
+  }
+
+  const ungroupParts = () => {
+    const sel = activeParts
+    if (!sel || sel.kind !== 'group') return
+    commit((d) => sel.refs.reduce((acc, p) => patchMlpPart(acc, p, 'groups', null), d))
+    setSelPart(null)
   }
   const patchSelProps = (patch: Record<string, unknown>) =>
     commit((d) =>
@@ -1053,7 +1076,7 @@ export default function AiFigureMaker() {
       const part = n.kind === 'mlp' ? mlpDotAt(n, world, 3)?.key : undefined
       if (!connectFrom) {
         setConnectFrom({ id: n.id, part })
-        setTemp({ a: part ? (mlpDotPoint(n, part) ?? rectCenter(n)) : rectCenter(n), b: world, target: null })
+        setTemp({ a: part ? (mlpPartCentre(n, part) ?? rectCenter(n)) : rectCenter(n), b: world, target: null })
         return
       }
       /* Same node twice is fine now, as long as the two ends are different
@@ -1124,7 +1147,7 @@ export default function AiFigureMaker() {
         }
         const u = uv[a] ?? { x: 0.5, y: 0.5 }
         const from = part
-          ? (mlpDotPoint(n, part) ?? rectCenter(n))
+          ? (mlpPartCentre(n, part) ?? rectCenter(n))
           : { x: n.x + n.w * u.x, y: n.y + n.h * u.y }
         dragRef.current = { t: 'connect', node: n.id, anchor: a, from, part }
         setTemp({ a: from, b: world, target: null })
@@ -1208,9 +1231,21 @@ export default function AiFigureMaker() {
         const solo = already && selNodesRef.current.length === 1
         let part: PartRef | undefined
         if (n.kind === 'mlp' && solo && (!ev.shiftKey || inParts) && !n.locked) {
+          /* A circle first, then the outline of a group, then a synapse. The
+             group is picked by its edge alone, so the units it holds stay
+             reachable — a group that swallowed presses on its own members
+             would put them out of reach. */
           const dot = mlpDotAt(n, world, 2)
-          const wire = dot ? null : mlpWireAt(n, world, 3 / viewRef.current.zoom)
-          if (dot || wire) part = { node: n.id, key: (dot ?? wire!).key, kind: dot ? 'dot' : 'wire' }
+          const group = dot ? null : mlpGroupAt(n, world, 5 / viewRef.current.zoom)
+          const wire =
+            dot || group ? null : mlpWireAt(n, world, 3 / viewRef.current.zoom)
+          const hitKey = dot?.key ?? group ?? wire?.key
+          if (hitKey)
+            part = {
+              node: n.id,
+              key: hitKey,
+              kind: dot ? 'dot' : group ? 'group' : 'wire',
+            }
         }
         if (part && ev.shiftKey) {
           // toggle straight away: a shift-press is never the start of a drag
@@ -2765,6 +2800,8 @@ export default function AiFigureMaker() {
             onPalette={(id) => commit((d) => applyPalette(d, id))}
             parts={activeParts}
             onPart={patchPart}
+            onGroup={groupParts}
+            onUngroup={ungroupParts}
             onExitPart={() => {
               setSelPart(null)
               setEditDot(null)

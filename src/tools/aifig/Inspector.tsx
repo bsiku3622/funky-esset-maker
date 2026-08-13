@@ -17,6 +17,7 @@ import type {
   HeadKind,
   LabelPos,
   NeuronBits,
+  NeuronGroup,
   NodeProps,
   RouteKind,
   Style,
@@ -132,16 +133,20 @@ interface Props {
   /** the neurons or synapses reached inside a selected network */
   parts: SelParts | null
   /** merge into their overrides; null clears them back to the default */
-  onPart: (patch: NeuronBits | WireBits | null) => void
+  onPart: (patch: NeuronBits | WireBits | Partial<NeuronGroup> | null) => void
   /** step back out to the network as a whole */
   onExitPart: () => void
+  /** take the selected neurons as one thing a connector can point at */
+  onGroup: () => void
+  /** undo that, leaving the units where they are */
+  onUngroup: () => void
 }
 
 export interface SelParts {
   node: FigNode
   /** part keys, all of one kind and all inside `node` */
   keys: string[]
-  kind: 'dot' | 'wire'
+  kind: 'dot' | 'wire' | 'group'
 }
 
 export default function Inspector({
@@ -158,6 +163,8 @@ export default function Inspector({
   parts,
   onPart,
   onExitPart,
+  onGroup,
+  onUngroup,
 }: Props) {
   const pal = paletteById(doc.paletteId)
   const swatches = useMemo(() => [...pal.colors, pal.neutral], [pal])
@@ -177,7 +184,14 @@ export default function Inspector({
   if (parts)
     return (
       <div className="af-inspector">
-        <PartPanel parts={parts} swatches={swatches} onPart={onPart} onExit={onExitPart} />
+        <PartPanel
+          parts={parts}
+          swatches={swatches}
+          onPart={onPart}
+          onExit={onExitPart}
+          onGroup={onGroup}
+          onUngroup={onUngroup}
+        />
       </div>
     )
 
@@ -811,11 +825,15 @@ function PartPanel({
   swatches,
   onPart,
   onExit,
+  onGroup,
+  onUngroup,
 }: {
   parts: SelParts
   swatches: string[]
   onPart: Props['onPart']
   onExit: () => void
+  onGroup: () => void
+  onUngroup: () => void
 }) {
   const p = parts.node.props
   const s = parts.node.style
@@ -844,6 +862,47 @@ function PartPanel({
       기본값으로
     </button>
   )
+
+  if (parts.kind === 'group') {
+    const g = p.groups?.[first]
+    return (
+      <Group title={many ? `그룹 ${parts.keys.length}개` : '뉴런 그룹'}>
+        {back}
+        <Field label="이름" wide>
+          <input
+            className="af-input"
+            value={g?.label ?? ''}
+            placeholder="입력층"
+            onChange={(e) => onPart({ label: e.target.value })}
+            onKeyDown={(e) => e.stopPropagation()}
+          />
+        </Field>
+        <Field label="채우기 · 테두리">
+          <ColorBtn
+            value={g?.fill ?? 'none'}
+            swatches={swatches}
+            allowNone
+            onChange={(fill) => onPart({ fill })}
+          />
+          <ColorBtn
+            value={g?.stroke ?? s.stroke}
+            swatches={swatches}
+            onChange={(stroke) => onPart({ stroke })}
+          />
+        </Field>
+        <Field label="표시">
+          <Chk checked={!g?.bare} onChange={(on) => onPart({ bare: !on })} label="상자 그리기" />
+          <button type="button" className="af-mini" onClick={onUngroup}>
+            그룹 해제
+          </button>
+        </Field>
+        <p className="af-note">
+          {g ? `뉴런 ${g.parts.length}개` : ''} — 연결선을 그룹에 붙이면 네 개를 따로 잇지 않고
+          하나로 말할 수 있습니다. 테두리를 클릭해서 고르세요.
+        </p>
+      </Group>
+    )
+  }
 
   if (parts.kind === 'wire') {
     const w: WireBits = p.wires?.[first] ?? {}
@@ -978,6 +1037,14 @@ function PartPanel({
         />
         {reset}
       </Field>
+      {many ? (
+        <Field label="묶기">
+          <button type="button" className="af-mini" onClick={onGroup}>
+            그룹으로 묶기
+          </button>
+          <span className="af-hint-inline">연결선을 한 번에 받습니다</span>
+        </Field>
+      ) : null}
       <p className="af-note">
         원을 더블클릭하면 그 자리에서 바로 쓸 수 있습니다 — Tab으로 다음 뉴런, Esc로 나가기.
         Shift로 여러 개를 고르면 한꺼번에 바뀝니다.

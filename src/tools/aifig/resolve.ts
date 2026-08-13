@@ -13,7 +13,7 @@ import {
   type PathInfo,
 } from './geometry'
 import { headGeom } from './presets'
-import { mlpAnchorPoint, mlpDotPoint } from './mlp'
+import { mlpAnchorPoint, mlpPartCentre } from './mlp'
 
 export interface ResolvedEdge {
   info: PathInfo
@@ -50,7 +50,7 @@ const centerOf = (ep: EndPoint, nodes: Map<string, FigNode>): Pt | null => {
   const n = nodes.get(ep.node)
   if (!n) return null
   if (ep.part) {
-    const p = mlpDotPoint(n, ep.part)
+    const p = mlpPartCentre(n, ep.part)
     if (p) return p
   }
   return { x: n.x + n.w / 2, y: n.y + n.h / 2 }

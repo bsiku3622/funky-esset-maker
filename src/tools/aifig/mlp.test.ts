@@ -13,7 +13,9 @@ import {
   isLattice,
   mlpAnchorPoint,
   mlpDotAt,
-  mlpDotPoint,
+  mlpGroupAt,
+  mlpPartRect,
+  mlpPartCentre,
   mlpLattice,
   mlpNaturalSize,
   mlpSnapProps,
@@ -227,7 +229,7 @@ describe('picking a part out of a network', () => {
   /* The editor's hit layer is one rectangle per node, so a click on a neuron
      arrives as a click on the network. These are what tell the two apart. */
   const n = fitted({ layers: [2, 2], pitch: 40, layerGap: 96, neuronR: 12 })
-  const canvas = (key: string) => mlpDotPoint(n, key)!
+  const canvas = (key: string) => mlpPartCentre(n, key)!
 
   it('finds the circle under the pointer', () => {
     expect(mlpDotAt(n, canvas('l0n1'))?.key).toBe(dotKey(0, 1))
@@ -263,7 +265,7 @@ describe('picking a part out of a network', () => {
   it('follows the node when it is rotated', () => {
     const spun = { ...n, rotation: 37 }
     for (const key of [dotKey(0, 0), dotKey(1, 1)])
-      expect(mlpDotAt(spun, mlpDotPoint(spun, key)!)?.key).toBe(key)
+      expect(mlpDotAt(spun, mlpPartCentre(spun, key)!)?.key).toBe(key)
   })
 })
 
@@ -271,7 +273,7 @@ describe('a connector attached to one neuron', () => {
   const n = fitted({ layers: [2, 2], pitch: 40, layerGap: 96, neuronR: 12 })
 
   it('meets the circle on its rim, facing the other end', () => {
-    const c = mlpDotPoint(n, dotKey(0, 0))!
+    const c = mlpPartCentre(n, dotKey(0, 0))!
     const a = mlpAnchorPoint(n, dotKey(0, 0), 'auto', { x: c.x + 500, y: c.y })!
     expect(a.p).toEqual({ x: c.x + 12, y: c.y })
     expect(a.dir).toEqual({ x: 1, y: 0 })
@@ -281,7 +283,7 @@ describe('a connector attached to one neuron', () => {
     /* The whole point of the four fixed sides: two wires out of one unit have
        to be able to leave from different places, or they lie on top of one
        another. This used to be ignored for a neuron. */
-    const c = mlpDotPoint(n, dotKey(0, 0))!
+    const c = mlpPartCentre(n, dotKey(0, 0))!
     const away = { x: c.x + 500, y: c.y }
     expect(mlpAnchorPoint(n, dotKey(0, 0), 'n', away)!.p).toEqual({ x: c.x, y: c.y - 12 })
     expect(mlpAnchorPoint(n, dotKey(0, 0), 's', away)!.p).toEqual({ x: c.x, y: c.y + 12 })
@@ -289,7 +291,7 @@ describe('a connector attached to one neuron', () => {
   })
 
   it('puts the diagonals on the rim, which a circle actually has', () => {
-    const c = mlpDotPoint(n, dotKey(0, 0))!
+    const c = mlpPartCentre(n, dotKey(0, 0))!
     const p = mlpAnchorPoint(n, dotKey(0, 0), 'ne', { x: 0, y: 0 })!.p
     expect(Math.hypot(p.x - c.x, p.y - c.y)).toBeCloseTo(12, 6)
     expect(p.x).toBeGreaterThan(c.x)
@@ -297,12 +299,12 @@ describe('a connector attached to one neuron', () => {
   })
 
   it('sits at the centre when the anchor asks for it', () => {
-    const c = mlpDotPoint(n, dotKey(0, 0))!
+    const c = mlpPartCentre(n, dotKey(0, 0))!
     expect(mlpAnchorPoint(n, dotKey(0, 0), 'c', { x: 0, y: 0 })!.p).toEqual(c)
   })
 
   it('still has a direction when both ends are the same point', () => {
-    const c = mlpDotPoint(n, dotKey(0, 0))!
+    const c = mlpPartCentre(n, dotKey(0, 0))!
     expect(mlpAnchorPoint(n, dotKey(0, 0), 'auto', c)!.dir).toEqual({ x: 1, y: 0 })
   })
 
@@ -310,7 +312,7 @@ describe('a connector attached to one neuron', () => {
     /* ⚠️ This is why resolve.ts treats null as "use the node instead". Shrinking
        a layer must not delete the connectors that pointed into it. */
     expect(mlpAnchorPoint(n, dotKey(0, 9), 'auto', { x: 0, y: 0 })).toBeNull()
-    expect(mlpDotPoint(n, dotKey(5, 0))).toBeNull()
+    expect(mlpPartCentre(n, dotKey(5, 0))).toBeNull()
   })
 })
 
@@ -349,7 +351,7 @@ describe('a connector whose neuron disappeared', () => {
 
   it('lands on the two circles while they are both drawn', () => {
     const r = resolveEdge(edge, new Map([['m1', net]]))!
-    const a = mlpDotPoint(net, dotKey(0, 0))!
+    const a = mlpPartCentre(net, dotKey(0, 0))!
     // on the rim, 12 out from the centre it belongs to
     expect(Math.hypot(r.a.p.x - a.x, r.a.p.y - a.y)).toBeCloseTo(12, 6)
   })
@@ -359,7 +361,7 @@ describe('a connector whose neuron disappeared', () => {
     const r = resolveEdge(edge, new Map([['m1', small]]))
     expect(r).not.toBeNull()
     // no longer on a circle: it is now an anchor on the network's own outline
-    expect(mlpDotPoint(small, dotKey(1, 5))).toBeNull()
+    expect(mlpPartCentre(small, dotKey(1, 5))).toBeNull()
   })
 })
 
@@ -432,6 +434,80 @@ describe('text inside a circle', () => {
     expect(neuronLabelStyle(n, 16, {}).fontFamily).toBe('latex')
     // one circle carrying a word among a column of symbols
     expect(neuronLabelStyle(n, 16, { fontFamily: 'sans' }).fontFamily).toBe('sans')
+  })
+})
+
+describe('a group of neurons', () => {
+  const held = [dotKey(0, 0), dotKey(0, 1)]
+  const n = fitted({
+    layers: [3, 2],
+    pitch: 40,
+    layerGap: 96,
+    neuronR: 12,
+    groups: { g0: { parts: held } },
+  })
+
+  it('encloses everything it holds, with room to breathe', () => {
+    const r = mlpPartRect(n, 'g0')!
+    const dots = mlpLattice(n).dots.filter((d) => held.includes(d.key))
+    for (const d of dots) {
+      expect(d.x - d.r).toBeGreaterThan(r.x)
+      expect(d.x + d.r).toBeLessThan(r.x + r.w)
+      expect(d.y - d.r).toBeGreaterThan(r.y)
+      expect(d.y + d.r).toBeLessThan(r.y + r.h)
+    }
+  })
+
+  it('leaves out the units it does not hold', () => {
+    const r = mlpPartRect(n, 'g0')!
+    const other = mlpLattice(n).dots.find((d) => d.key === dotKey(0, 2))!
+    expect(other.y - other.r).toBeGreaterThan(r.y + r.h)
+  })
+
+  it('takes a connector on its own edge, not on a member circle', () => {
+    const c = mlpPartCentre(n, 'g0')!
+    const r = mlpPartRect(n, 'g0')!
+    const a = mlpAnchorPoint(n, 'g0', 'e', { x: c.x + 500, y: c.y })!
+    expect(a.p.x).toBeCloseTo(c.x + r.w / 2, 6)
+    expect(a.p.y).toBeCloseTo(c.y, 6)
+  })
+
+  it('stops the ray at whichever side it reaches first', () => {
+    /* A group is a box, so a diagonal must not sail out past the corner the
+       way it would from a circle's rim. */
+    const c = mlpPartCentre(n, 'g0')!
+    const r = mlpPartRect(n, 'g0')!
+    const p = mlpAnchorPoint(n, 'g0', 'ne', { x: 0, y: 0 })!.p
+    expect(Math.abs(p.x - c.x)).toBeLessThanOrEqual(r.w / 2 + 0.001)
+    expect(Math.abs(p.y - c.y)).toBeLessThanOrEqual(r.h / 2 + 0.001)
+  })
+
+  it('is picked by its outline, so the units inside stay reachable', () => {
+    const r = mlpPartRect(n, 'g0')!
+    const onEdge = { x: n.x + r.x, y: n.y + r.y + r.h / 2 }
+    const inside = mlpPartCentre(n, dotKey(0, 0))!
+    expect(mlpGroupAt(n, onEdge)).toBe('g0')
+    expect(mlpGroupAt(n, inside)).toBeNull()
+  })
+
+  it('has no rectangle once its members are gone', () => {
+    const shrunk = { ...n, props: { ...n.props, layers: [1, 2] } }
+    expect(mlpPartRect(shrunk, 'g0')).not.toBeNull() // l0n0 survives
+    const gone = { ...n, props: { ...n.props, groups: { g0: { parts: [dotKey(9, 9)] } } } }
+    expect(mlpPartRect(gone, 'g0')).toBeNull()
+  })
+
+  it('follows the layers when one is spliced in', () => {
+    /* ⚠️ Members are neuron keys, so a group is one more thing filed by layer
+       number — the same trap as the fills and the captions. */
+    const p: NodeProps = { layers: [3, 2], groups: { g0: { parts: [dotKey(1, 0), dotKey(1, 1)] } } }
+    const next = retypeLayers(p, [3, 4, 2])
+    expect(next.groups?.g0.parts).toEqual([dotKey(2, 0), dotKey(2, 1)])
+  })
+
+  it('goes away when the layer it held is removed', () => {
+    const p: NodeProps = { layers: [3, 2], groups: { g0: { parts: [dotKey(1, 0)] } } }
+    expect(retypeLayers(p, [3]).groups).toBeUndefined()
   })
 })
 

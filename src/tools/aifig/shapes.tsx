@@ -11,7 +11,7 @@ import type { FigNode, NeuronBits, Style } from './types'
 import { dashArray, FONT_STACK, paint, readableOn, shade, tint } from './presets'
 import { fontCss, layoutLabel, textWidth, type LabelLayout } from './latex'
 import { isoOff, labelFont, labelStyle, neuronLabel, placeLabel } from './layout'
-import { hasCaps, mlpCaps, mlpLattice, type MlpDot } from './mlp'
+import { GROUP_PAD, hasCaps, mlpCaps, mlpLattice, mlpPartRect, type MlpDot } from './mlp'
 
 /* ---------- label ---------- */
 
@@ -366,8 +366,32 @@ const Mlp = ({ n, editing }: BodyProps) => {
       })
     : null
 
+  /* Groups go down first, behind everything: the box is a backdrop for the
+     units it holds, not a frame drawn over them. */
+  const groups = Object.entries(n.props.groups ?? {}).flatMap(([key, g]) => {
+    if (g.bare) return []
+    const r = mlpPartRect(n, key)
+    if (!r) return []
+    return [
+      <rect
+        key={key}
+        x={r.x}
+        y={r.y}
+        width={r.w}
+        height={r.h}
+        rx={Math.min(12, GROUP_PAD * 1.6)}
+        {...fillProps(g.fill ?? 'none')}
+        {...strokeOnly(g.stroke ?? s.stroke)}
+        strokeWidth={Math.max(1, s.strokeWidth)}
+        strokeDasharray={dashArray('dashed', Math.max(1, s.strokeWidth))}
+        data-mlp-group={key}
+      />,
+    ]
+  })
+
   return (
     <g>
+      {groups}
       {lat.wires.map((w) => {
         const b = wireBits[w.key]
         if (b?.hidden) return null
