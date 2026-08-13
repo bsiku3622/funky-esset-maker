@@ -382,7 +382,9 @@
 
 .scope-aifig .af-mathfield {
   display: block;
-  width: 100%;
+  /* content-sized, so the flex placement above decides where it sits; at 100%
+     it would fill the box and pin its formula to the left of it */
+  width: auto;
   margin: 0;
   padding: 0;
   border: 0;

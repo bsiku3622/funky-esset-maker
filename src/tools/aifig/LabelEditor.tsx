@@ -81,7 +81,16 @@ export default function LabelEditor({
           value={value}
           fontSize={Math.max(9, text.fontSize * zoom)}
           color={color}
-          style={place}
+          /* ⚠️ A mathfield lays itself out and ignores `text-align`, so the
+             alignment has to reach it as flex placement instead. Without this
+             it pins to the left edge of its box — and since a neuron's box is
+             four radii wide to leave the formula room, the label appeared a
+             whole diameter to the left of the circle it belonged to. */
+          style={{
+            ...place,
+            justifyContent:
+              text.align === 'right' ? 'flex-end' : text.align === 'left' ? 'flex-start' : 'center',
+          }}
           onChange={onChange}
           onStart={onStart}
           onDone={onDone}
