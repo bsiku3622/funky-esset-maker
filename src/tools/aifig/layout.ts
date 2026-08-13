@@ -3,7 +3,7 @@
  * Split out of shapes.tsx so the pure geometry can be imported by the editor,
  * the exporter and the hit layer without dragging a component module along. */
 
-import type { CanvasCfg, EdgeStyle, FigDoc, FigEdge, FigNode, Rect, Style } from './types'
+import type { CanvasCfg, EdgeStyle, FigDoc, FigEdge, FigNode, Pt, Rect, Style } from './types'
 import { FONT_STACK } from './presets'
 import { atLength, rotatePt, snapPos, snapSize } from './geometry'
 import { layoutLabel, type LabelLayout } from './latex'
@@ -81,6 +81,31 @@ export function placeLabel(n: FigNode): PlacedLabel | null {
   if (s.align === 'left') x = inside ? 6 : cx - layout.w / 2
   else if (s.align === 'right') x = inside ? n.w - 6 : cx + layout.w / 2
   return { layout, x, y }
+}
+
+/* Where the caret goes when a label is being typed into, in the node's frame.
+ *
+ * ⚠️ It sits after the glyphs, not at the source position of the text cursor,
+ * and for maths those are different things: `\frac{a}{b}` is eleven characters
+ * and one rendered fraction, so there is no place on screen for "between the a
+ * and the b". Moving the text cursor with the arrow keys therefore does not
+ * move this. That is the price of drawing the finished formula while it is
+ * being written, and it is the trade the box-shaped editor was making the other
+ * way — showing the source exactly, and nothing of the result. */
+export function labelCaret(n: FigNode): { p: Pt; h: number } {
+  const s = labelStyle(n)
+  /* An empty label has nothing to place, so it is laid out as a zero-width
+     space: that puts one empty line exactly where the first real one will go,
+     rather than duplicating placeLabel's rules for where a block starts. */
+  const placed = placeLabel(n.label ? n : { ...n, label: '​' })
+  const fs = s.fontSize
+  if (!placed) return { p: { x: n.w / 2, y: n.h / 2 }, h: fs * 1.1 }
+  const line = placed.layout.lines[placed.layout.lines.length - 1]
+  if (!line) return { p: { x: placed.x, y: placed.y }, h: fs * 1.1 }
+  // mirror LabelView's per-line origin, then step to the end of the run
+  const ox =
+    s.align === 'center' ? placed.x - line.w / 2 : s.align === 'right' ? placed.x - line.w : placed.x
+  return { p: { x: ox + line.w, y: placed.y + line.baseline - fs * 0.3 }, h: fs * 1.1 }
 }
 
 /** Side labels always face outward, regardless of the style alignment. */

@@ -12,8 +12,6 @@
  *    cheap and never misses a field. */
 
 import {
-  lazy,
-  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -97,6 +95,7 @@ import {
   edgeLabelBox,
   fitNodeToGrid,
   inkRect,
+  labelCaret,
   neuronLabel,
   ptOf,
   refitMlp,
@@ -131,11 +130,6 @@ import {
   toTikz,
 } from './aifig/export'
 import Inspector from './aifig/Inspector'
-/* MathLive is ~800 kB and only earns its keep once someone actually edits a
-   LaTeX-mode label, which is the same bargain latex.ts strikes with MathJax.
-   Loading it with the tool would put it in front of everyone who opens the
-   editor to move a box. */
-const MathInput = lazy(() => import('./aifig/MathInput'))
 import Overlay from './aifig/Overlay'
 import { HOVER_TOL, onAnchorDot, type HandleKey } from './aifig/handles'
 import { IconBtn, Num, Seg } from './aifig/ui'
@@ -2119,6 +2113,11 @@ export default function AiFigureMaker() {
   }
 
   /* ---- label editing overlay ---- */
+  /* Same bargain as typing into a neuron: the field is invisible and the figure
+     shows the text. A label in LaTeX mode is a formula on the canvas, so it is
+     a formula while it is being written too — the box-shaped editor that used
+     to sit here showed the source instead, which meant the thing you edited and
+     the thing you got were never the same picture. */
   const editNode = editing ? nmap.get(editing) : null
   const editBox = editNode
     ? {
@@ -2128,6 +2127,15 @@ export default function AiFigureMaker() {
         height: Math.max(28, editNode.h * view.zoom),
       }
     : null
+  const editCaret = useMemo(() => {
+    if (!editNode) return null
+    const c = labelCaret(editNode)
+    const p = { x: editNode.x + c.p.x, y: editNode.y + c.p.y }
+    return {
+      p: editNode.rotation ? rotatePt(p, rectCenter(editNode), editNode.rotation) : p,
+      h: c.h,
+    }
+  }, [editNode])
 
   /* ---- render ---- */
   /* One checker square = one grid cell, so its corners are the points you snap
@@ -2548,12 +2556,16 @@ export default function AiFigureMaker() {
 
               <Overlay
                 zoom={view.zoom}
-                nodes={selectedNodeObjs}
-                selBox={selBox}
+                /* A focused neuron is the selection, so the network's own
+                   outline, resize grips and rotate knob come off. Leaving them
+                   up says two things are selected at once, and puts handles
+                   that resize the whole lattice around a single circle. */
+                nodes={activePart ? [] : selectedNodeObjs}
+                selBox={activePart ? null : selBox}
                 edges={selectedEdgeObjs
                   .map((e) => ({ e, r: resolved.get(e.id) }))
                   .filter((x): x is { e: FigEdge; r: ResolvedEdge } => !!x.r)}
-                hoverNode={hoverNode && !hoverNode.locked ? hoverNode : null}
+                hoverNode={hoverNode && !hoverNode.locked && !activePart ? hoverNode : null}
                 guides={guides}
                 gaps={gaps}
                 measures={probe?.measures ?? []}
@@ -2562,58 +2574,43 @@ export default function AiFigureMaker() {
                 tempEdge={temp ? { a: temp.a, b: temp.b } : null}
                 connectTarget={temp?.target ? nodeBounds(nmap.get(temp.target)!) : null}
                 partMark={partMark}
-                caret={dotEdit?.caret ?? null}
+                caret={dotEdit?.caret ?? editCaret}
                 dragging={dragging}
               />
             </g>
           </svg>
 
-          {/* Editing a label. In LaTeX mode the overlay renders the formula, so
-              what you type into is what the figure will show; the other modes
-              are prose and get a plain box. Either way the right panel holds
-              the same string as raw source. */}
           {editBox && editNode ? (
-            editNode.style.fontFamily === 'latex' ? (
-              // nothing to show for the frame or two the editor takes to arrive
-              <Suspense fallback={null}>
-                <MathInput
-                  value={editNode.label}
-                  fontSize={Math.max(11, editNode.style.fontSize * view.zoom)}
-                  style={{ left: editBox.left, top: editBox.top, minWidth: editBox.width }}
-                  onChange={(label) => live((d) => patchNodes(d, [editNode.id], () => ({ label })))}
-                  onStart={() => beginDrag()}
-                  onDone={() => {
-                    setEditing(null)
-                    endDrag(true)
-                  }}
-                />
-              </Suspense>
-            ) : (
-              <textarea
-                className="af-edit"
-                autoFocus
-                style={{
-                  left: editBox.left,
-                  top: editBox.top,
-                  width: editBox.width,
-                  height: editBox.height,
-                  fontSize: Math.max(9, editNode.style.fontSize * view.zoom),
-                }}
-                value={editNode.label}
-                onChange={(e) => live((d) => patchNodes(d, [editNode.id], () => ({ label: e.target.value })))}
-                onBlur={() => {
-                  setEditing(null)
-                  endDrag(true)
-                }}
-                onFocus={() => beginDrag()}
-                onKeyDown={(e) => {
-                  e.stopPropagation()
-                  if (e.key === 'Escape' || (e.key === 'Enter' && (e.metaKey || e.ctrlKey))) {
-                    ;(e.target as HTMLTextAreaElement).blur()
-                  }
-                }}
-              />
-            )
+            <textarea
+              className="af-inplace"
+              autoFocus
+              style={{
+                left: editBox.left,
+                top: editBox.top,
+                width: editBox.width,
+                height: editBox.height,
+              }}
+              value={editNode.label}
+              onChange={(e) => live((d) => patchNodes(d, [editNode.id], () => ({ label: e.target.value })))}
+              onBlur={() => {
+                setEditing(null)
+                endDrag(true)
+              }}
+              onFocus={(e) => {
+                beginDrag()
+                // caret after the text, so typing adds to a label instead of
+                // landing in front of it — the drawn caret is at the end too
+                const el = e.currentTarget
+                el.setSelectionRange(el.value.length, el.value.length)
+              }}
+              onKeyDown={(e) => {
+                e.stopPropagation()
+                // Enter breaks the line here — a block label is often two
+                if (e.key === 'Escape' || (e.key === 'Enter' && (e.metaKey || e.ctrlKey))) {
+                  ;(e.target as HTMLTextAreaElement).blur()
+                }
+              }}
+            />
           ) : null}
 
           {/* The invisible half of typing into a circle. Everything is
@@ -2630,7 +2627,11 @@ export default function AiFigureMaker() {
                 width: dotEdit.box.size,
                 height: dotEdit.box.size,
               }}
-              onFocus={() => beginDrag()}
+              onFocus={(e) => {
+                beginDrag()
+                const el = e.currentTarget
+                el.setSelectionRange(el.value.length, el.value.length)
+              }}
               onChange={(e) =>
                 live((d) => patchMlpPart(d, editDot!, 'neurons', { label: e.target.value }))
               }

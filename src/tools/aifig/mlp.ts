@@ -40,17 +40,20 @@ import { distToSeg, rectCenter, rotatePt, type AnchorPoint } from './geometry'
  * them clamped back up and the defaults stop describing what you actually get.
  * A circle of r 16 is 32 across, which is why the pitch starts at 40. */
 export const MLP_R = 16
-export const MLP_PITCH = 40
-export const MLP_GAP = 72
+export const MLP_PITCH = 48
+export const MLP_GAP = 56
 /** Drawn circles per column before the rest collapse into a ⋮. */
-export const MLP_MAX_DOTS = 6
+export const MLP_MAX_DOTS = 4
 /** Hard ceiling on drawn circles, ellipsis or not — the old shape's clamp. */
 export const MLP_SLOT_CAP = 24
 export const MLP_MAX_LAYERS = 12
 /** A column may *stand for* far more units than it draws. */
 export const MLP_MAX_UNITS = 4096
 
-export const MLP_DEFAULT_LAYERS = [4, 5, 3]
+/* A network worth drawing rather than the smallest one that fits: real figures
+ * have wide hidden layers, and the point of the ellipsis is that a 64-unit layer
+ * costs the same four circles as a 4-unit one. Starting here shows both at once. */
+export const MLP_DEFAULT_LAYERS = [4, 64, 64, 64, 1]
 
 /* ---------- keys ---------- */
 
