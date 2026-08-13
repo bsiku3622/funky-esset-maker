@@ -1,5 +1,18 @@
 # 작업 기록
 
+## 2026-08-14 — Tabler: 헤더에서 드래그 선택이 글자와 어긋나던 버그
+
+- 변경 파일: `src/tools/Tabler.css`
+- 요약: 헤더 셀의 `font-weight: 800`이 보이는 span에만 걸려 있었고, 선택 하이라이트를 그리는 textarea는 400이었습니다.
+
+셀 하나는 **보이는 `<span class="cell__sizer">` + 그 위에 얹힌 투명 `<textarea>`** 입니다. span이 읽는 글자이고 textarea가 캐럿과 `::selection`을 그립니다. 이 구조는 둘이 **완전히 같은 방식으로 텍스트를 배치할 때만** 성립하는데, 헤더 굵기 규칙이 span만 지목하고 있었습니다.
+
+같은 문자열 "relative to original"을 30px로 재면 800에서 258.5px, 400에서 237.1px — **21px** 차이. 글자가 길수록 오차가 누적되니 "단어가 길어질수록 드래그가 어긋난다"가 정확히 이 증상입니다.
+
+⚠️ **텍스트 측정에 영향을 주는 건 무엇이든 양쪽에 걸어야 합니다** — 글꼴, 크기, 자간, padding. 앞으로 Tabler에 폰트 변경 기능을 넣을 때 특히 그렇습니다.
+
+이 구조 자체가 AI Figure Maker에서 방금 걷어낸 것과 같은 방식(직접 그린 글자 + 투명 입력)이라는 점은 기록해 둡니다. 여기서 못 걷어내는 이유는 **PNG export가 html-to-image라 textarea의 value를 그리지 못하기** 때문입니다 — 보이는 글자가 `<span>`이어야 export가 됩니다. 그래서 여기서는 "둘의 메트릭을 같게 유지한다"가 유일한 해법입니다.
+
 ## 2026-08-13 — AI Figure Maker: 편집을 브라우저에게 돌려주고, 뉴런의 자유도를 되돌림
 
 - 변경 파일: `LabelEditor.tsx`(신규), `MathField.tsx`(신규), `MathInput.tsx`(삭제), `layout.ts`, `types.ts`, `mlp.ts`, `mlp.test.ts`, `latex.test.ts`, `shapes.tsx`, `Inspector.tsx`, `Overlay.tsx`, `AiFigureMaker.tsx`, `AiFigureMaker.css`

@@ -21,7 +21,18 @@
   background: var(--body-bg, #fff);
   color: #222;
 }
-.scope-tabler .cell--header .cell__sizer {
+/* ⚠️ Both, always. A cell is a visible <span> with a transparent <textarea>
+   lying on top of it — the span is what you read, the textarea is what draws
+   the caret and the selection. That only works while the two lay text out
+   identically, and this rule used to name the span alone: a header's glyphs
+   were 800 and the selection behind them was measured at 400, so the highlight
+   drifted further from the words the longer they got. Twenty-one pixels over
+   "relative to original" at 30px.
+
+   Anything else that changes how text is measured — family, size, spacing,
+   padding — has to reach both for the same reason. */
+.scope-tabler .cell--header .cell__sizer,
+.scope-tabler .cell--header .cell__input {
   font-weight: 800;
 }
 .scope-tabler .cell__box {
