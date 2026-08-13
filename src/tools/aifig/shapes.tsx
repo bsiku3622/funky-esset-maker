@@ -11,7 +11,16 @@ import type { FigNode, NeuronBits, Style } from './types'
 import { dashArray, FONT_STACK, paint, readableOn, shade, tint } from './presets'
 import { fontCss, layoutLabel, textWidth, type LabelLayout } from './latex'
 import { isoOff, labelFont, labelStyle, neuronLabel, placeLabel } from './layout'
-import { GROUP_PAD, hasCaps, mlpCaps, mlpLattice, mlpPartRect, type MlpDot } from './mlp'
+import {
+  GROUP_CAP_GAP,
+  GROUP_PAD,
+  groupPad,
+  hasCaps,
+  mlpCaps,
+  mlpLattice,
+  mlpPartRect,
+  type MlpDot,
+} from './mlp'
 
 /* ---------- label ---------- */
 
@@ -342,6 +351,11 @@ const Mlp = ({ n, editing }: BodyProps) => {
     ...s,
     align: 'center',
     fontFamily: s.fontFamily === 'latex' ? 'serif' : s.fontFamily,
+    /* Captions have their own ink for the same reason the synapses do: a
+       network drawn in one accent still wants its annotations readable, and
+       `none` — which is how a shape says "pick a colour that reads on the
+       fill" — would leave a caption with no fill at all outside the circles. */
+    textColor: n.props.capColor ?? (s.textColor === 'none' ? s.stroke : s.textColor),
   }
   const caps = hasCaps(n.props)
     ? lat.cols.flatMap((c) => {
@@ -369,24 +383,44 @@ const Mlp = ({ n, editing }: BodyProps) => {
   /* Groups go down first, behind everything: the box is a backdrop for the
      units it holds, not a frame drawn over them. */
   const groups = Object.entries(n.props.groups ?? {}).flatMap(([key, g]) => {
-    if (g.bare) return []
     const r = mlpPartRect(n, key)
     if (!r) return []
-    return [
-      <rect
-        key={key}
-        x={r.x}
-        y={r.y}
-        width={r.w}
-        height={r.h}
-        rx={Math.min(12, GROUP_PAD * 1.6)}
-        {...fillProps(g.fill ?? 'none')}
-        {...strokeOnly(g.stroke ?? s.stroke)}
-        strokeWidth={Math.max(1, s.strokeWidth)}
-        strokeDasharray={dashArray('dashed', Math.max(1, s.strokeWidth))}
-        data-mlp-group={key}
-      />,
-    ]
+    const out: React.ReactElement[] = []
+    if (!g.bare)
+      out.push(
+        <rect
+          key={key}
+          x={r.x}
+          y={r.y}
+          width={r.w}
+          height={r.h}
+          rx={Math.min(12, Math.max(...groupPad(g), GROUP_PAD) * 1.6)}
+          {...fillProps(g.fill ?? 'none')}
+          {...strokeOnly(g.stroke ?? s.stroke)}
+          strokeWidth={Math.max(1, s.strokeWidth)}
+          strokeDasharray={dashArray('dashed', Math.max(1, s.strokeWidth))}
+          data-mlp-group={key}
+        />,
+      )
+    /* The name, above the box. Prose for the same reason a layer caption is —
+       "입력층" and "shared weights" are words, and LaTeX mode would set them as
+       maths and eat the spaces. */
+    if (g.label) {
+      const style: Style = { ...capStyle, fontSize: g.fontSize ?? capStyle.fontSize }
+      const layout = layoutLabel(g.label, labelFont(style))
+      if (layout.lines.length)
+        out.push(
+          <LabelView
+            key={`${key}cap`}
+            layout={layout}
+            x={r.x + r.w / 2}
+            y={r.y - GROUP_CAP_GAP - layout.h}
+            style={style}
+            color={g.textColor ?? (s.textColor === 'none' ? s.stroke : s.textColor)}
+          />,
+        )
+    }
+    return out
   })
 
   return (

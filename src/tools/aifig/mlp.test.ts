@@ -14,6 +14,8 @@ import {
   mlpAnchorPoint,
   mlpDotAt,
   mlpGroupAt,
+  mlpGroupOverflow,
+  mlpHit,
   mlpPartRect,
   mlpPartCentre,
   mlpLattice,
@@ -508,6 +510,108 @@ describe('a group of neurons', () => {
   it('goes away when the layer it held is removed', () => {
     const p: NodeProps = { layers: [3, 2], groups: { g0: { parts: [dotKey(1, 0)] } } }
     expect(retypeLayers(p, [3]).groups).toBeUndefined()
+  })
+
+  /* Padding is a group's only degree of freedom, so it is what a resize grip
+     drags. One side at a time — the whole point is that the box can be pushed
+     out on the side the label needs and left alone everywhere else. */
+  it('pushes out only the side that was given padding', () => {
+    const base = mlpPartRect(n, 'g0')!
+    const wide = {
+      ...n,
+      props: { ...n.props, groups: { g0: { parts: held, pad: [7, 40, 7, 7] as [number, number, number, number] } } },
+    }
+    const r = mlpPartRect(wide, 'g0')!
+    expect(r.x).toBeCloseTo(base.x, 6)
+    expect(r.y).toBeCloseTo(base.y, 6)
+    expect(r.h).toBeCloseTo(base.h, 6)
+    expect(r.w).toBeCloseTo(base.w + 33, 6)
+  })
+
+  it('reports how far it hangs outside the node it lives in', () => {
+    const o = mlpGroupOverflow(n)
+    const r = mlpPartRect(n, 'g0')!
+    // the lattice sizes the box from the circles, so the padding is always out
+    expect(o.l).toBeCloseTo(-r.x, 6)
+    expect(o.t).toBeGreaterThan(0)
+    expect(mlpGroupOverflow({ ...n, props: { ...n.props, groups: undefined } })).toEqual({
+      l: 0,
+      t: 0,
+      r: 0,
+      b: 0,
+    })
+  })
+})
+
+/* ⚠️ The bug this closes: a network's rectangle was its click target, and a
+   network is mostly holes. Anything drawn in the space between two columns
+   could not be reached, because every press inside the bounds was answered by
+   the network first. */
+describe('what counts as pressing the network', () => {
+  const n = fitted({ layers: [2, 2], pitch: 48, layerGap: 96, neuronR: 12 })
+
+  const at = (x: number, y: number) => ({ x: n.x + x, y: n.y + y })
+
+  it('answers for a circle', () => {
+    const d = mlpLattice(n).dots[0]
+    expect(mlpHit(n, at(d.x, d.y))).toBe(true)
+  })
+
+  it('answers for a synapse', () => {
+    const w = mlpLattice(n).wires[0]
+    expect(mlpHit(n, at((w.a.x + w.b.x) / 2, (w.a.y + w.b.y) / 2))).toBe(true)
+  })
+
+  it('leaves the hole between the columns alone', () => {
+    /* Halfway across and a quarter of the way down: well inside the box, and
+       clear of both circles and every wire. */
+    const local = { x: n.w / 2, y: n.h / 4 }
+    const lat = mlpLattice(n)
+    for (const d of lat.dots) expect(Math.hypot(d.x - local.x, d.y - local.y)).toBeGreaterThan(d.r)
+    expect(mlpHit(n, at(local.x, local.y))).toBe(false)
+  })
+
+  it('lets go of the hole even when the network is on top', () => {
+    // no wires at all is the worst case — the columns are then all there is
+    const bare = { ...n, props: { ...n.props, showEdges: false } }
+    expect(mlpHit(bare, at(n.w / 2, n.h / 2))).toBe(false)
+  })
+
+  it('answers for a group box, but not for the air inside it', () => {
+    const g = {
+      ...n,
+      props: { ...n.props, groups: { g0: { parts: [dotKey(0, 0), dotKey(0, 1)] } } },
+    }
+    const r = mlpPartRect(g, 'g0')!
+    expect(mlpHit(g, at(r.x, r.y + r.h / 2))).toBe(true)
+    // between the two circles it holds, well clear of both the rim and them
+    const lat = mlpLattice(g)
+    const mid = (lat.dots[0].y + lat.dots[1].y) / 2
+    const bare = { ...g, props: { ...g.props, showEdges: false } }
+    expect(mlpHit(bare, at(lat.dots[0].x, mid))).toBe(false)
+  })
+
+  it('answers for a filled group box all the way through', () => {
+    const g = {
+      ...n,
+      props: {
+        ...n.props,
+        showEdges: false,
+        groups: { g0: { parts: [dotKey(0, 0), dotKey(0, 1)], fill: '#eeeeee' } },
+      },
+    }
+    const lat = mlpLattice(g)
+    const mid = (lat.dots[0].y + lat.dots[1].y) / 2
+    expect(mlpHit(g, at(lat.dots[0].x, mid))).toBe(true)
+  })
+
+  it('answers for a layer caption', () => {
+    const cap = { ...n, props: { ...n.props, showEdges: false, capTop: ['input', ''] } }
+    const col = mlpLattice(cap).cols[0]
+    expect(mlpHit(cap, at(col.x, col.top - 4))).toBe(true)
+    // and the column next to it, which has no caption, still lets go
+    const col2 = mlpLattice(cap).cols[1]
+    expect(mlpHit(cap, at(col2.x, col2.top - 4))).toBe(false)
   })
 })
 

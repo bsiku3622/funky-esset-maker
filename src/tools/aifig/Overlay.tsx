@@ -22,10 +22,12 @@ import {
   anchorHandlePoint,
 } from './handles'
 
-/** One selected neuron or synapse, ready to draw. */
+/** One selected neuron, synapse or group, ready to draw. */
 export type PartMark =
   | { kind: 'dot'; c: Pt; r: number }
   | { kind: 'wire'; a: Pt; b: Pt }
+  /** corners in canvas order, so a rotated network still outlines squarely */
+  | { kind: 'group'; pts: Pt[] }
 
 interface Props {
   zoom: number
@@ -48,6 +50,8 @@ interface Props {
   partMarks: PartMark[]
   /** connection dots on the selected neuron, so a wire can start there */
   partAnchors: { anchor: string; p: Pt; node: string; part: string }[]
+  /** resize grips on a selected group — they drag its padding, not its size */
+  partGrips: { handle: string; part: string; node: string; p: Pt }[]
   /** true while a drag is in flight — handles are hidden to reduce noise */
   dragging: boolean
 }
@@ -67,6 +71,7 @@ export default function Overlay({
   connectTarget,
   partMarks,
   partAnchors,
+  partGrips,
   dragging,
 }: Props) {
   const k = 1 / zoom
@@ -208,6 +213,14 @@ export default function Overlay({
             stroke="#7828c8"
             strokeWidth={1.6 * k}
           />
+        ) : m.kind === 'group' ? (
+          <polygon
+            key={i}
+            points={m.pts.map((p) => `${p.x},${p.y}`).join(' ')}
+            fill="none"
+            stroke="#7828c8"
+            strokeWidth={1.4 * k}
+          />
         ) : (
           <line
             key={i}
@@ -300,6 +313,28 @@ export default function Overlay({
           })}
         </g>
       ) : null}
+
+      {/* a selected group resizes like any other object — the grips just edit
+          its padding, since where it sits is the lattice's business */}
+      {!dragging
+        ? partGrips.map((g) => (
+            <rect
+              key={`${g.part}${g.handle}`}
+              x={g.p.x - GRIP * k}
+              y={g.p.y - GRIP * k}
+              width={GRIP * 2 * k}
+              height={GRIP * 2 * k}
+              fill="#fff"
+              stroke="#7828c8"
+              strokeWidth={1.4 * k}
+              pointerEvents="all"
+              data-part-handle={g.handle}
+              data-part-key={g.part}
+              data-part-node={g.node}
+              style={{ cursor: CURSOR[g.handle as keyof typeof CURSOR] }}
+            />
+          ))
+        : null}
 
       {/* the same dots, on a neuron that has been reached inside a network */}
       {!dragging

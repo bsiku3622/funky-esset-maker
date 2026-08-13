@@ -246,8 +246,17 @@ export function mlpDot(n: FigNode, key: string): MlpDot | null {
   return mlpLattice(n).dots.find((d) => d.key === key) ?? null
 }
 
-/** How far a group's outline stands off the units it holds. */
+/** How far a group's outline stands off the units it holds, by default. */
 export const GROUP_PAD = 7
+/** A grip may push a side in until it touches the circles, and no further. */
+export const GROUP_PAD_MAX = 400
+
+/** How far a group's name floats above its box. */
+export const GROUP_CAP_GAP = 4
+
+/** A group's four paddings — top, right, bottom, left — filled in. */
+export const groupPad = (g: NeuronGroup | undefined): [number, number, number, number] =>
+  g?.pad ?? [GROUP_PAD, GROUP_PAD, GROUP_PAD, GROUP_PAD]
 
 /* The box a part occupies, in the node's local frame: a unit's own square, or
  * everything a group holds. Null when the key names nothing that is drawn —
@@ -261,12 +270,34 @@ export function mlpPartRect(n: FigNode, key: string): Rect | null {
     if (!held.length) return null
     const xs = held.flatMap((d) => [d.x - d.r, d.x + d.r])
     const ys = held.flatMap((d) => [d.y - d.r, d.y + d.r])
-    const x = Math.min(...xs) - GROUP_PAD
-    const y = Math.min(...ys) - GROUP_PAD
-    return { x, y, w: Math.max(...xs) + GROUP_PAD - x, h: Math.max(...ys) + GROUP_PAD - y }
+    const [pt, pr, pb, pl] = groupPad(g)
+    const x = Math.min(...xs) - pl
+    const y = Math.min(...ys) - pt
+    return { x, y, w: Math.max(...xs) + pr - x, h: Math.max(...ys) + pb - y }
   }
   const d = lat.dots.find((x) => x.key === key)
   return d ? { x: d.x - d.r, y: d.y - d.r, w: d.r * 2, h: d.r * 2 } : null
+}
+
+/* How far a group's outline reaches past the node's own box, per side.
+ *
+ * The lattice sizes the node from its circles, so a group's padding hangs
+ * outside it by construction — even the default 7. Anything that has to contain
+ * what the node paints (the selection outline, the hit rect, the export frame)
+ * asks this. */
+export function mlpGroupOverflow(n: FigNode): { l: number; t: number; r: number; b: number } {
+  const out = { l: 0, t: 0, r: 0, b: 0 }
+  for (const [key, g] of Object.entries(n.props.groups ?? {})) {
+    const r = mlpPartRect(n, key)
+    if (!r) continue
+    // the name sits above the box, so it counts as part of what the group paints
+    const cap = g.label ? (g.fontSize ?? n.style.fontSize) * 1.3 + GROUP_CAP_GAP : 0
+    out.l = Math.max(out.l, -r.x)
+    out.t = Math.max(out.t, -r.y + cap)
+    out.r = Math.max(out.r, r.x + r.w - n.w)
+    out.b = Math.max(out.b, r.y + r.h - n.h)
+  }
+  return { l: Math.max(0, out.l), t: Math.max(0, out.t), r: Math.max(0, out.r), b: Math.max(0, out.b) }
 }
 
 /** A part's centre in canvas coordinates, rotation included — what a connector
@@ -347,10 +378,11 @@ const FIXED: Record<string, Pt> = {
  * be on top and disagrees with the geometry the moment two parts overlap. */
 
 /** Undo the node's placement so a canvas point can be compared to the lattice. */
-const toLocal = (n: FigNode, p: Pt): Pt => {
+export const mlpToLocal = (n: FigNode, p: Pt): Pt => {
   const q = n.rotation ? rotatePt(p, rectCenter(n), -n.rotation) : p
   return { x: q.x - n.x, y: q.y - n.y }
 }
+const toLocal = mlpToLocal
 
 const DIRS: Record<string, Pt> = {
   n: { x: 0, y: -1 },
@@ -431,6 +463,81 @@ export function mlpWireAt(n: FigNode, p: Pt, tol = 3): MlpWire | null {
     }
   }
   return best
+}
+
+/* Is the pointer on the network at all?
+ *
+ * ⚠️ A network is mostly holes, and it used to be picked by its bounding box.
+ * Anything placed over the space between two columns — a caption, an arrow's
+ * label, a small block sitting inside the diagram — became unclickable the
+ * moment the network was drawn later or lay above it, because every press
+ * within the rectangle was answered by the network first. It is drawn as
+ * circles, lines and boxes, so that is what it is grabbed by; the gaps between
+ * them belong to whatever is underneath, the same way an unfilled shape's
+ * middle does in `pointOnNode`. */
+export function mlpHit(n: FigNode, p: Pt, tol = 0): boolean {
+  const local = toLocal(n, p)
+  const lat = mlpLattice(n)
+  const near = (d: MlpDot, extra: number) => {
+    const rr = d.r + extra
+    return (local.x - d.x) ** 2 + (local.y - d.y) ** 2 <= rr * rr
+  }
+  for (const d of lat.dots) if (near(d, tol)) return true
+  // the ⋮ is a short stack of pips; its own little circle is target enough
+  for (const g of lat.gaps) if (near(g, tol - g.r * 0.2)) return true
+  /* Wires get a thinner allowance than the circles do. They criss-cross the
+     whole box, so a generous one turns the network back into the net that
+     caught every press — the circles are what you are reaching for. */
+  const wireTol = Math.max(2, Math.min(tol, 4))
+  for (const w of lat.wires) {
+    if (n.props.wires?.[w.key]?.hidden) continue
+    if (distToSeg(local, w.a, w.b) <= wireTol) return true
+  }
+  /* Captions and group names are ink too. Their exact extent needs a text
+     layout, which lives a layer above this one, so they get the same one-line
+     estimate `shapeOverflow` uses — a band the width of the thing they label. */
+  const line = n.style.fontSize * 1.3
+  const gap = Math.max(2 * lat.r, n.props.layerGap ?? MLP_GAP)
+  for (const c of lat.cols) {
+    const { top, bottom } = mlpCaps(n.props, c.li)
+    const band = (y0: number, y1: number) =>
+      Math.abs(local.x - c.x) <= gap / 2 && local.y >= y0 - tol && local.y <= y1 + tol
+    if (top && band(c.top - line, c.top)) return true
+    if (bottom && band(c.bottom, c.bottom + line)) return true
+  }
+  for (const key of Object.keys(n.props.groups ?? {})) {
+    const g = n.props.groups?.[key]
+    const r = mlpPartRect(n, key)
+    if (!g || !r) continue
+    if (
+      g.label &&
+      Math.abs(local.x - (r.x + r.w / 2)) <= r.w / 2 &&
+      local.y >= r.y - GROUP_CAP_GAP - (g.fontSize ?? n.style.fontSize) * 1.3 - tol &&
+      local.y <= r.y
+    )
+      return true
+    if (g.bare) continue
+    /* The band is symmetric about the outline, which matters at the very edge:
+       measured only inwards, the outermost pixel of the box belonged to nobody
+       and a click that visibly landed on the line fell through it. */
+    const band = Math.max(tol, 4)
+    const inside =
+      local.x >= r.x - band &&
+      local.x <= r.x + r.w + band &&
+      local.y >= r.y - band &&
+      local.y <= r.y + r.h + band
+    if (!inside) continue
+    // a filled box is solid ink; an empty one is grabbed by its edge
+    const solid = !!g.fill && g.fill !== 'none' && g.fill !== 'transparent'
+    if (solid) return true
+    const inner =
+      local.x > r.x + band &&
+      local.x < r.x + r.w - band &&
+      local.y > r.y + band &&
+      local.y < r.y + r.h - band
+    if (!inner) return true
+  }
+  return false
 }
 
 /* ---------- size ---------- */

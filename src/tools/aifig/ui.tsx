@@ -108,6 +108,66 @@ export function Num({
 
 const round = (v: number) => Math.round(v * 100) / 100
 
+/* ---------- click-to-type readout ---------- */
+
+/* A slider's own number, made typeable.
+ *
+ * A slider is a good way to *find* a value and a poor way to *state* one —
+ * "70%" is one keystroke and about six pixels of aim, and at panel width every
+ * pixel is two or three percent. The readout was plain text, so the only way to
+ * ask for a round number was to nudge the thumb until the label agreed. It now
+ * turns into a field on a click and hands the value back on Enter or on the way
+ * out, the way every other number in the inspector behaves. */
+export function PctBox({
+  value,
+  onChange,
+  disabled,
+}: {
+  /** 0..1 */
+  value: number
+  onChange: (v: number) => void
+  disabled?: boolean
+}) {
+  const [editing, setEditing] = useState(false)
+  const shown = Math.round(value * 100)
+  if (!editing || disabled)
+    return (
+      <button
+        type="button"
+        className="af-pct"
+        disabled={disabled}
+        title="클릭해서 숫자로 입력"
+        onClick={() => setEditing(true)}
+      >
+        {shown}%
+      </button>
+    )
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      className="af-pct af-pct--edit"
+      autoFocus
+      defaultValue={String(shown)}
+      onFocus={(e) => e.currentTarget.select()}
+      onBlur={(e) => {
+        const v = parseFloat(e.target.value)
+        if (Number.isFinite(v)) onChange(Math.min(1, Math.max(0, v / 100)))
+        setEditing(false)
+      }}
+      onKeyDown={(e) => {
+        e.stopPropagation()
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+        // Escape leaves the value alone, so blur must not commit what was typed
+        if (e.key === 'Escape') {
+          ;(e.target as HTMLInputElement).value = String(shown)
+          ;(e.target as HTMLInputElement).blur()
+        }
+      }}
+    />
+  )
+}
+
 /* ---------- number list ---------- */
 
 /* A comma-separated list of counts — "4, 5, 3".
@@ -427,7 +487,11 @@ export function ColorBtn({
               onChange={(e) => onChange(withAlpha(value, Number(e.target.value) / 100))}
               aria-label="불투명도"
             />
-            <span>{Math.round(alphaOf(value) * 100)}%</span>
+            <PctBox
+              value={alphaOf(value)}
+              disabled={value === 'none'}
+              onChange={(a) => onChange(withAlpha(value, a))}
+            />
           </div>
           <div className="af-color__foot">
             <input

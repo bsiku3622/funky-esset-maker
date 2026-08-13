@@ -40,6 +40,8 @@ import {
   MLP_PITCH,
   MLP_R,
   MLP_SLOT_CAP,
+  GROUP_PAD_MAX,
+  groupPad,
   isLattice,
   mlpLayers,
   mlpSnapProps,
@@ -865,6 +867,10 @@ function PartPanel({
 
   if (parts.kind === 'group') {
     const g = p.groups?.[first]
+    const pad = groupPad(g)
+    /* One number for all four sides. The grips do them separately — this is
+       for saying "give it eight all round" without four drags. */
+    const even = pad.every((v) => v === pad[0])
     return (
       <Group title={many ? `그룹 ${parts.keys.length}개` : '뉴런 그룹'}>
         {back}
@@ -875,6 +881,21 @@ function PartPanel({
             placeholder="입력층"
             onChange={(e) => onPart({ label: e.target.value })}
             onKeyDown={(e) => e.stopPropagation()}
+          />
+        </Field>
+        <Field label="이름 색 · 크기">
+          <ColorBtn
+            value={g?.textColor ?? (s.textColor === 'none' ? s.stroke : s.textColor)}
+            swatches={swatches}
+            onChange={(textColor) => onPart({ textColor })}
+          />
+          <Num
+            value={g?.fontSize ?? s.fontSize}
+            min={2}
+            max={200}
+            onChange={(fontSize) => onPart({ fontSize })}
+            suffix="px"
+            width={56}
           />
         </Field>
         <Field label="채우기 · 테두리">
@@ -890,6 +911,17 @@ function PartPanel({
             onChange={(stroke) => onPart({ stroke })}
           />
         </Field>
+        <Field label="여백">
+          <Num
+            value={pad[0]}
+            min={0}
+            max={GROUP_PAD_MAX}
+            onChange={(v) => onPart({ pad: [v, v, v, v] })}
+            suffix="px"
+            width={62}
+          />
+          <span className="af-hint-inline">{even ? '네 면 같음' : `${pad.join(' / ')}`}</span>
+        </Field>
         <Field label="표시">
           <Chk checked={!g?.bare} onChange={(on) => onPart({ bare: !on })} label="상자 그리기" />
           <button type="button" className="af-mini" onClick={onUngroup}>
@@ -898,7 +930,8 @@ function PartPanel({
         </Field>
         <p className="af-note">
           {g ? `뉴런 ${g.parts.length}개` : ''} — 연결선을 그룹에 붙이면 네 개를 따로 잇지 않고
-          하나로 말할 수 있습니다. 테두리를 클릭해서 고르세요.
+          하나로 말할 수 있습니다. 테두리를 클릭해서 고르고, 모서리 핸들로 면마다 여백을
+          조절하세요.
         </p>
       </Group>
     )
@@ -1188,6 +1221,14 @@ function MlpPanel({
       </Group>
 
       <Group title="층 라벨">
+        <Field label="글자색">
+          <ColorBtn
+            value={p.capColor ?? (n.style.textColor === 'none' ? n.style.stroke : n.style.textColor)}
+            swatches={swatches}
+            onChange={(capColor) => onProps({ capColor })}
+          />
+          <span className="af-hint-inline">위·아래 라벨 공통</span>
+        </Field>
         {layers.map((count, li) => (
           <Field key={li} label={`${li + 1}층 (${count})`} wide>
             <input

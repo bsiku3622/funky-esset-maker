@@ -16,7 +16,7 @@ import type {
 import { FONT_STACK } from './presets'
 import { atLength, rotatePt, snapPos, snapSize } from './geometry'
 import { layoutLabel, type LabelLayout } from './latex'
-import { hasCaps, mlpNaturalSize } from './mlp'
+import { hasCaps, mlpGroupOverflow, mlpNaturalSize } from './mlp'
 import type { ResolvedEdge } from './resolve'
 
 export function labelFont(s: Style) {
@@ -314,17 +314,20 @@ export function shapeOverflow(n: FigNode): { l: number; t: number; r: number; b:
     const o = n.props.offset ?? 5
     return { l: 0, t: c * o, r: c * o, b: 0 }
   }
-  if (n.kind === 'mlp' && hasCaps(n.props)) {
+  if (n.kind === 'mlp') {
     /* Layer captions sit outside the lattice, so they are part of what the
        node paints — and therefore of what you can click and what the selection
        outline has to contain. One line's worth each, the same estimate the
-       frame title uses rather than a full text layout on every hit test. */
+       frame title uses rather than a full text layout on every hit test.
+       Group boxes hang outside it too, by their padding. */
     const line = n.style.fontSize * 1.3
+    const caps = hasCaps(n.props)
+    const g = n.props.groups ? mlpGroupOverflow(n) : { l: 0, t: 0, r: 0, b: 0 }
     return {
-      l: 0,
-      t: n.props.capTop?.some(Boolean) ? line : 0,
-      r: 0,
-      b: n.props.capBottom?.some(Boolean) ? line : 0,
+      l: g.l,
+      t: Math.max(g.t, caps && n.props.capTop?.some(Boolean) ? line : 0),
+      r: g.r,
+      b: Math.max(g.b, caps && n.props.capBottom?.some(Boolean) ? line : 0),
     }
   }
   return { l: 0, t: 0, r: 0, b: 0 }

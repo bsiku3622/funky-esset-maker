@@ -116,12 +116,17 @@ import {
   mlpPartAnchors,
   mlpDotAt,
   mlpGroupAt,
+  mlpHit,
   mlpPartCentre,
+  mlpPartRect,
   mlpLattice,
   mlpNaturalSize,
   mlpSlots,
   mlpSnapProps,
+  mlpToLocal,
   mlpWireAt,
+  groupPad,
+  GROUP_PAD_MAX,
 } from './aifig/mlp'
 import { ensureMathJax, onMathReady } from './aifig/latex'
 import { TEMPLATES } from './aifig/templates'
@@ -137,7 +142,14 @@ import {
 import Inspector from './aifig/Inspector'
 import LabelEditor from './aifig/LabelEditor'
 import Overlay, { type PartMark } from './aifig/Overlay'
-import { ANCHOR_OUT, HOVER_TOL, onAnchorDot, type HandleKey } from './aifig/handles'
+import {
+  ANCHOR_OUT,
+  HANDLES,
+  HANDLE_UV,
+  HOVER_TOL,
+  onAnchorDot,
+  type HandleKey,
+} from './aifig/handles'
 import { IconBtn, Num, Seg } from './aifig/ui'
 
 /* ---------- drag state ---------- */
@@ -172,6 +184,17 @@ type Drag =
       moved: boolean
     }
   | { t: 'rotate'; id: string; center: Pt; startAngle: number; origRot: number; moved: boolean }
+  /** widening one side of a neuron group's outline — see `NeuronGroup.pad` */
+  | {
+      t: 'gpad'
+      id: string
+      key: string
+      handle: HandleKey
+      /** where the press landed, in the network's own frame */
+      start: Pt
+      orig: [number, number, number, number]
+      moved: boolean
+    }
   | { t: 'marquee'; start: Pt; add: boolean }
   | { t: 'pan'; sx: number; sy: number; ox: number; oy: number }
   /** `part` is set when the wire is being pulled out of one neuron */
@@ -206,6 +229,18 @@ const frameRect = (c: { w: number; h: number }): Rect => ({ x: 0, y: 0, w: c.w, 
 
 /** Bring the nodes whose box is a result back into line with what they draw. */
 const normalise = (d: FigDoc) => refitMlp(refitText(d))
+
+/* Is the pointer on this node?
+ *
+ * ⚠️ A network answers for its ink, not for its box. Its rectangle is mostly
+ * empty — the space between two columns is wide enough to park a whole block in
+ * — and while that rectangle was the target, anything drawn underneath it there
+ * could not be reached at all: every press inside the network's bounds was
+ * claimed by the network. `mlpHit` walks the circles, wires, group boxes and
+ * captions instead, so the gaps fall through to whatever is behind them, the
+ * same way the hollow middle of an unfilled shape does. */
+const onShape = (p: Pt, n: FigNode, pad = 0) =>
+  n.kind === 'mlp' ? mlpHit(n, p, pad) : pointOnNode(p, n, pad)
 
 /* Tie a bend to the end of the connector it belongs to, and store it as an
  * offset from that node's centre.
@@ -558,11 +593,12 @@ export default function AiFigureMaker() {
     const node = kept.length ? (doc.nodes.find((n) => n.id === kept[0].node) ?? null) : null
     return node ? { node, keys: kept.map((p) => p.key), kind: kept[0].kind, refs: kept } : null
   }, [selParts, selNodes, doc.nodes])
-  /* Connection dots on a single selected neuron. Only one, because four dots
-     around every unit of a selected layer is a thicket, and pulling a wire is a
-     one-at-a-time job anyway. */
+  /* Connection dots on a single selected neuron or group. Only one, because
+     four dots around every unit of a selected layer is a thicket, and pulling a
+     wire is a one-at-a-time job anyway. A group gets them for the same reason
+     it can be landed on: it is the thing the connector is meant to point at. */
   const partAnchors = useMemo(() => {
-    if (!activeParts || activeParts.kind !== 'dot' || activeParts.keys.length !== 1) return []
+    if (!activeParts || activeParts.kind === 'wire' || activeParts.keys.length !== 1) return []
     const key = activeParts.keys[0]
     const n = activeParts.node
     return mlpPartAnchors(n, key, ANCHOR_OUT / view.zoom).map((a) => ({
@@ -585,12 +621,50 @@ export default function AiFigureMaker() {
       if (ref.kind === 'dot') {
         const d = lat.dots.find((x) => x.key === ref.key)
         if (d) out.push({ kind: 'dot', c: at(d), r: d.r })
+      } else if (ref.kind === 'group') {
+        const r = mlpPartRect(n, ref.key)
+        // a polygon rather than a rect: the node may be rotated, and the
+        // overlay draws in canvas coordinates
+        if (r)
+          out.push({
+            kind: 'group',
+            pts: [
+              { x: r.x, y: r.y },
+              { x: r.x + r.w, y: r.y },
+              { x: r.x + r.w, y: r.y + r.h },
+              { x: r.x, y: r.y + r.h },
+            ].map(at),
+          })
       } else {
         const w = lat.wires.find((x) => x.key === ref.key)
         if (w) out.push({ kind: 'wire', a: at(w.a), b: at(w.b) })
       }
     }
     return out
+  }, [activeParts])
+  /* Resize grips on a single selected group.
+   *
+   * ⚠️ They edit the group's padding, not its size. Where a group *is* follows
+   * from the units it holds and those are placed by the lattice, so the only
+   * thing a grip can honestly move is how far the outline stands off them —
+   * see `NeuronGroup.pad`. Dragging the east grip therefore widens the box on
+   * the right alone, which is what a resize looks like from the outside. */
+  const partGrips = useMemo(() => {
+    if (!activeParts || activeParts.kind !== 'group' || activeParts.keys.length !== 1) return []
+    const n = activeParts.node
+    const key = activeParts.keys[0]
+    const r = mlpPartRect(n, key)
+    if (!r) return []
+    return HANDLES.map((h) => {
+      const uv = HANDLE_UV[h]
+      const p = { x: n.x + r.x + r.w * uv.x, y: n.y + r.y + r.h * uv.y }
+      return {
+        handle: h,
+        part: key,
+        node: n.id,
+        p: n.rotation ? rotatePt(p, rectCenter(n), n.rotation) : p,
+      }
+    })
   }, [activeParts])
   const selBox = useMemo(() => selectionBounds(doc, selNodes), [doc, selNodes])
   const hoverNode = hoverId && !dragging ? (nmap.get(hoverId) ?? null) : null
@@ -1019,16 +1093,22 @@ export default function AiFigureMaker() {
     const n = docRef.current.nodes
       .slice()
       .reverse()
-      .find((x) => !x.hidden && pointOnNode(w, x, 4))
+      .find((x) => !x.hidden && onShape(w, x, 4))
     if (!n) return null
-    return { node: n, part: n.kind === 'mlp' ? (mlpDotAt(n, w, 3)?.key ?? undefined) : undefined }
+    /* A circle first, then a group's outline — the same order the press ladder
+       uses. A group is a landing site in its own right; that is what it is for. */
+    const part =
+      n.kind === 'mlp'
+        ? (mlpDotAt(n, w, 3)?.key ?? mlpGroupAt(n, w, 5 / viewRef.current.zoom) ?? undefined)
+        : undefined
+    return { node: n, part }
   }
 
   const pickNodeAt = (w: Pt, tol = 0) =>
     docRef.current.nodes
       .slice()
       .reverse()
-      .find((n) => !n.hidden && !n.locked && pointOnNode(w, n, tol)) ?? null
+      .find((n) => !n.hidden && !n.locked && onShape(w, n, tol)) ?? null
 
   /* Written straight through rather than read back off state: several pointer
      moves can land before React re-renders, and a stale read here would drop
@@ -1067,15 +1147,18 @@ export default function AiFigureMaker() {
     //    stays armed afterwards, so wiring one node to a whole column costs one
     //    click per edge instead of one drag per edge.
     if (connecting) {
-      const hit = el.getAttribute?.('data-hit-node')
-      const n = hit ? nmap.get(hit) : null
+      /* Asked of the geometry rather than of the hit layer: a network's rect
+         covers the holes between its columns, and a click there means the
+         shape underneath — the same answer the drop of a dragged wire gets. */
+      const hit = connectTargetAt(world)
+      const n = hit?.node ?? null
       if (!n) {
         setConnectFrom(null)
         setTemp(null)
         return
       }
       // a circle inside a network is a target in its own right
-      const part = n.kind === 'mlp' ? mlpDotAt(n, world, 3)?.key : undefined
+      const part = hit?.part
       if (!connectFrom) {
         setConnectFrom({ id: n.id, part })
         setTemp({ a: part ? (mlpPartCentre(n, part) ?? rectCenter(n)) : rectCenter(n), b: world, target: null })
@@ -1091,6 +1174,29 @@ export default function AiFigureMaker() {
         )
       }
       return
+    }
+
+    // 0.5) a group's own grips, which sit inside the network's box and so have
+    //      to be asked about before anything that hit-tests the canvas
+    const gHandle = el.getAttribute?.('data-part-handle')
+    if (gHandle) {
+      const gid = el.getAttribute('data-part-node')
+      const gkey = el.getAttribute('data-part-key')
+      const gn = gid ? nmap.get(gid) : null
+      if (gn && gkey) {
+        beginDrag()
+        setDragging(true)
+        dragRef.current = {
+          t: 'gpad',
+          id: gn.id,
+          key: gkey,
+          handle: gHandle as HandleKey,
+          start: mlpToLocal(gn, world),
+          orig: groupPad(gn.props.groups?.[gkey]),
+          moved: false,
+        }
+        return
+      }
     }
 
     // 1) transform handles
@@ -1207,8 +1313,20 @@ export default function AiFigureMaker() {
        * this one", the press fell through to the marquee branch and started
        * rubber-banding the empty canvas instead. Fall back to hover's answer
        * rather than dropping through. */
+      /* ⚠️ And a network's hit rect covers its holes, so it has to prove the
+         press actually landed on something it draws — otherwise a block parked
+         between two columns could never be clicked, because every press inside
+         the network's bounds was answered by the network. */
+      /* Only networks are re-checked. Every other hit rect is deliberately
+         more generous than the geometry — an unfilled shape's band is widened
+         for the zoom, a cuboid's rect covers the face it leans out into — and
+         insisting on `pointOnNode` there would take that reach away. */
       const direct = nmap.get(hitNode)
-      const n = direct && !direct.locked ? direct : pickNodeAt(world)
+      const usable =
+        direct && !direct.locked && (direct.kind !== 'mlp' || mlpHit(direct, world, 4))
+          ? direct
+          : null
+      const n = usable ?? pickNodeAt(world)
       if (n) {
         const already = selNodesRef.current.includes(n.id)
         /* Reaching inside a network.
@@ -1347,7 +1465,7 @@ export default function AiFigureMaker() {
         const over = docRef.current.nodes
           .slice()
           .reverse()
-          .find((n) => !n.hidden && pointOnNode(w, n, 4))
+          .find((n) => !n.hidden && onShape(w, n, 4))
         setTemp((t) =>
           t ? { ...t, b: w, target: over && over.id !== from.id ? over.id : null } : t,
         )
@@ -1605,6 +1723,32 @@ export default function AiFigureMaker() {
         return
       }
 
+      /* One side of a group's outline. The pointer is compared in the
+         network's own frame, so a rotated network's grips still push the side
+         they point at rather than the one the screen thinks they do. */
+      if (drag.t === 'gpad') {
+        const gn = docRef.current.nodes.find((n) => n.id === drag.id)
+        if (!gn) return
+        const loc = mlpToLocal(gn, world)
+        const dx = loc.x - drag.start.x
+        const dy = loc.y - drag.start.y
+        const c = docRef.current.canvas
+        const step = c.snap ? c.grid / 2 : 0
+        const put = (v: number) =>
+          Math.max(0, Math.min(GROUP_PAD_MAX, step ? Math.round(v / step) * step : Math.round(v)))
+        const [t0, r0, b0, l0] = drag.orig
+        const h = drag.handle
+        const pad: [number, number, number, number] = [
+          h.includes('n') ? put(t0 - dy) : t0,
+          h.includes('e') ? put(r0 + dx) : r0,
+          h.includes('s') ? put(b0 + dy) : b0,
+          h.includes('w') ? put(l0 - dx) : l0,
+        ]
+        drag.moved = true
+        live((cur) => patchMlpPart(cur, { node: drag.id, key: drag.key }, 'groups', { pad }))
+        return
+      }
+
       if (drag.t === 'marquee') {
         const r = {
           x: Math.min(drag.start.x, world.x),
@@ -1624,7 +1768,7 @@ export default function AiFigureMaker() {
         const target = docRef.current.nodes
           .slice()
           .reverse()
-          .find((n) => !n.hidden && pointOnNode(world, n, 4))
+          .find((n) => !n.hidden && onShape(world, n, 4))
         setTemp((t) => (t ? { ...t, b: world, target: target?.id ?? null } : t))
         return
       }
@@ -1819,7 +1963,13 @@ export default function AiFigureMaker() {
     const el = ev.target as Element
     const hitNode = el.getAttribute?.('data-hit-node')
     if (hitNode) {
-      const n = nmap.get(hitNode)
+      /* Same rule as the press: a double-click in the space between two
+         columns belongs to whatever is drawn there, not to the network. */
+      const first = nmap.get(hitNode)
+      const n =
+        first && first.kind === 'mlp' && !mlpHit(first, toWorld(ev.clientX, ev.clientY), 4)
+          ? pickNodeAt(toWorld(ev.clientX, ev.clientY))
+          : first
       /* Inside a network the gesture is a ladder, one rung per press: select
          the network, then select the circle, then type into it. Jumping
          straight to typing on a double-click skipped a rung, so a double-click
@@ -2577,6 +2727,7 @@ export default function AiFigureMaker() {
                 onToggle={(id, key) =>
                   commit((d) => patchNodes(d, [id], (n) => ({ [key]: !n[key] }) as Partial<FigNode>))
                 }
+                onOrder={(id, mode) => commit((d) => reorder(d, [id], mode))}
               />
             ) : null}
           </div>
@@ -2772,6 +2923,7 @@ export default function AiFigureMaker() {
                 connectTarget={temp?.target ? nodeBounds(nmap.get(temp.target)!) : null}
                 partMarks={partMarks}
                 partAnchors={partAnchors}
+                partGrips={partGrips}
                 dragging={dragging}
               />
             </g>
@@ -2942,21 +3094,29 @@ function TemplateRail({ onInsert }: { onInsert: (id: string) => void }) {
   )
 }
 
+/* The stacking order, top of the list = front of the drawing.
+ *
+ * ⚠️ The list is `doc.nodes` reversed, so "up" in the panel is *forward* in the
+ * document — the one place where the two directions are opposites, and reading
+ * them the same way is how a raise button ends up burying the thing it moved. */
 function LayerRail({
   doc,
   selected,
   onSelect,
   onToggle,
+  onOrder,
 }: {
   doc: FigDoc
   selected: string[]
   onSelect: (id: string, additive: boolean) => void
   onToggle: (id: string, key: 'hidden' | 'locked') => void
+  onOrder: (id: string, mode: 'front' | 'forward' | 'backward' | 'back') => void
 }) {
   const rows = [...doc.nodes].reverse()
+  const last = rows.length - 1
   return (
     <div className="af-layers">
-      {rows.map((n) => (
+      {rows.map((n, i) => (
         <div key={n.id} className={`af-layer${selected.includes(n.id) ? ' is-on' : ''}`}>
           <button
             type="button"
@@ -2967,6 +3127,27 @@ function LayerRail({
             <i className="af-layer__kind">{shapeSpec(n.kind).label}</i>
             <span>{n.name || stripMath(n.label) || '(무제)'}</span>
           </button>
+          <span className="af-layer__ord">
+            {/* shift = all the way, so four actions fit in two buttons */}
+            <button
+              type="button"
+              className="af-layer__t"
+              title="위로 (Shift: 맨 위로)"
+              disabled={i === 0}
+              onClick={(e) => onOrder(n.id, e.shiftKey ? 'front' : 'forward')}
+            >
+              {'↑'}
+            </button>
+            <button
+              type="button"
+              className="af-layer__t"
+              title="아래로 (Shift: 맨 아래로)"
+              disabled={i === last}
+              onClick={(e) => onOrder(n.id, e.shiftKey ? 'back' : 'backward')}
+            >
+              {'↓'}
+            </button>
+          </span>
           <button
             type="button"
             className="af-layer__t"

@@ -309,8 +309,21 @@
   cursor: pointer;
   opacity: 0.7;
 }
-.scope-aifig .af-layer__t:hover {
+.scope-aifig .af-layer__t:hover:not(:disabled) {
   opacity: 1;
+}
+.scope-aifig .af-layer__t:disabled {
+  opacity: 0.2;
+  cursor: default;
+}
+.scope-aifig .af-layer__ord {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0;
+}
+.scope-aifig .af-layer__ord .af-layer__t {
+  width: 16px;
+  font-size: 0.72rem;
 }
 
 .scope-aifig .af-empty {
@@ -691,16 +704,37 @@
   font-size: 0.72rem;
 }
 
-.scope-aifig .af-color__alpha input {
+.scope-aifig .af-color__alpha input[type='range'] {
   flex: 1 1 auto;
   min-width: 0;
 }
 
-.scope-aifig .af-color__alpha span {
+/* The readout doubles as a field, so it has to keep the same width and the
+   same right edge whether it is showing a number or taking one — otherwise the
+   slider next to it jumps every time you click. */
+.scope-aifig .af-pct {
   flex: 0 0 auto;
-  width: 34px;
-  text-align: right;
+  width: 40px;
+  padding: 1px 2px;
+  border: 1px solid transparent;
+  background: none;
+  font: inherit;
+  font-size: 0.72rem;
   font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: inherit;
+  cursor: text;
+}
+.scope-aifig .af-pct:hover:not(:disabled) {
+  border-color: var(--af-line);
+}
+.scope-aifig .af-pct:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.scope-aifig .af-pct--edit {
+  border-color: #7828c8;
+  background: #fff;
 }
 
 .scope-aifig .af-color__foot {

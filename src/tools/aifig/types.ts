@@ -130,6 +130,18 @@ export interface NeuronGroup {
   stroke?: string
   /** the enclosing outline; absent draws it */
   bare?: boolean
+  /* How far the outline stands off the units it holds, one number per side in
+   * CSS order — top, right, bottom, left. Absent is `GROUP_PAD` all round.
+   *
+   * ⚠️ This is the group's *only* degree of freedom, and that is on purpose. A
+   * group is defined by the units it holds, and those are placed by the lattice
+   * — so it cannot be moved or given a size of its own without lying about
+   * where its members are. Dragging a grip therefore edits the padding, which
+   * is the one part of the box the lattice does not already decide. */
+  pad?: [number, number, number, number]
+  /** the name drawn above the box */
+  textColor?: string
+  fontSize?: number
 }
 
 export interface WireBits {
@@ -181,6 +193,8 @@ export interface NodeProps {
   capTop?: string[]
   /** caption below each column */
   capBottom?: string[]
+  /** ink for both rows of captions; absent follows the node's text colour */
+  capColor?: string
   /* grid */
   rows?: number
   cols?: number
