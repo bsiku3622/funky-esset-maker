@@ -31,12 +31,14 @@ import type {
   FigDoc,
   FigEdge,
   FigNode,
+  NeuronBits,
   NodeKind,
   Pt,
   Rect,
   Style,
   View,
   Waypoint,
+  WireBits,
 } from './aifig/types'
 import { SHAPES, makeNode, paletteById, shapeSpec, tint } from './aifig/presets'
 import {
@@ -95,11 +97,25 @@ import {
   fitNodeToGrid,
   inkRect,
   ptOf,
+  refitMlp,
   refitText,
   shapeOverflow,
 } from './aifig/layout'
 import { EdgeView } from './aifig/edges'
 import { resolveEdge, type ResolvedEdge } from './aifig/resolve'
+import {
+  MLP_GAP,
+  MLP_PITCH,
+  MLP_R,
+  isLattice,
+  mlpDotAt,
+  mlpDotPoint,
+  mlpLattice,
+  mlpNaturalSize,
+  mlpSlots,
+  mlpSnapProps,
+  mlpWireAt,
+} from './aifig/mlp'
 import { ensureMathJax, onMathReady } from './aifig/latex'
 import { TEMPLATES } from './aifig/templates'
 import { fileToImage, fitBox, imagesFromDrop, imagesFromPaste } from './aifig/image'
@@ -175,6 +191,9 @@ const SNAP_PX = 5
  * targets. It is not a *shape*, though — it has no place in a row's rhythm, so
  * equal-spacing never sees it. */
 const frameRect = (c: { w: number; h: number }): Rect => ({ x: 0, y: 0, w: c.w, h: c.h })
+
+/** Bring the nodes whose box is a result back into line with what they draw. */
+const normalise = (d: FigDoc) => refitMlp(refitText(d))
 
 /* Tie a bend to the end of the connector it belongs to, and store it as an
  * offset from that node's centre.
@@ -318,7 +337,14 @@ export default function AiFigureMaker() {
      click-source-then-click-target alternative; the source stays armed so a
      fan-out (one node to a whole column) is one click per edge. */
   const [connecting, setConnecting] = useState(false)
-  const [connectFrom, setConnectFrom] = useState<string | null>(null)
+  /** The armed source in connector mode. `part` is set when the click landed on
+   *  one neuron of a network rather than on the network as a whole. */
+  const [connectFrom, setConnectFrom] = useState<{ id: string; part?: string } | null>(null)
+  /** One neuron or synapse inside a selected network — the thing the inspector
+   *  edits when you have reached inside a network glyph. */
+  const [selPart, setSelPart] = useState<
+    { node: string; key: string; kind: 'dot' | 'wire' } | null
+  >(null)
   // pan gets its own flag so the canvas cursor is driven by state rather than
   // by reading dragRef during render
   const [panning, setPanning] = useState(false)
@@ -359,6 +385,7 @@ export default function AiFigureMaker() {
   const selNodesRef = useLatest(selNodes)
   const selEdgesRef = useLatest(selEdges)
   const connectFromRef = useLatest(connectFrom)
+  const selPartRef = useLatest(selPart)
   const connectingRef = useLatest(connecting)
 
   /* ---- MathJax: re-render once the glyphs are available.
@@ -384,16 +411,18 @@ export default function AiFigureMaker() {
     },
     [syncHistory],
   )
-  /* Every edit passes through here, so this is the one place an auto-fitting
-     text node can be kept the size of its own glyphs — including the edits
-     that resize it indirectly, like changing the font. refitText returns the
-     document unchanged when nothing moved, so commit's identity check and the
-     drag-frame render path both stay as cheap as they were. Undo and redo
-     deliberately skip it: they restore, they do not edit. */
+  /* Every edit passes through here, so this is the one place the nodes whose
+     box is a *result* rather than an input can be brought back into line — an
+     auto-fitting text node with the size of its own glyphs, a lattice-mode MLP
+     with the span of its own circles. That includes the edits which resize them
+     indirectly, like changing the font or the neuron pitch. Both passes return
+     the document unchanged when nothing moved, so commit's identity check and
+     the drag-frame render path stay as cheap as they were. Undo and redo
+     deliberately skip this: they restore, they do not edit. */
   /** Change the document and open a new undo step. */
   const commit = useCallback((next: FigDoc | ((d: FigDoc) => FigDoc)) => {
     const cur = docRef.current
-    const value = refitText(typeof next === 'function' ? next(cur) : next)
+    const value = normalise(typeof next === 'function' ? next(cur) : next)
     if (value === cur) return
     pushPast(cur)
     docRef.current = value
@@ -402,7 +431,7 @@ export default function AiFigureMaker() {
   /** Change the document without touching history (drag frames). */
   const live = useCallback((next: FigDoc | ((d: FigDoc) => FigDoc)) => {
     const cur = docRef.current
-    const value = refitText(typeof next === 'function' ? next(cur) : next)
+    const value = normalise(typeof next === 'function' ? next(cur) : next)
     if (value === cur) return
     docRef.current = value
     setDocState(value)
@@ -502,6 +531,31 @@ export default function AiFigureMaker() {
     () => doc.edges.filter((e) => selEdges.includes(e.id)),
     [doc.edges, selEdges],
   )
+  /* A part selection only means anything while its network is still selected
+     and still exists. Deriving that here rather than clearing `selPart` at
+     every place a selection can change is what keeps it from going stale — the
+     list of those places is long and grows. */
+  const activePart = useMemo(() => {
+    if (!selPart || !selNodes.includes(selPart.node)) return null
+    const node = doc.nodes.find((n) => n.id === selPart.node)
+    return node ? { node, key: selPart.key, kind: selPart.kind } : null
+  }, [selPart, selNodes, doc.nodes])
+  /** Where to draw the ring or halo that says which part is selected. */
+  const partMark = useMemo(() => {
+    if (!activePart) return null
+    const n = activePart.node
+    const at = (p: Pt) => {
+      const q = { x: n.x + p.x, y: n.y + p.y }
+      return n.rotation ? rotatePt(q, rectCenter(n), n.rotation) : q
+    }
+    const lat = mlpLattice(n)
+    if (activePart.kind === 'dot') {
+      const d = lat.dots.find((x) => x.key === activePart.key)
+      return d ? { kind: 'dot' as const, c: at(d), r: d.r } : null
+    }
+    const w = lat.wires.find((x) => x.key === activePart.key)
+    return w ? { kind: 'wire' as const, a: at(w.a), b: at(w.b) } : null
+  }, [activePart])
   const selBox = useMemo(() => selectionBounds(doc, selNodes), [doc, selNodes])
   const hoverNode = hoverId && !dragging ? (nmap.get(hoverId) ?? null) : null
 
@@ -616,6 +670,24 @@ export default function AiFigureMaker() {
     commit((d) => patchNodes(d, selNodesRef.current, patch))
   const patchSelStyle = (patch: Partial<Style>) =>
     commit((d) => patchNodeStyle(d, selNodesRef.current, patch))
+  /* Overrides for one neuron or synapse.
+   *
+   * They live in a bag on the network node keyed by part, and an empty bag is
+   * deleted rather than kept — an `mlp` that has never been touched part by
+   * part should serialise exactly as it did before any of this existed. */
+  const patchPart = (patch: NeuronBits | WireBits | null) => {
+    const sel = selPart
+    if (!sel) return
+    commit((d) =>
+      patchNodes(d, [sel.node], (n) => {
+        const bag = sel.kind === 'dot' ? 'neurons' : 'wires'
+        const next: Record<string, object> = { ...(n.props[bag] ?? {}) }
+        if (patch === null) delete next[sel.key]
+        else next[sel.key] = { ...next[sel.key], ...patch }
+        return { props: { ...n.props, [bag]: Object.keys(next).length ? next : undefined } }
+      }),
+    )
+  }
   const patchSelProps = (patch: Record<string, unknown>) =>
     commit((d) =>
       patchNodes(d, selNodesRef.current, (n) => ({ props: { ...n.props, ...patch } })),
@@ -855,6 +927,19 @@ export default function AiFigureMaker() {
    * dots flickered and could not be grabbed at all. Hit-testing the document
    * keeps the node hovered wherever the pointer is near it, dots included. */
   /** The node hover would light up at this point: topmost, visible, unlocked. */
+  /* What a connector would land on here: a node, and — when that node is a
+     network and the pointer is on one of its circles — the neuron too. Every
+     path that ends a connection goes through this, so clicking a unit and
+     clicking the box around it cannot disagree about which was meant. */
+  const connectTargetAt = (w: Pt) => {
+    const n = docRef.current.nodes
+      .slice()
+      .reverse()
+      .find((x) => !x.hidden && pointOnNode(w, x, 4))
+    if (!n) return null
+    return { node: n, part: n.kind === 'mlp' ? (mlpDotAt(n, w, 3)?.key ?? undefined) : undefined }
+  }
+
   const pickNodeAt = (w: Pt, tol = 0) =>
     docRef.current.nodes
       .slice()
@@ -905,13 +990,21 @@ export default function AiFigureMaker() {
         setTemp(null)
         return
       }
+      // a circle inside a network is a target in its own right
+      const part = n.kind === 'mlp' ? mlpDotAt(n, world, 3)?.key : undefined
       if (!connectFrom) {
-        setConnectFrom(n.id)
-        setTemp({ a: rectCenter(n), b: world, target: null })
+        setConnectFrom({ id: n.id, part })
+        setTemp({ a: part ? (mlpDotPoint(n, part) ?? rectCenter(n)) : rectCenter(n), b: world, target: null })
         return
       }
-      if (n.id !== connectFrom) {
-        commit((cur) => connectNodes(cur, connectFrom, n.id).doc)
+      /* Same node twice is fine now, as long as the two ends are different
+         units of it — that is how a skip connection inside one network gets
+         drawn. Only the very same circle is a no-op. */
+      if (n.id !== connectFrom.id || (part && part !== connectFrom.part)) {
+        commit(
+          (cur) =>
+            connectNodes(cur, connectFrom.id, n.id, 'auto', 'auto', connectFrom.part, part).doc,
+        )
       }
       return
     }
@@ -1030,6 +1123,23 @@ export default function AiFigureMaker() {
       const n = direct && !direct.locked ? direct : pickNodeAt(world)
       if (n) {
         const already = selNodesRef.current.includes(n.id)
+        /* Reaching inside a network.
+         *
+         * The first click selects the network, the way clicking any shape does.
+         * Once it is selected, a click on one of its circles or synapses picks
+         * that part instead — the same "select the group, then select within
+         * it" idiom a drawing program uses, and it costs no new mode. Shift is
+         * left alone so multi-select still means what it always did. */
+        if (n.kind === 'mlp' && already && !ev.shiftKey && !n.locked) {
+          const dot = mlpDotAt(n, world, 2)
+          const wire = dot ? null : mlpWireAt(n, world, 3 / viewRef.current.zoom)
+          if (dot || wire) {
+            setSelPart({ node: n.id, key: (dot ?? wire!).key, kind: dot ? 'dot' : 'wire' })
+            setSelEdges([])
+            return
+          }
+        }
+        setSelPart(null)
         let ids = already ? selNodesRef.current : expandGroups(d, [n.id])
         if (ev.shiftKey) {
           ids = already
@@ -1116,7 +1226,7 @@ export default function AiFigureMaker() {
           .reverse()
           .find((n) => !n.hidden && pointOnNode(w, n, 4))
         setTemp((t) =>
-          t ? { ...t, b: w, target: over && over.id !== from ? over.id : null } : t,
+          t ? { ...t, b: w, target: over && over.id !== from.id ? over.id : null } : t,
         )
         return
       }
@@ -1311,6 +1421,46 @@ export default function AiFigureMaker() {
           y += dWorld.y - dLocal.y
         }
         drag.moved = true
+
+        /* A lattice-mode network has no free box — its size is computed from
+           its spacing, and `refitMlp` would put back anything a drag wrote. So
+           the handle drives the spacing instead: solve for the pitch that would
+           have produced the size just dragged out, then place the box where
+           that spacing puts it, holding the edge opposite the handle. The
+           gesture still feels like a resize; what it edits is the lattice. */
+        const mn = drag.kind === 'mlp' ? d.nodes.find((n) => n.id === drag.id) : undefined
+        if (mn && isLattice(mn.props)) {
+          const slots = mlpSlots(mn.props)
+          const rows = Math.max(...slots.map((s) => s.length))
+          const r = mn.props.neuronR ?? MLP_R
+          const span = (px: number, count: number, fallback: number) =>
+            count > 1 ? Math.max(2 * r, (px - 2 * r) / (count - 1)) : fallback
+          const wanted = {
+            ...mn.props,
+            ...(sides.l || sides.r
+              ? { layerGap: span(w, slots.length, mn.props.layerGap ?? MLP_GAP) }
+              : null),
+            ...(sides.t || sides.b ? { pitch: span(h, rows, mn.props.pitch ?? MLP_PITCH) } : null),
+          }
+          const props = d.canvas.snap
+            ? { ...wanted, ...mlpSnapProps(wanted, d.canvas.grid) }
+            : wanted
+          const size = mlpNaturalSize(props)
+          if (size) {
+            const place = (lo: number, len: number, size: number, low?: boolean, high?: boolean) =>
+              low ? lo + len - size : high ? lo : lo + (len - size) / 2
+            live((cur) =>
+              patchNodes(cur, [drag.id], () => ({
+                x: Math.round(place(o.x, o.w, size.w, sides.l, sides.r)),
+                y: Math.round(place(o.y, o.h, size.h, sides.t, sides.b)),
+                ...size,
+                props,
+              })),
+            )
+            return
+          }
+        }
+
         live((cur) =>
           patchNodes(cur, [drag.id], () => ({
             x: Math.round(x),
@@ -1446,10 +1596,8 @@ export default function AiFigureMaker() {
 
       if (drag.t === 'connect') {
         const world = toWorld(ev.clientX, ev.clientY)
-        const target = docRef.current.nodes
-          .slice()
-          .reverse()
-          .find((n) => !n.hidden && pointOnNode(world, n, 4))
+        const hit = connectTargetAt(world)
+        const target = hit?.node
         setTemp(null)
         if (target && target.id !== drag.node) {
           const { doc: next, id } = connectNodes(
@@ -1458,6 +1606,8 @@ export default function AiFigureMaker() {
             target.id,
             drag.anchor as never,
             'auto',
+            undefined,
+            hit.part,
           )
           live(next)
           endDrag(true)
@@ -1471,15 +1621,12 @@ export default function AiFigureMaker() {
 
       if (drag.t === 'endpoint') {
         const world = toWorld(ev.clientX, ev.clientY)
-        const target = docRef.current.nodes
-          .slice()
-          .reverse()
-          .find((n) => !n.hidden && pointOnNode(world, n, 4))
+        const hit = connectTargetAt(world)
         setTemp(null)
         live((cur) =>
           patchEdges(cur, [drag.edge], () => ({
-            [drag.which]: target
-              ? { node: target.id, anchor: 'auto' as const }
+            [drag.which]: hit
+              ? { node: hit.node.id, anchor: 'auto' as const, part: hit.part }
               : { free: { x: Math.round(world.x), y: Math.round(world.y) } },
           })),
         )
@@ -1661,6 +1808,11 @@ export default function AiFigureMaker() {
         }
         if (connectingRef.current) {
           setConnecting(false)
+          return
+        }
+        // and out of a network the same way: the part first, the node after
+        if (selPartRef.current) {
+          setSelPart(null)
           return
         }
         clearSel()
@@ -2327,6 +2479,7 @@ export default function AiFigureMaker() {
                 marquee={marquee}
                 tempEdge={temp ? { a: temp.a, b: temp.b } : null}
                 connectTarget={temp?.target ? nodeBounds(nmap.get(temp.target)!) : null}
+                partMark={partMark}
                 dragging={dragging}
               />
             </g>
@@ -2410,6 +2563,8 @@ export default function AiFigureMaker() {
             onEdgeStyle={patchSelEdgeStyle}
             onCanvas={patchCanvas}
             onPalette={(id) => commit((d) => applyPalette(d, id))}
+            part={activePart}
+            onPart={patchPart}
           />
         </aside>
       </div>

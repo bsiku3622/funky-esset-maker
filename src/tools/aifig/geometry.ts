@@ -671,7 +671,7 @@ export function distToPath(p: Pt, pts: Pt[]): number {
   return best
 }
 
-function distToSeg(p: Pt, a: Pt, b: Pt) {
+export function distToSeg(p: Pt, a: Pt, b: Pt) {
   const dx = b.x - a.x
   const dy = b.y - a.y
   const L = dx * dx + dy * dy

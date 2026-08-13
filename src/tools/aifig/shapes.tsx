@@ -7,10 +7,11 @@
  * opens the same way in Illustrator, Inkscape and a LaTeX \includegraphics. */
 
 import { memo } from 'react'
-import type { FigNode, Style } from './types'
+import type { FigNode, NeuronBits, Style } from './types'
 import { dashArray, FONT_STACK, readableOn, shade, tint } from './presets'
-import { fontCss, textWidth, type LabelLayout } from './latex'
-import { isoOff, labelStyle, placeLabel } from './layout'
+import { fontCss, layoutLabel, textWidth, type LabelLayout } from './latex'
+import { isoOff, labelFont, labelStyle, placeLabel } from './layout'
+import { hasCaps, mlpCaps, mlpLattice, type MlpDot } from './mlp'
 
 /* ---------- label ---------- */
 
@@ -271,62 +272,134 @@ const Stack = ({ n }: BodyProps) => {
   return <g>{sheets}</g>
 }
 
+/* The network glyph.
+ *
+ * Every coordinate comes from `mlpLattice` — this component decides how things
+ * look and nothing about where they are, which is what lets a connector land on
+ * the same circle the user sees. Parts carry `data-mlp-*` so the editor can
+ * pick one out of the DOM without a second hit-testing routine.
+ *
+ * The caption font is deliberately the node's own: a layer caption is a label
+ * on the same drawing, and giving it a size of its own would make "no bias"
+ * under one network a different size from "no bias" under the next. */
+const MLP_CAP_GAP = 5
+
+const NeuronLabel = ({ n, d, bits }: { n: FigNode; d: MlpDot; bits?: NeuronBits }) => {
+  const text = bits?.label ?? ''
+  if (!text) return null
+  const fill = bits?.fill ?? n.style.fill
+  const color =
+    bits?.textColor ?? (n.style.textColor === 'none' ? readableOn(fill) : n.style.textColor)
+  /* Text inside a circle wants to fit the circle, so it is measured at a size
+     that does — down only, never up, or a one-letter label would balloon. */
+  const size = Math.min(n.style.fontSize, d.r * 1.5)
+  const style: Style = { ...n.style, fontSize: size, align: 'center' }
+  const layout = layoutLabel(text, labelFont(style))
+  if (!layout.lines.length) return null
+  /* Centre the glyphs, not the line box — `ink` is exact whenever the label is
+     all maths, which inside a neuron it usually is. */
+  const y = layout.ink
+    ? d.y - (layout.ink.top + layout.ink.bottom) / 2
+    : d.y - layout.h / 2
+  return <LabelView layout={layout} x={d.x} y={y} style={style} color={color} />
+}
+
 const Mlp = ({ n }: BodyProps) => {
-  const layers = (n.props.layers ?? [4, 5, 3]).map((v) => Math.max(1, Math.min(24, v)))
-  const r = n.props.neuronR ?? 6
-  const showEdges = n.props.showEdges !== false
   const s = n.style
-  const colX =
-    layers.length === 1
-      ? [n.w / 2]
-      : layers.map((_, i) => r + (i * (n.w - 2 * r)) / (layers.length - 1))
-  const posOf = (li: number, k: number) => {
-    const count = layers[li]
-    const span = n.h - 2 * r
-    const y = count === 1 ? n.h / 2 : r + (k * span) / (count - 1)
-    return { x: colX[li], y }
+  const lat = mlpLattice(n)
+  const parts = n.props.neurons ?? {}
+  const wireBits = n.props.wires ?? {}
+  const baseFill = s.fill === 'none' ? '#ffffff' : s.fill
+  const thin = Math.max(0.35, s.strokeWidth * 0.42)
+
+  /* ⚠️ Captions are prose even when the node's label is not.
+   *
+   * They annotate the drawing rather than name a quantity — "input", "no bias",
+   * "shared weights" — and in LaTeX mode "no bias" would be typeset as maths,
+   * where spaces do not exist, and come out as `nobias` in italics. So they
+   * keep the dollar convention: words are words, and `$\sigma$` is still one
+   * fence away. The font is otherwise the node's own, so a caption matches the
+   * figure it belongs to. */
+  const capStyle: Style = {
+    ...s,
+    align: 'center',
+    fontFamily: s.fontFamily === 'latex' ? 'serif' : s.fontFamily,
   }
-  const lines: React.ReactElement[] = []
-  if (showEdges)
-    for (let li = 0; li < layers.length - 1; li++)
-      for (let a = 0; a < layers[li]; a++)
-        for (let b = 0; b < layers[li + 1]; b++) {
-          const p = posOf(li, a)
-          const q = posOf(li + 1, b)
-          lines.push(
-            <line
-              key={`${li}-${a}-${b}`}
-              x1={p.x}
-              y1={p.y}
-              x2={q.x}
-              y2={q.y}
-              stroke={s.stroke}
-              strokeWidth={Math.max(0.35, s.strokeWidth * 0.42)}
-              opacity={0.55}
+  const caps = hasCaps(n.props)
+    ? lat.cols.flatMap((c) => {
+        const { top, bottom } = mlpCaps(n.props, c.li)
+        const out: React.ReactElement[] = []
+        const put = (text: string, y: number, above: boolean) => {
+          const layout = layoutLabel(text, labelFont(capStyle))
+          if (!layout.lines.length) return
+          out.push(
+            <LabelView
+              key={`${c.li}${above ? 'T' : 'B'}`}
+              layout={layout}
+              x={c.x}
+              y={above ? y - MLP_CAP_GAP - layout.h : y + MLP_CAP_GAP}
+              style={capStyle}
             />,
           )
         }
-  const dots: React.ReactElement[] = []
-  layers.forEach((count, li) => {
-    for (let k = 0; k < count; k++) {
-      const p = posOf(li, k)
-      dots.push(
-        <circle
-          key={`${li}-${k}`}
-          cx={p.x}
-          cy={p.y}
-          r={r}
-          fill={s.fill === 'none' ? '#ffffff' : s.fill}
-          stroke={s.stroke}
-          strokeWidth={s.strokeWidth}
-        />,
-      )
-    }
-  })
+        if (top) put(top, c.top, true)
+        if (bottom) put(bottom, c.bottom, false)
+        return out
+      })
+    : null
+
   return (
     <g>
-      {lines}
-      {dots}
+      {lat.wires.map((w) => {
+        const b = wireBits[w.key]
+        if (b?.hidden) return null
+        const sw = b?.strokeWidth ?? thin
+        return (
+          <line
+            key={w.key}
+            x1={w.a.x}
+            y1={w.a.y}
+            x2={w.b.x}
+            y2={w.b.y}
+            stroke={b?.stroke ?? s.stroke}
+            strokeWidth={sw}
+            strokeDasharray={b?.dash ? dashArray(b.dash, sw) : undefined}
+            opacity={b?.opacity ?? 0.55}
+            data-mlp-wire={w.key}
+          />
+        )
+      })}
+
+      {/* the ⋮ standing in for the units a big layer does not draw */}
+      {lat.gaps.map((g) => (
+        <g key={g.key} fill={s.stroke}>
+          {[-1, 0, 1].map((i) => (
+            <circle key={i} cx={g.x} cy={g.y + i * Math.max(3, g.r * 0.62)} r={Math.max(0.7, g.r * 0.16)} />
+          ))}
+        </g>
+      ))}
+
+      {lat.dots.map((d) => {
+        const b = parts[d.key]
+        return (
+          <circle
+            key={d.key}
+            cx={d.x}
+            cy={d.y}
+            r={d.r}
+            fill={b?.fill ?? baseFill}
+            stroke={b?.stroke ?? s.stroke}
+            strokeWidth={s.strokeWidth}
+            data-mlp-dot={d.key}
+          />
+        )
+      })}
+
+      {lat.dots.map((d) => (
+        <NeuronLabel key={`t${d.key}`} n={n} d={d} bits={parts[d.key]} />
+      ))}
+
+      {caps}
     </g>
   )
 }

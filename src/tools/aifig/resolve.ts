@@ -13,6 +13,7 @@ import {
   type PathInfo,
 } from './geometry'
 import { headGeom } from './presets'
+import { mlpAnchorPoint, mlpDotPoint } from './mlp'
 
 export interface ResolvedEdge {
   info: PathInfo
@@ -36,13 +37,23 @@ function endPointOf(
   if ('free' in ep) return { p: ep.free, dir: { x: 0, y: 0 } }
   const n = nodes.get(ep.node)
   if (!n) return null
+  if (ep.part) {
+    const a = mlpAnchorPoint(n, ep.part, toward, ep.anchor === 'c')
+    // the part may have stopped being drawn; fall back to the node itself
+    if (a) return a
+  }
   return anchorPoint(n, ep.anchor, toward)
 }
 
 const centerOf = (ep: EndPoint, nodes: Map<string, FigNode>): Pt | null => {
   if ('free' in ep) return ep.free
   const n = nodes.get(ep.node)
-  return n ? { x: n.x + n.w / 2, y: n.y + n.h / 2 } : null
+  if (!n) return null
+  if (ep.part) {
+    const p = mlpDotPoint(n, ep.part)
+    if (p) return p
+  }
+  return { x: n.x + n.w / 2, y: n.y + n.h / 2 }
 }
 
 /** Resolve an edge to concrete geometry. Returns null if an end node is gone. */
@@ -79,6 +90,10 @@ export function resolveEdge(
   const boxes: Rect[] = []
   for (const ep of [e.from, e.to]) {
     if ('free' in ep) continue
+    /* A connector that starts on a neuron starts *inside* the network's box, so
+       handing the router that box as something to route around would leave it
+       nothing to do but fail. The part is the obstacle-free case. */
+    if (ep.part) continue
     const n = nodes.get(ep.node)
     if (n && ep.anchor !== 'c') boxes.push(nodeBounds(n))
   }

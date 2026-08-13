@@ -7,6 +7,7 @@ import type { CanvasCfg, EdgeStyle, FigDoc, FigEdge, FigNode, Rect, Style } from
 import { FONT_STACK } from './presets'
 import { atLength, rotatePt, snapPos, snapSize } from './geometry'
 import { layoutLabel, type LabelLayout } from './latex'
+import { hasCaps, mlpNaturalSize } from './mlp'
 import type { ResolvedEdge } from './resolve'
 
 export function labelFont(s: Style) {
@@ -252,5 +253,37 @@ export function shapeOverflow(n: FigNode): { l: number; t: number; r: number; b:
     const o = n.props.offset ?? 5
     return { l: 0, t: c * o, r: c * o, b: 0 }
   }
+  if (n.kind === 'mlp' && hasCaps(n.props)) {
+    /* Layer captions sit outside the lattice, so they are part of what the
+       node paints — and therefore of what you can click and what the selection
+       outline has to contain. One line's worth each, the same estimate the
+       frame title uses rather than a full text layout on every hit test. */
+    const line = n.style.fontSize * 1.3
+    return {
+      l: 0,
+      t: n.props.capTop?.some(Boolean) ? line : 0,
+      r: 0,
+      b: n.props.capBottom?.some(Boolean) ? line : 0,
+    }
+  }
   return { l: 0, t: 0, r: 0, b: 0 }
+}
+
+/* Keep a lattice-mode MLP's box equal to what its circles actually span.
+ *
+ * In lattice mode the drawing is the input and the box is the output, so the
+ * two can only disagree by being out of date. Running this on every change is
+ * what makes "the positions are forced" true rather than aspirational: there is
+ * no state in which the box has been stretched and the lattice has not. */
+export function refitMlp(doc: FigDoc): FigDoc {
+  let changed = false
+  const nodes = doc.nodes.map((n) => {
+    if (n.kind !== 'mlp') return n
+    const size = mlpNaturalSize(n.props)
+    if (!size || (size.w === n.w && size.h === n.h)) return n
+    changed = true
+    // grow about the centre, so nudging the pitch does not walk the node away
+    return { ...n, x: n.x + (n.w - size.w) / 2, y: n.y + (n.h - size.h) / 2, ...size }
+  })
+  return changed ? { ...doc, nodes } : doc
 }

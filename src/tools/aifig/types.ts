@@ -85,6 +85,30 @@ export type NodeKind =
   | 'triangle'
   | 'parallelogram' // data / IO block (flowchart convention)
 
+/* One neuron's and one wire's overrides inside an `mlp` node.
+ *
+ * These are what make a network glyph editable part by part: a neuron can be
+ * recoloured or given text without becoming its own node, and a synapse can be
+ * recoloured or dropped without becoming its own edge. Keeping them here rather
+ * than exploding the glyph into real nodes is what lets the lattice stay
+ * algorithmic — a unit you could drag away from the grid would not be on it. */
+export interface NeuronBits {
+  /** drawn inside the circle, in the node's own text mode */
+  label?: string
+  fill?: string
+  stroke?: string
+  textColor?: string
+}
+
+export interface WireBits {
+  stroke?: string
+  strokeWidth?: number
+  dash?: DashKind
+  opacity?: number
+  /** drop this one synapse without touching the rest */
+  hidden?: boolean
+}
+
 /** Per-kind extras. Kept as one optional bag so the node type stays flat and
  *  serialisation is trivial; each field is only read by the kinds that use it. */
 export interface NodeProps {
@@ -96,10 +120,26 @@ export interface NodeProps {
   /* stack */
   count?: number // how many sheets
   offset?: number // per-sheet offset in px
-  /* mlp */
+  /* mlp — see mlp.ts, which owns what these mean geometrically */
   layers?: number[] // neurons per layer
   showEdges?: boolean // draw full connections
   neuronR?: number
+  /** centre-to-centre spacing down a column. Absent = the old behaviour, where
+   *  every column stretches to fill the box and so no two columns of different
+   *  sizes share a spacing. Present = equal spacing, and the box follows. */
+  pitch?: number
+  /** centre-to-centre spacing between columns; pairs with `pitch` */
+  layerGap?: number
+  /** circles drawn per column before the remainder becomes a ⋮ */
+  maxDots?: number
+  /** per-neuron overrides, keyed `l0n2` (layer, unit) */
+  neurons?: Record<string, NeuronBits>
+  /** per-wire overrides, keyed `l0n2-n1` (layer, from unit, to unit) */
+  wires?: Record<string, WireBits>
+  /** caption above each column — "no bias" and friends */
+  capTop?: string[]
+  /** caption below each column */
+  capBottom?: string[]
   /* grid */
   rows?: number
   cols?: number
@@ -166,8 +206,18 @@ export type Anchor =
   | 'sw'
   | 'c'
 
+/* An end of a connector.
+ *
+ * `part` names something *inside* the node — today, one neuron of an `mlp`, by
+ * the keys mlp.ts mints. It is what lets a connector land on a single unit of a
+ * network without that unit having to be a node of its own, which it cannot be
+ * if its position is to stay under the lattice's control.
+ *
+ * ⚠️ A part can stop being drawn — the layer shrinks, or the ellipsis swallows
+ * it. The connector then falls back to the node as a whole rather than
+ * disappearing: an edit about layer sizes must not silently delete edges. */
 export type EndPoint =
-  | { node: string; anchor: Anchor }
+  | { node: string; anchor: Anchor; part?: string }
   | { free: Pt } // detached endpoint (free-floating arrow)
 
 /* A bend in a connector.

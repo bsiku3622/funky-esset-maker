@@ -39,6 +39,11 @@ interface Props {
   tempEdge: { a: Pt; b: Pt } | null
   /** bounds of the node a live connection would land on */
   connectTarget: Rect | null
+  /** the neuron or synapse reached inside a network, in canvas coordinates */
+  partMark:
+    | { kind: 'dot'; c: Pt; r: number }
+    | { kind: 'wire'; a: Pt; b: Pt }
+    | null
   /** true while a drag is in flight — handles are hidden to reduce noise */
   dragging: boolean
 }
@@ -56,6 +61,7 @@ export default function Overlay({
   marquee,
   tempEdge,
   connectTarget,
+  partMark,
   dragging,
 }: Props) {
   const k = 1 / zoom
@@ -181,6 +187,33 @@ export default function Overlay({
           </g>
         )
       })}
+
+      {/* Reached inside a network. Drawn as a ring around the circle or a halo
+          along the synapse rather than as a box, because the thing selected is
+          round or is a line — a bounding box would say "this region", and the
+          whole point is that one part was singled out. */}
+      {partMark?.kind === 'dot' ? (
+        <circle
+          cx={partMark.c.x}
+          cy={partMark.c.y}
+          r={partMark.r + 3 * k}
+          fill="none"
+          stroke="#7828c8"
+          strokeWidth={1.6 * k}
+        />
+      ) : null}
+      {partMark?.kind === 'wire' ? (
+        <line
+          x1={partMark.a.x}
+          y1={partMark.a.y}
+          x2={partMark.b.x}
+          y2={partMark.b.y}
+          stroke="#7828c8"
+          strokeWidth={4 * k}
+          opacity={0.4}
+          strokeLinecap="round"
+        />
+      ) : null}
 
       {/* selected node outlines */}
       {nodes.map((n) => {

@@ -16,8 +16,11 @@ import type {
   FontKind,
   HeadKind,
   LabelPos,
+  NeuronBits,
+  NodeProps,
   RouteKind,
   Style,
+  WireBits,
 } from './types'
 import {
   CANVAS_PRESETS,
@@ -29,6 +32,18 @@ import {
 } from './presets'
 import { fitNodeToGrid, ptOf } from './layout'
 import { retypeLabel } from './latex'
+import {
+  MLP_GAP,
+  MLP_MAX_LAYERS,
+  MLP_MAX_UNITS,
+  MLP_PITCH,
+  MLP_R,
+  MLP_SLOT_CAP,
+  isLattice,
+  mlpLayers,
+  mlpSnapProps,
+  parseDotKey,
+} from './mlp'
 import { nodeMap } from './doc'
 import { resolveEdge } from './resolve'
 import { dataUrlBytes, fileToImage, formatBytes } from './image'
@@ -110,6 +125,16 @@ interface Props {
   onEdgeStyle: (patch: Partial<FigEdge['style']>) => void
   onCanvas: (patch: Partial<CanvasCfg>) => void
   onPalette: (id: string) => void
+  /** one neuron or synapse reached inside a selected network */
+  part: SelPart | null
+  /** merge into that part's overrides; null clears them back to the default */
+  onPart: (patch: NeuronBits | WireBits | null) => void
+}
+
+export interface SelPart {
+  node: FigNode
+  key: string
+  kind: 'dot' | 'wire'
 }
 
 export default function Inspector({
@@ -123,6 +148,8 @@ export default function Inspector({
   onEdgeStyle,
   onCanvas,
   onPalette,
+  part,
+  onPart,
 }: Props) {
   const pal = paletteById(doc.paletteId)
   const swatches = useMemo(() => [...pal.colors, pal.neutral], [pal])
@@ -134,6 +161,10 @@ export default function Inspector({
 
   return (
     <div className="af-inspector">
+      {/* First, because it is the most specific thing selected — you reached
+          past the network to get here, so the network's own settings are not
+          what you came for. */}
+      {part ? <PartPanel part={part} swatches={swatches} onPart={onPart} /> : null}
       {nodes.length ? (
         <NodePanel
           doc={doc}
@@ -457,7 +488,14 @@ function NodePanel({
       </Group>
 
       {one ? (
-        <KindPanel kind={one} n={n} swatches={swatches} onProps={onProps} onNode={onNode} />
+        <KindPanel
+          kind={one}
+          n={n}
+          canvas={doc.canvas}
+          swatches={swatches}
+          onProps={onProps}
+          onNode={onNode}
+        />
       ) : null}
     </>
   )
@@ -468,12 +506,14 @@ function NodePanel({
 function KindPanel({
   kind,
   n,
+  canvas,
   swatches,
   onProps,
   onNode,
 }: {
   kind: FigNode['kind']
   n: FigNode
+  canvas: CanvasCfg
   swatches: string[]
   onProps: Props['onProps']
   onNode: Props['onNode']
@@ -516,29 +556,8 @@ function KindPanel({
         </Group>
       )
     case 'mlp':
-      return (
-        <Group title="MLP">
-          <Field label="층 구성" wide>
-            {/* 24 is the cap the shape itself clamps to, so the field and the
-                drawing agree on what a layer can hold */}
-            <NumList
-              value={p.layers ?? [4, 5, 3]}
-              max={24}
-              maxItems={12}
-              placeholder="4, 5, 3"
-              onChange={(layers) => onProps({ layers })}
-            />
-          </Field>
-          <Field label="뉴런 반지름">
-            <Num value={p.neuronR ?? 6} min={1} max={40} onChange={(neuronR) => onProps({ neuronR })} width={48} />
-            <Chk
-              checked={p.showEdges !== false}
-              onChange={(showEdges) => onProps({ showEdges })}
-              label="연결선"
-            />
-          </Field>
-        </Group>
-      )
+      return <MlpPanel n={n} canvas={canvas} onProps={onProps} />
+
     case 'grid':
       return (
         <Group title="격자 · 히트맵">
@@ -754,6 +773,239 @@ function KindPanel({
     default:
       return null
   }
+}
+
+/* ---------- one part of an MLP ---------- */
+
+/* Everything here is an *override*. A neuron with no entry draws in the
+ * network's own colours, and "기본값으로" deletes the entry rather than writing
+ * the current colour into it — otherwise recolouring the network would leave
+ * every hand-touched unit behind on the old palette. */
+function PartPanel({
+  part,
+  swatches,
+  onPart,
+}: {
+  part: SelPart
+  swatches: string[]
+  onPart: Props['onPart']
+}) {
+  const p = part.node.props
+  const where = parseDotKey(part.key)
+  const s = part.node.style
+
+  if (part.kind === 'wire') {
+    const w: WireBits = p.wires?.[part.key] ?? {}
+    return (
+      <Group title="연결선 하나">
+        <Field label="색">
+          <ColorBtn
+            value={w.stroke ?? s.stroke}
+            swatches={swatches}
+            onChange={(stroke) => onPart({ stroke })}
+          />
+          <Num
+            value={w.strokeWidth ?? +Math.max(0.35, s.strokeWidth * 0.42).toFixed(2)}
+            step={0.1}
+            min={0.1}
+            max={20}
+            onChange={(strokeWidth) => onPart({ strokeWidth })}
+            suffix="px"
+            width={58}
+          />
+        </Field>
+        <Field label="선 모양">
+          <Sel value={w.dash ?? 'solid'} options={DASHES} onChange={(dash) => onPart({ dash })} />
+          <Num
+            value={w.opacity ?? 0.55}
+            step={0.05}
+            min={0}
+            max={1}
+            onChange={(opacity) => onPart({ opacity })}
+            width={46}
+          />
+        </Field>
+        <Field label="표시">
+          <Chk checked={!w.hidden} onChange={(on) => onPart({ hidden: !on })} label="그리기" />
+          <button type="button" className="af-mini" onClick={() => onPart(null)}>
+            기본값으로
+          </button>
+        </Field>
+        <p className="af-note">
+          {part.key} — 이 시냅스 하나만 바뀝니다. 층 크기를 바꿔도 같은 두 뉴런을 따라갑니다.
+        </p>
+      </Group>
+    )
+  }
+
+  const b: NeuronBits = p.neurons?.[part.key] ?? {}
+  return (
+    <Group title="뉴런 하나">
+      <Field label="텍스트" wide>
+        <input
+          className="af-input"
+          value={b.label ?? ''}
+          placeholder={s.fontFamily === 'latex' ? 'x_1' : '$x_1$'}
+          onChange={(e) => onPart({ label: e.target.value })}
+          onKeyDown={(e) => e.stopPropagation()}
+        />
+      </Field>
+      <Field label="채우기 · 테두리">
+        <ColorBtn value={b.fill ?? s.fill} swatches={swatches} onChange={(fill) => onPart({ fill })} />
+        <ColorBtn
+          value={b.stroke ?? s.stroke}
+          swatches={swatches}
+          onChange={(stroke) => onPart({ stroke })}
+        />
+      </Field>
+      <Field label="글자색">
+        <ColorBtn
+          value={b.textColor ?? (s.textColor === 'none' ? '#222222' : s.textColor)}
+          swatches={swatches}
+          onChange={(textColor) => onPart({ textColor })}
+        />
+        <button type="button" className="af-mini" onClick={() => onPart(null)}>
+          기본값으로
+        </button>
+      </Field>
+      <p className="af-note">
+        {where ? `${where.li + 1}층 ${where.n + 1}번` : part.key} — 글자는 노드의 글꼴 모드를
+        따릅니다.
+      </p>
+    </Group>
+  )
+}
+
+/* ---------- MLP ---------- */
+
+/* The network panel.
+ *
+ * Two things here are not ordinary number fields. "등간격" is the switch between
+ * the two placement modes in mlp.ts, so turning it on has to *supply* a pitch
+ * and a gap rather than just set a flag — and it seeds them from what the node
+ * looks like now, so the drawing does not jump when you flip it. And every
+ * spacing value goes through mlpSnapProps while canvas snapping is on, which is
+ * the whole of "circles land on the grid": get these three numbers onto the
+ * right multiples and the lattice does the rest. */
+function MlpPanel({
+  n,
+  canvas,
+  onProps,
+}: {
+  n: FigNode
+  canvas: CanvasCfg
+  onProps: Props['onProps']
+}) {
+  const p = n.props
+  const lattice = isLattice(p)
+  const layers = mlpLayers(p)
+  const r = p.neuronR ?? MLP_R
+  const pitch = p.pitch ?? MLP_PITCH
+  const gap = p.layerGap ?? MLP_GAP
+
+  /** Spacing edits go on the grid when the canvas is snapping. */
+  const put = (patch: Partial<NodeProps>) =>
+    onProps(canvas.snap ? { ...patch, ...mlpSnapProps({ ...p, ...patch }, canvas.grid) } : patch)
+
+  const caps = (which: 'capTop' | 'capBottom', li: number, v: string) => {
+    const list = [...(p[which] ?? [])]
+    while (list.length < layers.length) list.push('')
+    list[li] = v
+    onProps({ [which]: list.some(Boolean) ? list : undefined })
+  }
+
+  return (
+    <>
+      <Group title="MLP">
+        <Field label="층 구성" wide>
+          {/* A layer may stand for far more units than it draws — the ellipsis
+              below decides how many circles that becomes. */}
+          <NumList
+            value={layers}
+            max={MLP_MAX_UNITS}
+            maxItems={MLP_MAX_LAYERS}
+            placeholder="4, 5, 3"
+            onChange={(v) => onProps({ layers: v })}
+          />
+        </Field>
+        <Field label="배치">
+          <Chk
+            checked={lattice}
+            onChange={(on) =>
+              put(
+                on
+                  ? {
+                      // seed from the current drawing so nothing jumps
+                      pitch: Math.max(2 * r, Math.round((n.h - 2 * r) / Math.max(1, Math.max(...layers) - 1))),
+                      layerGap: Math.max(2 * r, Math.round((n.w - 2 * r) / Math.max(1, layers.length - 1))),
+                    }
+                  : { pitch: undefined, layerGap: undefined },
+              )
+            }
+            label="등간격"
+          />
+          <span className="af-hint-inline">
+            {lattice ? '모든 층이 같은 간격' : '층마다 상자를 꽉 채움'}
+          </span>
+        </Field>
+        {lattice ? (
+          <Field label="간격">
+            <Num value={pitch} min={2} max={200} onChange={(v) => put({ pitch: v })} suffix="세로" width={62} />
+            <Num value={gap} min={2} max={400} onChange={(v) => put({ layerGap: v })} suffix="가로" width={62} />
+          </Field>
+        ) : null}
+        <Field label="뉴런 반지름">
+          <Num value={r} min={1} max={40} onChange={(v) => put({ neuronR: v })} width={48} />
+          <Chk
+            checked={p.showEdges !== false}
+            onChange={(showEdges) => onProps({ showEdges })}
+            label="연결선"
+          />
+        </Field>
+        <Field label="생략">
+          <Num
+            value={p.maxDots ?? MLP_SLOT_CAP}
+            min={2}
+            max={MLP_SLOT_CAP}
+            onChange={(maxDots) => onProps({ maxDots })}
+            suffix="개까지"
+            width={70}
+          />
+          <span className="af-hint-inline">넘으면 ⋮ 로</span>
+        </Field>
+        {lattice ? (
+          <p className="af-note">
+            상자 크기는 격자에서 나옵니다 — 핸들로 끌면 간격이 바뀝니다.
+          </p>
+        ) : null}
+      </Group>
+
+      <Group title="층 라벨">
+        {layers.map((count, li) => (
+          <Field key={li} label={`${li + 1}층 (${count})`} wide>
+            <input
+              className="af-input"
+              value={p.capTop?.[li] ?? ''}
+              placeholder="위"
+              onChange={(e) => caps('capTop', li, e.target.value)}
+              onKeyDown={(e) => e.stopPropagation()}
+            />
+            <input
+              className="af-input"
+              value={p.capBottom?.[li] ?? ''}
+              placeholder="아래"
+              onChange={(e) => caps('capBottom', li, e.target.value)}
+              onKeyDown={(e) => e.stopPropagation()}
+            />
+          </Field>
+        ))}
+        <p className="af-note">
+          층 라벨은 글로 읽습니다 — <code>no bias</code>는 띄어쓰기 그대로 나오고, 수식은{' '}
+          <code>$\sigma$</code>처럼 감싸세요.
+        </p>
+      </Group>
+    </>
+  )
 }
 
 /* ---------- edges ---------- */

@@ -338,18 +338,22 @@ export function addNodeAt(
   return { doc: { ...doc, nodes: [...doc.nodes, n] }, id: n.id }
 }
 
+/** `fromPart` / `toPart` name something inside the node — one neuron of an
+ *  `mlp` — so a connector can land on a unit rather than on the whole network. */
 export function connect(
   doc: FigDoc,
   from: string,
   to: string,
   fromAnchor: Anchor = 'auto',
   toAnchor: Anchor = 'auto',
+  fromPart?: string,
+  toPart?: string,
 ): { doc: FigDoc; id: string } {
   const p = paletteById(doc.paletteId)
   const e: FigEdge = {
     id: uid('e'),
-    from: { node: from, anchor: fromAnchor },
-    to: { node: to, anchor: toAnchor },
+    from: { node: from, anchor: fromAnchor, part: fromPart },
+    to: { node: to, anchor: toAnchor, part: toPart },
     route: 'straight',
     waypoints: [],
     startHead: 'none',
