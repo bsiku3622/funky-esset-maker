@@ -9,7 +9,18 @@ import type { FigEdge, FigNode, Pt, Rect } from './types'
 import type { Gap, Guide, Measure } from './geometry'
 import type { ResolvedEdge } from './resolve'
 import { atLength, nodeBounds } from './geometry'
-import { ANCHOR_UV, CURSOR, HANDLES, HANDLE_UV, anchorHandlePoint } from './handles'
+import {
+  ANCHOR_OUT,
+  ANCHOR_R,
+  ANCHOR_UV,
+  CURSOR,
+  GRIP,
+  HANDLES,
+  HANDLE_UV,
+  ROTATE_OUT,
+  ROTATE_R,
+  anchorHandlePoint,
+} from './handles'
 
 interface Props {
   zoom: number
@@ -210,14 +221,14 @@ export default function Overlay({
             x1={single.x + single.w / 2}
             y1={single.y}
             x2={single.x + single.w / 2}
-            y2={single.y - 22 * k}
+            y2={single.y - ROTATE_OUT * k}
             stroke="#7828c8"
             strokeWidth={1.2 * k}
           />
           <circle
             cx={single.x + single.w / 2}
-            cy={single.y - 22 * k}
-            r={4.5 * k}
+            cy={single.y - ROTATE_OUT * k}
+            r={ROTATE_R * k}
             fill="#fff"
             stroke="#7828c8"
             strokeWidth={1.4 * k}
@@ -233,10 +244,10 @@ export default function Overlay({
             return (
               <rect
                 key={h}
-                x={x - 4 * k}
-                y={y - 4 * k}
-                width={8 * k}
-                height={8 * k}
+                x={x - GRIP * k}
+                y={y - GRIP * k}
+                width={GRIP * 2 * k}
+                height={GRIP * 2 * k}
                 fill="#fff"
                 stroke="#7828c8"
                 strokeWidth={1.4 * k}
@@ -249,17 +260,17 @@ export default function Overlay({
         </g>
       ) : null}
 
-      {/* connection anchors on hover */}
+      {/* connection anchors on hover, floating clear of the resize grips */}
       {hoverNode && !dragging ? (
         <g>
           {Object.keys(ANCHOR_UV).map((a) => {
-            const p = anchorHandlePoint(hoverNode, a)
+            const p = anchorHandlePoint(hoverNode, a, ANCHOR_OUT * k)
             return (
               <circle
                 key={a}
                 cx={p.x}
                 cy={p.y}
-                r={5.5 * k}
+                r={ANCHOR_R * k}
                 fill="#00c22a"
                 stroke="#fff"
                 strokeWidth={1.4 * k}

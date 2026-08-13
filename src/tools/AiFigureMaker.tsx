@@ -111,7 +111,7 @@ import {
 } from './aifig/export'
 import Inspector from './aifig/Inspector'
 import Overlay from './aifig/Overlay'
-import type { HandleKey } from './aifig/handles'
+import { HOVER_TOL, onAnchorDot, type HandleKey } from './aifig/handles'
 import { IconBtn, Num, Seg } from './aifig/ui'
 
 /* ---------- drag state ---------- */
@@ -291,6 +291,7 @@ export default function AiFigureMaker() {
   const [selEdges, setSelEdges] = useState<string[]>([])
   const [view, setView] = useState<View>({ x: 60, y: 48, zoom: 1 })
   const [hoverId, setHoverId] = useState<string | null>(null)
+  const hoverRef = useRef<string | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [guides, setGuides] = useState<Guide[]>([])
@@ -853,13 +854,25 @@ export default function AiFigureMaker() {
       .reverse()
       .find((n) => !n.hidden && !n.locked && pointOnNode(w, n, tol)) ?? null
 
+  /* Written straight through rather than read back off state: several pointer
+     moves can land before React re-renders, and a stale read here would drop
+     the node the pointer is still reaching across. */
+  const setHover = (id: string | null) => {
+    hoverRef.current = id
+    setHoverId((h) => (h === id ? h : id))
+  }
+
   const onHoverMove = (ev: React.PointerEvent) => {
     if (dragRef.current) return
-    // the dots straddle the border and stick out by their radius, so the hover
-    // region has to reach past the box or they drop out from under the pointer
-    const hit = pickNodeAt(toWorld(ev.clientX, ev.clientY), 9 / viewRef.current.zoom)
-    const id = hit?.id ?? null
-    setHoverId((h) => (h === id ? h : id))
+    const w = toWorld(ev.clientX, ev.clientY)
+    const k = 1 / viewRef.current.zoom
+    /* The dots float outside the box, so reaching one takes the pointer off the
+       shape. Keep the node we already have while the pointer is out on one of
+       its dots — the tolerance below is for *finding* a node, and widening it
+       far enough to cover the dots would make every node grabbier instead. */
+    const cur = hoverRef.current ? nmap.get(hoverRef.current) : null
+    if (cur && !cur.hidden && !cur.locked && onAnchorDot(w, cur, k)) return
+    setHover(pickNodeAt(w, HOVER_TOL * k)?.id ?? null)
   }
 
   const onPointerDown = (ev: React.PointerEvent) => {
@@ -2145,7 +2158,7 @@ export default function AiFigureMaker() {
             onPointerMove={onHoverMove}
             onPointerEnter={() => setOverCanvas(true)}
             onPointerLeave={() => {
-              setHoverId(null)
+              setHover(null)
               setOverCanvas(false)
             }}
             onDoubleClick={onDoubleClick}
