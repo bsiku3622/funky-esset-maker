@@ -9,6 +9,7 @@ import type {
   AlignKind,
   Anchor,
   CanvasCfg,
+  CapBits,
   DashKind,
   FigDoc,
   FigEdge,
@@ -31,7 +32,7 @@ import {
   paletteById,
   presetById,
 } from './presets'
-import { fitNodeToGrid, ptOf } from './layout'
+import { capBits, fitNodeToGrid, mlpCapStyle, mlpCapText, ptOf } from './layout'
 import { retypeLabel } from './latex'
 import {
   MLP_GAP,
@@ -136,20 +137,22 @@ interface Props {
   /** the neurons or synapses reached inside a selected network */
   parts: SelParts | null
   /** merge into their overrides; null clears them back to the default */
-  onPart: (patch: NeuronBits | WireBits | Partial<NeuronGroup> | null) => void
+  onPart: (patch: NeuronBits | WireBits | Partial<NeuronGroup> | CapBits | null) => void
   /** step back out to the network as a whole */
   onExitPart: () => void
   /** take the selected neurons as one thing a connector can point at */
   onGroup: () => void
   /** undo that, leaving the units where they are */
   onUngroup: () => void
+  /** a caption's text, which lives in a different place for each kind */
+  onCapText: (key: string, text: string) => void
 }
 
 export interface SelParts {
   node: FigNode
   /** part keys, all of one kind and all inside `node` */
   keys: string[]
-  kind: 'dot' | 'wire' | 'group'
+  kind: 'dot' | 'wire' | 'group' | 'cap'
 }
 
 export default function Inspector({
@@ -168,6 +171,7 @@ export default function Inspector({
   onExitPart,
   onGroup,
   onUngroup,
+  onCapText,
 }: Props) {
   const pal = paletteById(doc.paletteId)
   const swatches = useMemo(() => [...pal.colors, pal.neutral], [pal])
@@ -194,6 +198,7 @@ export default function Inspector({
           onExit={onExitPart}
           onGroup={onGroup}
           onUngroup={onUngroup}
+          onCapText={onCapText}
         />
       </div>
     )
@@ -830,6 +835,7 @@ function PartPanel({
   onExit,
   onGroup,
   onUngroup,
+  onCapText,
 }: {
   parts: SelParts
   swatches: string[]
@@ -837,6 +843,7 @@ function PartPanel({
   onExit: () => void
   onGroup: () => void
   onUngroup: () => void
+  onCapText: (key: string, text: string) => void
 }) {
   const p = parts.node.props
   const s = parts.node.style
@@ -849,11 +856,13 @@ function PartPanel({
       <span className="af-hint-inline">
         {many
           ? `${parts.keys.length}개`
-          : parts.kind === 'wire'
-            ? '연결선 하나'
-            : where
-              ? `${where.li + 1}층 ${where.n + 1}번`
-              : '뉴런 하나'}
+          : parts.kind === 'cap'
+            ? '라벨 하나'
+            : parts.kind === 'wire'
+              ? '연결선 하나'
+              : where
+                ? `${where.li + 1}층 ${where.n + 1}번`
+                : '뉴런 하나'}
       </span>
       <button type="button" className="af-mini" onClick={onExit}>
         네트워크 전체로 (Esc)
@@ -865,6 +874,70 @@ function PartPanel({
       기본값으로
     </button>
   )
+
+  /* A caption is a thing in its own right, so it gets a panel of its own —
+     text, ink, size and font, and the nudge it was dragged by. Its *text* lives
+     in three different places depending on what it names; by the time it has a
+     colour that no longer matters, which is why one bag holds them all. */
+  if (parts.kind === 'cap') {
+    const b = capBits(parts.node, first)
+    const base = mlpCapStyle(parts.node)
+    return (
+      <Group title={many ? `라벨 ${parts.keys.length}개` : '라벨'}>
+        {back}
+        <Field label="텍스트" wide>
+          <input
+            className="af-input"
+            value={mlpCapText(parts.node, first)}
+            placeholder="input"
+            onChange={(e) => onCapText(first, e.target.value)}
+            onKeyDown={(e) => e.stopPropagation()}
+          />
+        </Field>
+        <Field label="글꼴">
+          <Sel
+            value={b.fontFamily ?? INHERIT}
+            options={[
+              { key: INHERIT, label: `네트워크를 따름 (${FONT_LABEL[base.fontFamily]})` },
+              ...(['sans', 'serif', 'mono', 'latex'] as FontKind[]).map((k) => ({
+                key: k,
+                label: FONT_LABEL[k],
+              })),
+            ]}
+            onChange={(v) =>
+              onPart({ fontFamily: v === INHERIT ? undefined : (v as FontKind) })
+            }
+          />
+        </Field>
+        <Field label="색 · 크기">
+          <ColorBtn
+            value={b.textColor ?? base.textColor}
+            swatches={swatches}
+            onChange={(textColor) => onPart({ textColor })}
+          />
+          <Num
+            value={b.fontSize ?? base.fontSize}
+            min={2}
+            max={200}
+            onChange={(fontSize) => onPart({ fontSize })}
+            suffix="px"
+            width={56}
+          />
+        </Field>
+        <Field label="위치">
+          <Num value={b.dx ?? 0} onChange={(dx) => onPart({ dx })} suffix="X" width={54} />
+          <Num value={b.dy ?? 0} onChange={(dy) => onPart({ dy })} suffix="Y" width={54} />
+          <button type="button" className="af-mini" onClick={() => onPart({ dx: 0, dy: 0 })}>
+            제자리로
+          </button>
+        </Field>
+        <Field label="표시">{reset}</Field>
+        <p className="af-note">
+          캔버스에서 끌어 옮기고, 더블클릭해서 고칩니다. Delete로 글자를 지웁니다.
+        </p>
+      </Group>
+    )
+  }
 
   if (parts.kind === 'group') {
     const g = p.groups?.[first]

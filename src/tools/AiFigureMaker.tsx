@@ -26,6 +26,7 @@ import './AiFigureMaker.css'
 
 import type {
   CanvasCfg,
+  CapBits,
   FigDoc,
   FigEdge,
   FigNode,
@@ -97,6 +98,7 @@ import {
   edgeLabelBox,
   fitNodeToGrid,
   inkRect,
+  capBits,
   isCapKey,
   labelStyle,
   mlpCapSpot,
@@ -167,7 +169,7 @@ import { IconBtn, Num, Seg } from './aifig/ui'
 /* ---------- drag state ---------- */
 
 /** One neuron or synapse inside a network node, by the keys mlp.ts mints. */
-type PartRef = { node: string; key: string; kind: 'dot' | 'wire' | 'group' }
+type PartRef = { node: string; key: string; kind: 'dot' | 'wire' | 'group' | 'cap' }
 
 type Drag =
   | {
@@ -883,9 +885,9 @@ export default function AiFigureMaker() {
   const patchSelStyle = (patch: Partial<Style>) =>
     commit((d) => patchNodeStyle(d, selNodesRef.current, patch))
   const bagOf = (kind: PartRef['kind']) =>
-    kind === 'dot' ? 'neurons' : kind === 'group' ? 'groups' : 'wires'
+    kind === 'dot' ? 'neurons' : kind === 'group' ? 'groups' : kind === 'cap' ? 'caps' : 'wires'
 
-  const patchPart = (patch: NeuronBits | WireBits | Partial<NeuronGroup> | null) => {
+  const patchPart = (patch: NeuronBits | WireBits | Partial<NeuronGroup> | CapBits | null) => {
     const sel = activeParts?.refs ?? []
     if (!sel.length) return
     commit((d) => sel.reduce((acc, p) => patchMlpPart(acc, p, bagOf(p.kind), patch), d))
@@ -1118,11 +1120,17 @@ export default function AiFigureMaker() {
     const parts = focusedParts()
     if (parts.length) {
       commit((d) =>
-        parts.reduce(
-          (acc, p) => patchMlpPart(acc, p, p.kind === 'dot' ? 'neurons' : 'wires', null),
-          d,
-        ),
+        parts.reduce((acc, p) => {
+          /* A caption *can* be deleted — it is text, and empty text is no
+             caption at all. Its settings go with it, or a name typed back into
+             the same slot would arrive wearing the old one's colour. */
+          if (p.kind === 'cap')
+            return patchMlpPart(writeLabel(acc, p, ''), p, 'caps', null)
+          if (p.kind === 'group') return patchMlpPart(acc, p, 'groups', null)
+          return patchMlpPart(acc, p, p.kind === 'dot' ? 'neurons' : 'wires', null)
+        }, d),
       )
+      if (parts.some((p) => p.kind === 'cap' || p.kind === 'group')) setSelPart(null)
       return
     }
     if (!selNodesRef.current.length && !selEdgesRef.current.length) return
@@ -1390,10 +1398,10 @@ export default function AiFigureMaker() {
     if (capHit) {
       const cn = nmap.get(el.getAttribute('data-hit-node') ?? '')
       if (cn) {
-        const off = cn.props.capOffsets?.[capHit]
+        const off = capBits(cn, capHit)
         setSelNodes([cn.id])
         setSelEdges([])
-        setSelPart(isGroupKey(capHit) ? { node: cn.id, key: capHit, kind: 'group' } : null)
+        setSelPart({ node: cn.id, key: capHit, kind: 'cap' })
         beginDrag()
         setDragging(true)
         dragRef.current = {
@@ -2047,7 +2055,13 @@ export default function AiFigureMaker() {
         const at = { dx: put(drag.orig.dx + local.x), dy: put(drag.orig.dy + local.y) }
         live((cur) =>
           patchNodes(cur, [drag.id], (nn) => ({
-            props: { ...nn.props, capOffsets: { ...nn.props.capOffsets, [drag.key]: at } },
+            props: {
+              ...nn.props,
+              caps: {
+                ...nn.props.caps,
+                [drag.key]: { ...capBits(nn, drag.key), ...at },
+              },
+            },
           })),
         )
         return
@@ -2373,7 +2387,7 @@ export default function AiFigureMaker() {
     if (capHit && capNode && nmap.has(capNode)) {
       setSelNodes([capNode])
       setSelEdges([])
-      setSelPart(isGroupKey(capHit) ? { node: capNode, key: capHit, kind: 'group' } : null)
+      setSelPart({ node: capNode, key: capHit, kind: 'cap' })
       setEditDot({ node: capNode, key: capHit })
       setEditing(null)
       return
@@ -3612,6 +3626,11 @@ export default function AiFigureMaker() {
               setSelPart(null)
               setEditDot(null)
             }}
+            onCapText={(key, text) =>
+              commit((d) =>
+                activeParts ? writeLabel(d, { node: activeParts.node.id, key }, text) : d,
+              )
+            }
           />
         </aside>
       </div>

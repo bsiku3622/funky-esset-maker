@@ -5,6 +5,7 @@
 
 import type {
   CanvasCfg,
+  CapBits,
   EdgeStyle,
   FigDoc,
   FigEdge,
@@ -248,16 +249,39 @@ export interface MlpText {
  * test guessed the box from the group's width, and a name wider than the column
  * it sits over — "Input Layer" above a single column of circles — could only be
  * double-clicked in the middle. Both ends of the word missed. */
+/* What one caption has been told about itself.
+ *
+ * ⚠️ `capOffsets` is the old name of this bag, from when it held only
+ * positions. Documents saved with it are still out there, so it is read as a
+ * fallback rather than migrated — a load that rewrote the file would make the
+ * old version unreadable in the other direction. */
+export function capBits(n: FigNode, key: string): CapBits {
+  const now = n.props.caps?.[key]
+  if (now) return now
+  const was = n.props.capOffsets?.[key]
+  return was ? { dx: was.dx, dy: was.dy } : {}
+}
+
 export function mlpTextBoxes(n: FigNode): MlpText[] {
   if (n.kind !== 'mlp') return []
   const out: MlpText[] = []
-  const put = (key: string, text: string, style: Style, x0: number, top: number, above: boolean) => {
+  const put = (key: string, base: string, baseStyle: Style, x0: number, top: number, above: boolean) => {
+    const text = base
+    /* Each caption may say its own colour, size and font — a "no bias" note is
+       not the same voice as a layer's name, and one shared ink for the whole
+       row could not tell them apart. */
+    const off = capBits(n, key)
+    const style: Style = {
+      ...baseStyle,
+      fontSize: off.fontSize ?? baseStyle.fontSize,
+      fontFamily: off.fontFamily ?? baseStyle.fontFamily,
+      textColor: off.textColor ?? baseStyle.textColor,
+    }
     const layout = layoutLabel(text, labelFont(style))
     if (!layout.lines.length) return
     // the nudge rides on top of the default placement, so clearing it re-homes
-    const off = n.props.capOffsets?.[key]
-    const x = x0 + (off?.dx ?? 0)
-    const y = (above ? top - layout.h : top) + (off?.dy ?? 0)
+    const x = x0 + (off.dx ?? 0)
+    const y = (above ? top - layout.h : top) + (off.dy ?? 0)
     out.push({
       key,
       text,
@@ -267,7 +291,7 @@ export function mlpTextBoxes(n: FigNode): MlpText[] {
       x,
       y,
       rect: { x: x - layout.w / 2, y, w: layout.w, h: layout.h },
-      moved: !!(off?.dx || off?.dy),
+      moved: !!(off.dx || off.dy),
     })
   }
   const lat = mlpLattice(n)

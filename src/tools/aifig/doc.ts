@@ -5,6 +5,7 @@
 
 import type {
   Anchor,
+  CapBits,
   EdgeStyle,
   FigDoc,
   FigEdge,
@@ -255,8 +256,8 @@ export function equalize(doc: FigDoc, ids: string[], axis: 'w' | 'h' | 'both'): 
 export function patchMlpPart(
   doc: FigDoc,
   at: { node: string; key: string },
-  bag: 'neurons' | 'wires' | 'groups',
-  patch: NeuronBits | WireBits | Partial<NeuronGroup> | null,
+  bag: 'neurons' | 'wires' | 'groups' | 'caps',
+  patch: NeuronBits | WireBits | Partial<NeuronGroup> | CapBits | null,
 ): FigDoc {
   return patchNodes(doc, [at.node], (n) => {
     const next: Record<string, object> = { ...(n.props[bag] ?? {}) }

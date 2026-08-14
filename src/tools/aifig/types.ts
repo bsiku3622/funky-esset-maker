@@ -151,6 +151,16 @@ export interface NeuronGroup {
   fontSize?: number
 }
 
+/* One caption's own settings. Absent means "whatever the network says", which
+ * is what `capColor` still answers for the whole row of them. */
+export interface CapBits {
+  dx?: number
+  dy?: number
+  textColor?: string
+  fontSize?: number
+  fontFamily?: FontKind
+}
+
 export interface WireBits {
   stroke?: string
   strokeWidth?: number
@@ -158,6 +168,14 @@ export interface WireBits {
   opacity?: number
   /** drop this one synapse without touching the rest */
   hidden?: boolean
+  /* A weight written on the synapse, the way a connector carries a label. The
+   * two are the same picture — "this quantity travels along this line" — and a
+   * network drawn without it has to caption its weights somewhere else. */
+  label?: string
+  /** where along the run the label sits, 0..1, and its nudge off the line */
+  labelT?: number
+  labelDx?: number
+  labelDy?: number
 }
 
 /** Per-kind extras. Kept as one optional bag so the node type stays flat and
@@ -207,10 +225,14 @@ export interface NodeProps {
   capBottom?: string[]
   /** ink for both rows of captions; absent follows the node's text colour */
   capColor?: string
-  /* Where each caption has been nudged to, keyed the way `mlpTextBoxes` keys
-   * them — `cap:t:2` for a layer's, `g0` for a group's. One bag for both kinds
-   * because a caption is a caption: the thing that differs is where its *text*
-   * is kept, and by the time it has a position that no longer matters. */
+  /* Everything said about one caption, keyed the way `mlpTextBoxes` keys them —
+   * `cap:t:2` for a layer's, `g0` for a group's. One bag for both kinds because
+   * a caption is a caption: the thing that differs is where its *text* is kept,
+   * and by the time it has a colour and a place that no longer matters.
+   *
+   * ⚠️ `capOffsets` was the same bag holding only positions. Documents saved
+   * with it are still read — see `capBits` — and re-saved under the new name. */
+  caps?: Record<string, CapBits>
   capOffsets?: Record<string, { dx: number; dy: number }>
   /* grid */
   rows?: number
