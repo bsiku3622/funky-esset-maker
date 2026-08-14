@@ -1162,10 +1162,14 @@ function MlpPanel({
                   : { pitch: undefined, layerGap: undefined },
               )
             }
-            label="등간격"
+            /* ⚠️ Called "등간격" until the gaps could differ, at which point the
+               name was a lie and it read as the opposite of the switch below
+               it. What it actually decides is which way round the box and the
+               spacing depend on each other. */
+            label="격자 배치"
           />
           <span className="af-hint-inline">
-            {lattice ? '모든 층이 같은 간격' : '층마다 상자를 꽉 채움'}
+            {lattice ? '간격이 상자를 정합니다' : '상자에 맞춰 늘립니다'}
           </span>
         </Field>
         {lattice ? (
@@ -1186,16 +1190,18 @@ function MlpPanel({
                 without disturbing the rhythm of the rest — an input column set
                 apart from the hidden ones is the usual reason. Turning it on
                 seeds every gap with the even one, so nothing jumps. */}
-            <Field label="층마다">
-              <Chk
-                checked={perGap}
-                onChange={(on) => put({ gaps: on ? mlpGaps(p) : undefined })}
-                label="간격 따로"
-              />
-              <span className="af-hint-inline">
-                {perGap ? '칸마다 아래에서' : '모든 층이 같은 간격'}
-              </span>
-            </Field>
+            {layers.length > 2 ? (
+              <Field label="가로 간격">
+                <Chk
+                  checked={perGap}
+                  onChange={(on) => put({ gaps: on ? mlpGaps(p) : undefined })}
+                  label="칸마다 따로"
+                />
+                <span className="af-hint-inline">
+                  {perGap ? '아래에서 칸별로' : '전부 한 값으로'}
+                </span>
+              </Field>
+            ) : null}
             {perGap ? (
               <Field label="칸 간격" wide>
                 {mlpGaps(p).map((v, i) => (

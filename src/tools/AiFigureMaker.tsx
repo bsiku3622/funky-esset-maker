@@ -82,6 +82,7 @@ import {
   pointOnNode,
   rectCenter,
   rectsOverlap,
+  rotateDir,
   rotatePt,
   snapGuides,
   snapSides,
@@ -117,12 +118,14 @@ import {
   mlpDot,
   mlpPartAnchors,
   mlpDotAt,
+  mlpGaps,
   mlpGroupAt,
   mlpGroupLabelAt,
   mlpHit,
   mlpPartCentre,
   mlpPartRect,
   mlpLattice,
+  mlpLayers,
   mlpNaturalSize,
   mlpSlots,
   mlpSnapProps,
@@ -132,6 +135,7 @@ import {
   GROUP_CAP_GAP,
   GROUP_PAD_MAX,
   isGroupKey,
+  parseDotKey,
 } from './aifig/mlp'
 import { ensureMathJax, layoutLabel, onMathReady } from './aifig/latex'
 import { TEMPLATES } from './aifig/templates'
@@ -189,6 +193,23 @@ type Drag =
       moved: boolean
     }
   | { t: 'rotate'; id: string; center: Pt; startAngle: number; origRot: number; moved: boolean }
+  /* Sliding one layer of a network sideways.
+   *
+   * The columns are placed by a running total of the gaps, so moving a layer is
+   * moving the two gaps it sits between — wider on one side, narrower on the
+   * other, and every other column stays where it was. Grabbing a circle and
+   * pulling is how you say that; typing two numbers that have to add up is not. */
+  | {
+      t: 'layer'
+      id: string
+      /** which column, and where the press landed — in *canvas* coordinates */
+      li: number
+      start: Pt
+      /** the gaps as they were, so the drag stays absolute rather than cumulative */
+      gaps: number[]
+      x: number
+      moved: boolean
+    }
   /** widening one side of a neuron group's outline — see `NeuronGroup.pad` */
   | {
       t: 'gpad'
@@ -236,6 +257,15 @@ const PART_TOL = 7
 
 /** How far the pointer must travel, on screen, before a press counts as a drag. */
 const DEAD_ZONE = 3
+
+/* Which column a part belongs to. A group is filed by its members, and one that
+ * straddles two layers has no single column to move — those are left alone. */
+function layerOfPart(n: FigNode, key: string): number | null {
+  if (!isGroupKey(key)) return parseDotKey(key)?.li ?? null
+  const held = n.props.groups?.[key]?.parts ?? []
+  const lis = new Set(held.map((k) => parseDotKey(k)?.li).filter((v) => v !== undefined))
+  return lis.size === 1 ? [...lis][0]! : null
+}
 
 /* The page as something to line up with. It is drawn, so it plays by the same
  * rule as any other drawn thing: its edges and its centre are alignment
@@ -1395,6 +1425,29 @@ export default function AiFigureMaker() {
           )
           return
         }
+        /* Already reached inside and pressing that same part again: the drag
+           slides its whole layer rather than the network. It is the second
+           press either way — the first one reaches in — and pulling a circle
+           sideways is a far better way to say "put this layer further out"
+           than typing two gap widths that have to add up. */
+        if (part && part.kind !== 'wire' && isLattice(n.props)) {
+          const held = selPartsRef.current.some((q) => q.key === part!.key && q.node === n.id)
+          const li = layerOfPart(n, part.key)
+          if (held && li !== null && mlpLayers(n.props).length > 1) {
+            beginDrag()
+            setDragging(true)
+            dragRef.current = {
+              t: 'layer',
+              id: n.id,
+              li,
+              start: world,
+              gaps: mlpGaps(n.props),
+              x: n.x,
+              moved: false,
+            }
+            return
+          }
+        }
         if (!part) setSelPart(null)
         let ids = already ? selNodesRef.current : expandGroups(d, [n.id])
         if (ev.shiftKey) {
@@ -1762,6 +1815,53 @@ export default function AiFigureMaker() {
         ]
         drag.moved = true
         live((cur) => patchMlpPart(cur, { node: drag.id, key: drag.key }, 'groups', { pad }))
+        return
+      }
+
+      /* One layer, sideways. The gap before it grows by exactly what the gap
+         after it loses, so every other column stays put and the box does not
+         move — except at the two ends, where there is only one gap to give:
+         the run gets longer or shorter and the node's left edge has to be
+         pulled along to keep the columns behind it still. */
+      if (drag.t === 'layer') {
+        const n = docRef.current.nodes.find((x) => x.id === drag.id)
+        if (!n) return
+        const c = docRef.current.canvas
+        /* ⚠️ Measured against where the press landed on the *canvas*, not
+           against the node's own frame. The node moves while this drag runs —
+           pulling the first column out shifts the box's left edge — so a delta
+           taken in local coordinates chases its own tail and the layer travels
+           at half the speed of the pointer. */
+        const away = { x: world.x - drag.start.x, y: world.y - drag.start.y }
+        const raw = (n.rotation ? rotateDir(away, -n.rotation) : away).x
+        // whole cells: that is what keeps the columns on the position lattice
+        const step = c.snap && !ev.metaKey && !ev.ctrlKey ? c.grid : 1
+        const floor = 2 * (n.props.neuronR ?? MLP_R)
+        const before = drag.gaps[drag.li - 1]
+        const after = drag.gaps[drag.li]
+        // do not let either side collapse past two circles touching
+        const lo = before === undefined ? -Infinity : floor - before
+        const hi = after === undefined ? Infinity : after - floor
+        const d = Math.max(lo, Math.min(hi, Math.round(raw / step) * step))
+        if (!drag.moved && Math.abs(d) < 0.01) return
+        const gaps = drag.gaps.map((g, i) =>
+          i === drag.li - 1 ? g + d : i === drag.li ? g - d : g,
+        )
+        drag.moved = true
+        live((cur) =>
+          patchNodes(cur, [drag.id], (nn) => {
+            const props = { ...nn.props, gaps }
+            /* ⚠️ Size the box here rather than leaving it to `refitMlp`, which
+               grows a network about its *centre*. That is right for a pitch
+               change and wrong for this: pulling the first column out would
+               then move the last one half as far backwards. Writing the size
+               makes the refit a no-op, and only the first column's move
+               changes where the box starts. */
+            const size = mlpNaturalSize(props)
+            const x = drag.li === 0 ? drag.x + d : drag.x
+            return size ? { x, ...size, props } : { x, props }
+          }),
+        )
         return
       }
 
