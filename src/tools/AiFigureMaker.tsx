@@ -106,6 +106,7 @@ import {
   mlpCapText,
   mlpTextBoxes,
   neuronLabel,
+  nodeTextBox,
   neuronLabelStyle,
   readCapKey,
   placeLabel,
@@ -312,6 +313,10 @@ function capAt(n: FigNode, p: Pt, tol: number) {
  * indexed by column. The editor should not have to know that; it hands over a
  * key and a string. */
 function writeLabel(d: FigDoc, at: { node: string; key: string }, label: string): FigDoc {
+  if (at.key === 'prop')
+    return patchNodes(d, [at.node], (n) => ({
+      props: { ...n.props, [n.kind === 'frame' ? 'title' : 'symbol']: label },
+    }))
   const cap = readCapKey(at.key)
   if (!cap) return patchMlpPart(d, at, isGroupKey(at.key) ? 'groups' : 'neurons', { label })
   return patchNodes(d, [at.node], (n) => {
@@ -1269,6 +1274,11 @@ export default function AiFigureMaker() {
       const t = mlpTextBoxes(capNode).find((x) => x.key === capKeyHit)
       return t ? boxOf(capNode, t.rect) : null
     }
+    const textNode = nodeOf('data-hit-nodetext')
+    if (textNode) {
+      const t = nodeTextBox(textNode)
+      return t ? boxOf(textNode, t.rect) : null
+    }
     const labelNode = nodeOf('data-hit-nodelabel')
     if (labelNode) {
       const placed = placeLabel(labelNode)
@@ -1290,6 +1300,24 @@ export default function AiFigureMaker() {
         w: placed.layout.w,
         h: placed.layout.h,
       })
+    }
+    const wpAt = get('data-waypoint')
+    const wpEdge = get('data-edge-id')
+    if (wpAt && wpEdge) {
+      const r = resolvedRef.current.get(wpEdge)
+      const q = r?.wps[Number(wpAt)]
+      const pad = 5 / viewRef.current.zoom
+      return q
+        ? {
+            kind: 'box',
+            pts: [
+              { x: q.x - pad, y: q.y - pad },
+              { x: q.x + pad, y: q.y - pad },
+              { x: q.x + pad, y: q.y + pad },
+              { x: q.x - pad, y: q.y + pad },
+            ],
+          }
+        : null
     }
     const labelEdge = get('data-hit-label')
     if (labelEdge) {
@@ -2429,6 +2457,16 @@ export default function AiFigureMaker() {
     /* A neuron's own text, wherever it has been nudged to. Its circle is the
        usual way in, but once the label has been pulled clear of it the circle
        is no longer under the words. */
+    /* A frame's title or an operator's symbol. */
+    const nodeText = el.getAttribute?.('data-hit-nodetext')
+    if (nodeText && nmap.has(nodeText)) {
+      setSelNodes([nodeText])
+      setSelEdges([])
+      setSelPart(null)
+      setEditDot({ node: nodeText, key: 'prop' })
+      setEditing(null)
+      return
+    }
     /* A caption — its own hit target now, so the double-click lands exactly
        where the press does rather than being re-derived from the geometry. */
     const capHit = el.getAttribute?.('data-hit-cap')
@@ -2935,6 +2973,26 @@ export default function AiFigureMaker() {
     if (!editDot) return null
     const n = nmap.get(editDot.node)
     if (!n) return null
+    /* A frame's title or an operator's symbol, measured where the body draws
+       it so the field lands on the glyphs it replaces. */
+    if (editDot.key === 'prop') {
+      const t = nodeTextBox(n)
+      if (!t) return null
+      const w = Math.max(t.rect.w, 48)
+      return {
+        n,
+        text: t.text,
+        style: t.style,
+        color: t.style.textColor,
+        box: {
+          left: view.x + (n.x + t.x - (t.style.align === 'center' ? w / 2 : 0)) * view.zoom,
+          top: view.y + (n.y + t.y) * view.zoom,
+          width: w * view.zoom,
+          height: t.rect.h * view.zoom,
+          rotation: n.rotation || undefined,
+        },
+      }
+    }
     /* A caption — a layer's or a group's. `mlpTextBoxes` measured it for the
        renderer, so the field lands exactly on the glyphs it replaces. */
     const cap = mlpTextBoxes(n).find((t) => t.key === editDot.key)
@@ -3483,6 +3541,32 @@ export default function AiFigureMaker() {
                         />
                       )),
                 )}
+                {/* A frame's title and an operator's symbol: text on the
+                    canvas that is not `label`, and so had no way in but the
+                    inspector. */}
+                {doc.nodes.map((n) => {
+                  if (n.hidden || n.locked) return null
+                  const t = nodeTextBox(n)
+                  if (!t) return null
+                  return (
+                    <rect
+                      key={`nt-${n.id}`}
+                      x={n.x + t.rect.x - 2}
+                      y={n.y + t.rect.y - 2}
+                      width={t.rect.w + 4}
+                      height={t.rect.h + 4}
+                      transform={
+                        n.rotation
+                          ? `rotate(${n.rotation} ${n.x + n.w / 2} ${n.y + n.h / 2})`
+                          : undefined
+                      }
+                      fill="transparent"
+                      data-hit-nodetext={n.id}
+                      data-hit-node={n.id}
+                      style={{ cursor: connecting ? 'crosshair' : 'move' }}
+                    />
+                  )
+                })}
                 {/* Every node's own label, wherever it was placed.
                     ⚠️ A label set to sit above or beside its shape is nowhere
                     near the shape's box, so double-clicking the words did

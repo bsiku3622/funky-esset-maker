@@ -667,6 +667,15 @@ function KindPanel({
         <Group title="연산자">
           <Field label="기호" wide>
             <Sel value={p.symbol ?? '+'} options={OPS} onChange={(symbol) => onProps({ symbol })} />
+            {/* The list is the common ones, not the whole alphabet — anything
+                typed here is drawn as text, and it is double-clickable on the
+                canvas like every other piece of writing. */}
+            <input
+              className="af-input"
+              value={p.symbol ?? '+'}
+              onChange={(e) => onProps({ symbol: e.target.value })}
+              onKeyDown={(e) => e.stopPropagation()}
+            />
           </Field>
         </Group>
       )

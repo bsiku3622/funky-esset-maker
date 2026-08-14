@@ -380,6 +380,54 @@ export function mlpCapText(n: FigNode, key: string): string {
   return at ? (n.props[at.which]?.[at.li] ?? '') : ''
 }
 
+/* A node's *second* piece of text, for the kinds that carry one.
+ *
+ * ⚠️ A frame's title and an operator's symbol are not `label` — they live in
+ * `props`, get drawn by the body rather than the label layer, and so were
+ * reachable only from the inspector. They are text on the canvas like any
+ * other, so they get a box, a hit target and an editor. The box is where the
+ * body draws them; asking here is what keeps the two in step. */
+export interface NodeText {
+  /** which prop it is, so the editor knows where to write it back */
+  prop: 'title' | 'symbol'
+  text: string
+  style: Style
+  /** the block's box in the node's local frame, and its drawing anchor */
+  rect: Rect
+  x: number
+  y: number
+}
+
+export function nodeTextBox(n: FigNode): NodeText | null {
+  const s = n.style
+  if (n.kind === 'frame') {
+    const title = n.props.title ?? ''
+    if (!title) return null
+    const style: Style = { ...s, align: 'left', fontWeight: 600 }
+    const l = layoutLabel(title, labelFont(style))
+    if (!l.lines.length) return null
+    // the body draws it from x=10, sitting above the top edge
+    const y = -s.fontSize * 1.12
+    return { prop: 'title', text: title, style, rect: { x: 10, y, w: l.w, h: l.h }, x: 10, y }
+  }
+  if (n.kind === 'op') {
+    const sym = n.props.symbol ?? '+'
+    const style: Style = { ...s, align: 'center', textColor: s.stroke }
+    const r = Math.min(n.w, n.h) / 2
+    // the glyph is drawn as strokes filling most of the circle
+    const side = r * 1.1
+    return {
+      prop: 'symbol',
+      text: sym,
+      style,
+      rect: { x: n.w / 2 - side, y: n.h / 2 - side, w: side * 2, h: side * 2 },
+      x: n.w / 2,
+      y: n.h / 2 - side,
+    }
+  }
+  return null
+}
+
 /* ---------- ink bounds ---------- */
 
 /** Text nodes that size themselves to their glyphs. Absent on nodes from an

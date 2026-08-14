@@ -563,9 +563,10 @@ const Curve = ({ n }: BodyProps) => {
  * the title *above* the edge needs no plate at all: nothing is behind it to
  * punch through. `titleBg` is still there for a title that has to overlap
  * something, but it is off unless asked for. */
-const Frame = ({ n }: BodyProps) => {
+const Frame = ({ n, editing }: BodyProps) => {
   const s = n.style
-  const title = n.props.title ?? ''
+  // the editor draws it while it is being typed into
+  const title = editing === 'prop' ? '' : (n.props.title ?? '')
   const f = fontCss(FONT_STACK[s.fontFamily], s.fontSize, 600, false)
   const bg = n.props.titleBg ?? 'none'
   const tw = title ? textWidth(title, f) : 0
@@ -640,13 +641,13 @@ const Img = ({ n }: BodyProps) => {
 
 /** Operator token: a small circle carrying ⊕ / ⊗ / … drawn as strokes so it
  *  scales cleanly and never depends on a symbol font being installed. */
-const Op = ({ n }: BodyProps) => {
+const Op = ({ n, editing }: BodyProps) => {
   const s = n.style
   const cx = n.w / 2
   const cy = n.h / 2
   const r = Math.min(n.w, n.h) / 2
   const k = r * 0.52
-  const sym = n.props.symbol ?? '+'
+  const sym = editing === 'prop' ? '' : (n.props.symbol ?? '+')
   const sp = {
     stroke: s.stroke,
     strokeWidth: Math.max(0.8, s.strokeWidth * 1.1),
