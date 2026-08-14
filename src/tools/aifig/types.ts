@@ -174,6 +174,11 @@ export interface NodeProps {
   pitch?: number
   /** centre-to-centre spacing between columns; pairs with `pitch` */
   layerGap?: number
+  /* One width per gap — `layers.length - 1` of them — when the columns are not
+   * evenly spaced. An absent entry falls back to `layerGap`, so the array only
+   * has to say what is different: pushing the input layer out to the left is
+   * one number, and the rest of the network keeps its rhythm. */
+  gaps?: number[]
   /** circles drawn per column before the remainder becomes a ⋮ */
   maxDots?: number
   /* The synapses have their own ink. They used to borrow the node's stroke,

@@ -24,9 +24,11 @@
  *
  *     r        a multiple of grid/2
  *     pitch    a multiple of grid
- *     layerGap a multiple of grid
+ *     layerGap a multiple of grid  (and every entry of `gaps`, if uneven)
  *
- * puts every centre on it, in every column, at once — see `mlpSnapProps`, and
+ * puts every centre on it, in every column, at once — the columns are placed by
+ * a running total of the gaps, so whole-cell steps keep every prefix on the
+ * lattice and the centred run on the half-cell. See `mlpSnapProps`, and
  * `mlp.test.ts` for the proof. Rounding the circles individually instead would
  * have broken the equal spacing that requirement asked for in the first place. */
 
@@ -141,6 +143,21 @@ export function mlpLayers(p: NodeProps): number[] {
 /** True when this node places its circles on a fixed pitch. */
 export const isLattice = (p: NodeProps) => typeof p.pitch === 'number' && p.pitch > 0
 
+/** The width of every gap between columns — `count - 1` of them. */
+export function mlpGaps(p: NodeProps, count = mlpLayers(p).length): number[] {
+  const r = Math.max(0.5, p.neuronR ?? MLP_R)
+  const even = Math.max(2 * r, p.layerGap ?? MLP_GAP)
+  return Array.from({ length: Math.max(0, count - 1) }, (_, i) =>
+    Math.max(2 * r, p.gaps?.[i] ?? even),
+  )
+}
+
+/** True when every gap is the same, which is the default and the usual case. */
+export const evenGaps = (p: NodeProps) => {
+  const g = mlpGaps(p)
+  return g.every((v) => v === g[0])
+}
+
 /* How a column of `count` units is drawn: which units get a circle, and where
  * the ⋮ goes. Short columns are drawn whole; a long one keeps its first units
  * and its last, because the last is the one figures label `n`. */
@@ -171,17 +188,26 @@ export function mlpLattice(n: FigNode): MlpLattice {
   const r = Math.max(0.5, p.neuronR ?? MLP_R)
   const lattice = isLattice(p)
   const pitch = Math.max(2 * r, p.pitch ?? MLP_PITCH)
-  const gap = Math.max(2 * r, p.layerGap ?? MLP_GAP)
   const cx = n.w / 2
   const cy = n.h / 2
   const L = counts.length
 
   /* Stretch mode spreads across the box; lattice mode steps out from the
      centre. Both give a column's x and a slot's y, so the rest of the function
-     does not care which is in play. */
+     does not care which is in play.
+
+     ⚠️ The gaps need not all be the same. `mlpGaps` gives one width per gap, so
+     a column's x is the running total rather than a multiple — which is what
+     lets the input layer stand off further than the hidden ones. The lattice
+     still lands on the grid: every gap is a multiple of `grid`, so every prefix
+     is too, and the whole run is centred on a multiple of `grid/2`. */
+  const widths = mlpGaps(p, L)
+  const prefix: number[] = [0]
+  for (const w of widths) prefix.push(prefix[prefix.length - 1] + w)
+  const span = prefix[L - 1]
   const colX = (li: number) =>
     lattice
-      ? cx + (li - (L - 1) / 2) * gap
+      ? cx - span / 2 + prefix[li]
       : L === 1
         ? cx
         : r + (li * (n.w - 2 * r)) / (L - 1)
@@ -445,6 +471,30 @@ export function mlpGroupAt(n: FigNode, p: Pt, tol = 4): string | null {
   return best
 }
 
+/* The group whose *name* is under the point.
+ *
+ * A caption is the one thing on a figure with nothing else beneath it, so
+ * double-clicking it can go straight to editing rather than climbing the
+ * select-then-select-again ladder the circles need. One line's worth of band
+ * above the box, the same estimate `shapeOverflow` uses — a real text layout
+ * lives a layer above this one. */
+export function mlpGroupLabelAt(n: FigNode, p: Pt, tol = 4): string | null {
+  const local = toLocal(n, p)
+  for (const [key, g] of Object.entries(n.props.groups ?? {})) {
+    if (!g.label) continue
+    const r = mlpPartRect(n, key)
+    if (!r) continue
+    const h = (g.fontSize ?? n.style.fontSize) * 1.3
+    if (
+      Math.abs(local.x - (r.x + r.w / 2)) <= r.w / 2 + tol &&
+      local.y >= r.y - GROUP_CAP_GAP - h - tol &&
+      local.y <= r.y - GROUP_CAP_GAP + tol
+    )
+      return key
+  }
+  return null
+}
+
 /** The neuron under a point, in canvas coordinates. `pad` widens the circle. */
 export function mlpDotAt(n: FigNode, p: Pt, pad = 0): MlpDot | null {
   const local = toLocal(n, p)
@@ -555,10 +605,9 @@ export function mlpNaturalSize(p: NodeProps): { w: number; h: number } | null {
   const slots = mlpSlots(p)
   const r = Math.max(0.5, p.neuronR ?? MLP_R)
   const pitch = Math.max(2 * r, p.pitch ?? MLP_PITCH)
-  const gap = Math.max(2 * r, p.layerGap ?? MLP_GAP)
   const widest = Math.max(...slots.map((s) => s.length))
   return {
-    w: 2 * r + (slots.length - 1) * gap,
+    w: 2 * r + mlpGaps(p, slots.length).reduce((a, b) => a + b, 0),
     h: 2 * r + (widest - 1) * pitch,
   }
 }
@@ -571,12 +620,15 @@ export function mlpNaturalSize(p: NodeProps): { w: number; h: number } | null {
 export function mlpSnapProps(p: NodeProps, grid: number): Partial<NodeProps> {
   const half = grid / 2
   const r = Math.max(half, Math.round((p.neuronR ?? MLP_R) / half) * half)
-  const snap = (v: number, min: number) =>
-    Math.max(min, Math.round(v / grid) * grid)
+  const floor = Math.ceil((2 * r) / grid) * grid
+  const snap = (v: number, min: number) => Math.max(min, Math.round(v / grid) * grid)
   return {
     neuronR: r,
-    pitch: snap(p.pitch ?? MLP_PITCH, Math.ceil((2 * r) / grid) * grid),
-    layerGap: snap(p.layerGap ?? MLP_GAP, Math.ceil((2 * r) / grid) * grid),
+    pitch: snap(p.pitch ?? MLP_PITCH, floor),
+    layerGap: snap(p.layerGap ?? MLP_GAP, floor),
+    /* Each gap on its own, for the same reason: uneven columns still land on
+       the lattice as long as every step is a whole number of cells. */
+    gaps: p.gaps?.length ? p.gaps.map((v) => snap(v, floor)) : undefined,
   }
 }
 
@@ -671,10 +723,21 @@ const spliceCaps = (caps: string[] | undefined, at: number, delta: 1 | -1) => {
   return out.some(Boolean) ? out : undefined
 }
 
-/** A new layer list, with every key and caption moved to match. */
+/* The gaps are filed *between* layers, so a splice adds or removes one of them
+ * rather than shifting an index. A new layer arrives with the even spacing, and
+ * a removed one takes its gap with it. */
+function spliceGaps(p: NodeProps, next: number[], at: number, delta: 1 | -1) {
+  if (!p.gaps?.length) return undefined
+  const out = mlpGaps(p)
+  if (delta === 1) out.splice(Math.min(at, out.length), 0, Math.max(2 * (p.neuronR ?? MLP_R), p.layerGap ?? MLP_GAP))
+  else out.splice(Math.min(at, out.length - 1), 1)
+  return out.slice(0, Math.max(0, next.length - 1))
+}
+
+/** A new layer list, with every key, caption and gap moved to match. */
 export function retypeLayers(p: NodeProps, next: number[]): Partial<NodeProps> {
   const move = layerSplice(mlpLayers(p), next)
-  if (!move) return { layers: next }
+  if (!move) return { layers: next, gaps: p.gaps?.slice(0, Math.max(0, next.length - 1)) }
   const { at, delta } = move
   return {
     layers: next,
@@ -683,6 +746,7 @@ export function retypeLayers(p: NodeProps, next: number[]): Partial<NodeProps> {
     groups: regroup(p.groups, at, delta),
     capTop: spliceCaps(p.capTop, at, delta),
     capBottom: spliceCaps(p.capBottom, at, delta),
+    gaps: spliceGaps(p, next, at, delta),
   }
 }
 

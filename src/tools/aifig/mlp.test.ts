@@ -10,10 +10,12 @@ import { describe, expect, it } from 'vitest'
 import {
   MLP_SLOT_CAP,
   dotKey,
+  evenGaps,
   isLattice,
   mlpAnchorPoint,
   mlpDotAt,
   mlpGroupAt,
+  mlpGaps,
   mlpGroupOverflow,
   mlpHit,
   mlpPartRect,
@@ -561,6 +563,59 @@ describe('a group of neurons', () => {
       r: 0,
       b: 0,
     })
+  })
+})
+
+/* Columns need not be evenly spaced: an input layer standing off from the
+ * hidden ones is the usual figure, and forcing one gap on the whole network
+ * meant either a cramped input or a stretched everything-else. */
+describe('a network whose columns are not evenly spaced', () => {
+  const props = { layers: [3, 3, 3], pitch: 40, layerGap: 60, neuronR: 12, gaps: [120, 60] }
+  const n = fitted(props)
+
+  it('places each column by the running total of the gaps', () => {
+    const xs = [...new Set(mlpLattice(n).dots.map((d) => d.x))].sort((a, b) => a - b)
+    expect(xs.length).toBe(3)
+    expect(xs[1] - xs[0]).toBeCloseTo(mlpGaps(n.props)[0], 6)
+    expect(xs[2] - xs[1]).toBeCloseTo(mlpGaps(n.props)[1], 6)
+  })
+
+  it('sizes the box from what the columns actually span', () => {
+    const r = n.props.neuronR!
+    expect(mlpNaturalSize(n.props)!.w).toBeCloseTo(2 * r + mlpGaps(n.props).reduce((a, b) => a + b, 0), 6)
+    expect(n.w).toBeCloseTo(mlpNaturalSize(n.props)!.w, 6)
+  })
+
+  /* ⚠️ The grid invariant has to survive uneven columns. It does, because the
+     columns are a running total: whole-cell steps keep every prefix on the
+     lattice and the centred run on the half-cell. */
+  it('still lands every circle on the position lattice', () => {
+    const grid = 8
+    const snapped = { ...props, ...mlpSnapProps(props, grid) }
+    const size = mlpNaturalSize(snapped)!
+    const node = { ...n, props: snapped, x: snapPos(100, grid), y: snapPos(60, grid), ...size }
+    for (const d of mlpLattice(node).dots) {
+      expect(node.x + d.x).toBeCloseTo(snapPos(node.x + d.x, grid), 6)
+      expect(node.y + d.y).toBeCloseTo(snapPos(node.y + d.y, grid), 6)
+    }
+  })
+
+  it('says whether the spacing is even at all', () => {
+    expect(evenGaps(n.props)).toBe(false)
+    expect(evenGaps({ layers: [3, 3, 3], layerGap: 60, neuronR: 12 })).toBe(true)
+  })
+
+  /* ⚠️ The gaps are filed *between* layers, so a splice adds or removes one of
+     them. The wide first gap has to stay the first gap — that is the whole
+     point of setting it — and the layer that arrives gets the even spacing. */
+  it('gains a gap when a layer is inserted and loses one when it goes', () => {
+    const raw: NodeProps = { layers: [3, 3, 3], pitch: 40, layerGap: 60, neuronR: 12, gaps: [120, 60] }
+    expect(retypeLayers(raw, [3, 4, 3, 3]).gaps).toEqual([120, 60, 60])
+    expect(retypeLayers(raw, [3, 3]).gaps).toEqual([120])
+  })
+
+  it('leaves an evenly spaced network with nothing to store', () => {
+    expect(retypeLayers({ layers: [3, 3], layerGap: 60 }, [3, 3, 3]).gaps).toBeUndefined()
   })
 })
 

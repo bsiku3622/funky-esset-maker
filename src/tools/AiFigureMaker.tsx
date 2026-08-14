@@ -96,7 +96,9 @@ import {
   edgeLabelBox,
   fitNodeToGrid,
   inkRect,
+  labelFont,
   labelStyle,
+  mlpCapStyle,
   neuronLabelStyle,
   placeLabel,
   ptOf,
@@ -116,6 +118,7 @@ import {
   mlpPartAnchors,
   mlpDotAt,
   mlpGroupAt,
+  mlpGroupLabelAt,
   mlpHit,
   mlpPartCentre,
   mlpPartRect,
@@ -126,9 +129,11 @@ import {
   mlpToLocal,
   mlpWireAt,
   groupPad,
+  GROUP_CAP_GAP,
   GROUP_PAD_MAX,
+  isGroupKey,
 } from './aifig/mlp'
-import { ensureMathJax, onMathReady } from './aifig/latex'
+import { ensureMathJax, layoutLabel, onMathReady } from './aifig/latex'
 import { TEMPLATES } from './aifig/templates'
 import { fileToImage, fitBox, imagesFromDrop, imagesFromPaste } from './aifig/image'
 import {
@@ -2021,8 +2026,26 @@ export default function AiFigureMaker() {
          used to be the fallback, which is how an empty label kept appearing
          across the top of the drawing. */
       if (n?.kind === 'mlp') {
-        const dot = mlpDotAt(n, toWorld(ev.clientX, ev.clientY), 2)
-        if (!dot) return
+        const w = toWorld(ev.clientX, ev.clientY)
+        const dot = mlpDotAt(n, w, 2)
+        if (!dot) {
+          /* A caption has nothing underneath it, so double-clicking one goes
+             straight to typing — every edit on the canvas is reached by
+             double-clicking the thing itself, not its parent. A group's *box*
+             still climbs the ladder, because the units inside are what a press
+             there usually means. */
+          const named = mlpGroupLabelAt(n, w, PART_TOL / viewRef.current.zoom)
+          const box = named ?? mlpGroupAt(n, w, PART_TOL / viewRef.current.zoom)
+          if (!box) return
+          const chosen =
+            !!named || selPartsRef.current.some((p) => p.key === box && p.node === n.id)
+          setSelNodes([n.id])
+          setSelEdges([])
+          setSelPart({ node: n.id, key: box, kind: 'group' })
+          if (chosen) setEditDot({ node: n.id, key: box })
+          setEditing(null)
+          return
+        }
         const chosen = selPartsRef.current.some((p) => p.key === dot.key && p.node === n.id)
         setSelNodes([n.id])
         setSelEdges([])
@@ -2429,13 +2452,40 @@ export default function AiFigureMaker() {
     return () => window.removeEventListener('keydown', onKey)
   }, [exportKeys])
 
-  /* ---- typing into a neuron ---- */
-  /* The field sits over the circle wearing the circle's own text style, so what
-     is on screen while you type is what will be there when you stop. */
+  /* ---- typing into a part of a network ---- */
+  /* The field sits over the thing it edits wearing that thing's own text style,
+     so what is on screen while you type is what will be there when you stop.
+     Two kinds of text live inside a network: a unit's own label, centred in its
+     circle, and a group's name, sitting above its box. */
   const dotEdit = useMemo(() => {
     if (!editDot) return null
     const n = nmap.get(editDot.node)
     if (!n) return null
+    if (isGroupKey(editDot.key)) {
+      const g = n.props.groups?.[editDot.key]
+      const r = mlpPartRect(n, editDot.key)
+      if (!g || !r) return null
+      const style = mlpCapStyle(n, g.fontSize)
+      // an empty name still needs a line's worth of box to type into
+      const layout = layoutLabel(g.label || '​', labelFont(style))
+      const cx = n.x + r.x + r.w / 2
+      const top = n.y + r.y - GROUP_CAP_GAP - layout.h
+      const w = Math.max(layout.w, 72)
+      return {
+        n,
+        bag: 'groups' as const,
+        text: g.label ?? '',
+        style,
+        color: g.textColor ?? style.textColor,
+        box: {
+          left: view.x + (cx - w / 2) * view.zoom,
+          top: view.y + top * view.zoom,
+          width: w * view.zoom,
+          height: layout.h * view.zoom,
+          rotation: n.rotation || undefined,
+        },
+      }
+    }
     const d = mlpDot(n, editDot.key)
     if (!d) return null
     const bits = n.props.neurons?.[editDot.key]
@@ -2445,6 +2495,7 @@ export default function AiFigureMaker() {
     const fill = bits?.fill ?? n.style.fill
     return {
       n,
+      bag: 'neurons' as const,
       text: bits?.label ?? '',
       style,
       color:
@@ -2470,7 +2521,8 @@ export default function AiFigureMaker() {
   const tabDot = (shift: boolean) => {
     const cur = editDot
     const n = cur ? nmap.get(cur.node) : null
-    if (!cur || !n) return
+    // a group has one name, not a column of them — nowhere to step to
+    if (!cur || !n || isGroupKey(cur.key)) return
     const dots = mlpLattice(n).dots
     const i = dots.findIndex((x) => x.key === cur.key)
     const next = dots[(i + (shift ? -1 : 1) + dots.length) % dots.length]
@@ -3012,7 +3064,7 @@ export default function AiFigureMaker() {
               box={dotEdit.box}
               multiline={false}
               onChange={(label) =>
-                live((d) => patchMlpPart(d, editDot!, 'neurons', { label }))
+                live((d) => patchMlpPart(d, editDot!, dotEdit.bag, { label }))
               }
               onStart={() => beginDrag()}
               onDone={endDotEdit}

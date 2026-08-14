@@ -141,6 +141,29 @@ export function edgeLabelBox(e: FigEdge, r: ResolvedEdge): Rect | null {
  * the renderer is no longer the only thing that needs it: the in-place editor
  * wears this style so the field it opens draws the same text at the same size
  * as the circle it covers. */
+/* ⚠️ The captions round a network are prose even when its own label is not.
+ *
+ * They annotate the drawing rather than name a quantity — "input", "no bias",
+ * "Input Layer" — and in LaTeX mode "no bias" would be typeset as maths, where
+ * spaces do not exist, and come out as `nobias` in italics. So they keep the
+ * dollar convention: words are words, and `$\sigma$` is still one fence away.
+ * Layer captions and group names share this, and so does the field you type
+ * them into — asking twice is what keeps the two in step. */
+export function mlpCapStyle(n: FigNode, size?: number): Style {
+  const s = n.style
+  return {
+    ...s,
+    align: 'center',
+    fontFamily: s.fontFamily === 'latex' ? 'serif' : s.fontFamily,
+    fontSize: size ?? s.fontSize,
+    /* Their own ink: a network drawn in one accent still wants its annotations
+       readable, and `none` — which is how a shape says "pick a colour that
+       reads on the fill" — would leave a caption with no fill at all outside
+       the circles. */
+    textColor: n.props.capColor ?? (s.textColor === 'none' ? s.stroke : s.textColor),
+  }
+}
+
 export function neuronLabelStyle(n: FigNode, r: number, bits?: NeuronBits): Style {
   return {
     ...n.style,

@@ -10,7 +10,7 @@ import { memo } from 'react'
 import type { FigNode, NeuronBits, Style } from './types'
 import { dashArray, FONT_STACK, paint, readableOn, shade, tint } from './presets'
 import { fontCss, layoutLabel, textWidth, type LabelLayout } from './latex'
-import { isoOff, labelFont, labelStyle, neuronLabel, placeLabel } from './layout'
+import { isoOff, labelFont, labelStyle, mlpCapStyle, neuronLabel, placeLabel } from './layout'
 import {
   GROUP_CAP_GAP,
   GROUP_PAD,
@@ -339,24 +339,8 @@ const Mlp = ({ n, editing }: BodyProps) => {
   const thin = n.props.wireWidth ?? Math.max(0.35, s.strokeWidth * 0.42)
   const wireFade = n.props.wireOpacity ?? 0.55
 
-  /* ⚠️ Captions are prose even when the node's label is not.
-   *
-   * They annotate the drawing rather than name a quantity — "input", "no bias",
-   * "shared weights" — and in LaTeX mode "no bias" would be typeset as maths,
-   * where spaces do not exist, and come out as `nobias` in italics. So they
-   * keep the dollar convention: words are words, and `$\sigma$` is still one
-   * fence away. The font is otherwise the node's own, so a caption matches the
-   * figure it belongs to. */
-  const capStyle: Style = {
-    ...s,
-    align: 'center',
-    fontFamily: s.fontFamily === 'latex' ? 'serif' : s.fontFamily,
-    /* Captions have their own ink for the same reason the synapses do: a
-       network drawn in one accent still wants its annotations readable, and
-       `none` — which is how a shape says "pick a colour that reads on the
-       fill" — would leave a caption with no fill at all outside the circles. */
-    textColor: n.props.capColor ?? (s.textColor === 'none' ? s.stroke : s.textColor),
-  }
+  // prose, with its own ink — see mlpCapStyle for why
+  const capStyle = mlpCapStyle(n)
   const caps = hasCaps(n.props)
     ? lat.cols.flatMap((c) => {
         const { top, bottom } = mlpCaps(n.props, c.li)
@@ -405,8 +389,8 @@ const Mlp = ({ n, editing }: BodyProps) => {
     /* The name, above the box. Prose for the same reason a layer caption is —
        "입력층" and "shared weights" are words, and LaTeX mode would set them as
        maths and eat the spaces. */
-    if (g.label) {
-      const style: Style = { ...capStyle, fontSize: g.fontSize ?? capStyle.fontSize }
+    if (g.label && key !== editing) {
+      const style: Style = mlpCapStyle(n, g.fontSize)
       const layout = layoutLabel(g.label, labelFont(style))
       if (layout.lines.length)
         out.push(

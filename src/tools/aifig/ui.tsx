@@ -53,6 +53,7 @@ export function Num({
   max = 100000,
   suffix,
   width,
+  disabled,
 }: {
   value: number
   onChange: (v: number) => void
@@ -61,6 +62,7 @@ export function Num({
   max?: number
   suffix?: string
   width?: number
+  disabled?: boolean
 }) {
   const [text, setText] = useState(String(round(value)))
   const focused = useRef(false)
@@ -80,6 +82,7 @@ export function Num({
         inputMode="decimal"
         className="af-num__input"
         style={width ? { width } : undefined}
+        disabled={disabled}
         value={text}
         onFocus={() => (focused.current = true)}
         onBlur={(e) => {

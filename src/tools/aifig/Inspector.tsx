@@ -43,6 +43,7 @@ import {
   GROUP_PAD_MAX,
   groupPad,
   isLattice,
+  mlpGaps,
   mlpLayers,
   mlpSnapProps,
   parseDotKey,
@@ -1114,6 +1115,11 @@ function MlpPanel({
   const r = p.neuronR ?? MLP_R
   const pitch = p.pitch ?? MLP_PITCH
   const gap = p.layerGap ?? MLP_GAP
+  /* ⚠️ Whether the gaps are *stored* per layer, not whether they happen to be
+     equal. Turning the switch on seeds every gap with the even one so nothing
+     jumps — and if that were read back as "still even", the switch would flip
+     itself off the instant it was used. */
+  const perGap = !!p.gaps?.length
 
   /** Spacing edits go on the grid when the canvas is snapping. */
   const put = (patch: Partial<NodeProps>) =>
@@ -1163,10 +1169,53 @@ function MlpPanel({
           </span>
         </Field>
         {lattice ? (
-          <Field label="간격">
-            <Num value={pitch} min={2} max={200} onChange={(v) => put({ pitch: v })} suffix="세로" width={62} />
-            <Num value={gap} min={2} max={400} onChange={(v) => put({ layerGap: v })} suffix="가로" width={62} />
-          </Field>
+          <>
+            <Field label="간격">
+              <Num value={pitch} min={2} max={200} onChange={(v) => put({ pitch: v })} suffix="세로" width={62} />
+              <Num
+                value={gap}
+                min={2}
+                max={400}
+                onChange={(v) => put({ layerGap: v, gaps: undefined })}
+                suffix="가로"
+                width={62}
+                disabled={perGap}
+              />
+            </Field>
+            {/* One width per gap, so a layer can stand off from its neighbour
+                without disturbing the rhythm of the rest — an input column set
+                apart from the hidden ones is the usual reason. Turning it on
+                seeds every gap with the even one, so nothing jumps. */}
+            <Field label="층마다">
+              <Chk
+                checked={perGap}
+                onChange={(on) => put({ gaps: on ? mlpGaps(p) : undefined })}
+                label="간격 따로"
+              />
+              <span className="af-hint-inline">
+                {perGap ? '칸마다 아래에서' : '모든 층이 같은 간격'}
+              </span>
+            </Field>
+            {perGap ? (
+              <Field label="칸 간격" wide>
+                {mlpGaps(p).map((v, i) => (
+                  <Num
+                    key={i}
+                    value={v}
+                    min={2}
+                    max={400}
+                    onChange={(next) => {
+                      const list = mlpGaps(p)
+                      list[i] = next
+                      put({ gaps: list })
+                    }}
+                    suffix={`${i + 1}–${i + 2}`}
+                    width={58}
+                  />
+                ))}
+              </Field>
+            ) : null}
+          </>
         ) : null}
         <Field label="뉴런 반지름">
           <Num value={r} min={1} max={40} onChange={(v) => put({ neuronR: v })} width={48} />
