@@ -58,6 +58,7 @@ import {
   patchEdgeStyle,
   patchEdges,
   patchMlpPart,
+  type PartFill,
   patchNodeStyle,
   patchNodes,
   removeItems,
@@ -104,6 +105,10 @@ import {
   mlpCapSpot,
   mlpCapStyle,
   mlpCapText,
+  cuboidFaceAt,
+  gridCellAt,
+  gridCellRect,
+  stackSheetAt,
   mlpTextBoxes,
   neuronLabel,
   nodeTextBox,
@@ -170,7 +175,11 @@ import { IconBtn, Num, Seg } from './aifig/ui'
 /* ---------- drag state ---------- */
 
 /** One neuron or synapse inside a network node, by the keys mlp.ts mints. */
-type PartRef = { node: string; key: string; kind: 'dot' | 'wire' | 'group' | 'cap' }
+type PartRef = {
+  node: string
+  key: string
+  kind: 'dot' | 'wire' | 'group' | 'cap' | 'cell' | 'sheet' | 'face'
+}
 
 type Drag =
   | {
@@ -732,6 +741,31 @@ export default function AiFigureMaker() {
       const q = { x: n.x + p.x, y: n.y + p.y }
       return n.rotation ? rotatePt(q, rectCenter(n), n.rotation) : q
     }
+    /* The parts that are plain boxes — a grid cell, a stack sheet, a cuboid
+       face — outline as boxes. Only a network has anything rounder. */
+    const boxMark = (r: Rect): PartMark => ({
+      kind: 'group',
+      pts: [
+        { x: r.x, y: r.y },
+        { x: r.x + r.w, y: r.y },
+        { x: r.x + r.w, y: r.y + r.h },
+        { x: r.x, y: r.y + r.h },
+      ].map(at),
+    })
+    if (activeParts.kind === 'cell')
+      return activeParts.keys.flatMap((k) => {
+        const r = gridCellRect(n, k)
+        return r ? [boxMark(r)] : []
+      })
+    if (activeParts.kind === 'sheet') {
+      const off = n.props.offset ?? 5
+      return activeParts.keys.map((k) => {
+        const i = Number(k.slice(1)) || 0
+        return boxMark({ x: i * off, y: -i * off, w: n.w, h: n.h })
+      })
+    }
+    if (activeParts.kind === 'face') return [boxMark({ x: 0, y: 0, w: n.w, h: n.h })]
+    if (n.kind !== 'mlp') return []
     const lat = mlpLattice(n)
     const out: PartMark[] = []
     for (const ref of activeParts.refs) {
@@ -898,9 +932,23 @@ export default function AiFigureMaker() {
   const patchSelStyle = (patch: Partial<Style>) =>
     commit((d) => patchNodeStyle(d, selNodesRef.current, patch))
   const bagOf = (kind: PartRef['kind']) =>
-    kind === 'dot' ? 'neurons' : kind === 'group' ? 'groups' : kind === 'cap' ? 'caps' : 'wires'
+    kind === 'dot'
+      ? 'neurons'
+      : kind === 'group'
+        ? 'groups'
+        : kind === 'cap'
+          ? 'caps'
+          : kind === 'cell'
+            ? 'cells'
+            : kind === 'sheet'
+              ? 'sheets'
+              : kind === 'face'
+                ? 'faces'
+                : 'wires'
 
-  const patchPart = (patch: NeuronBits | WireBits | Partial<NeuronGroup> | CapBits | null) => {
+  const patchPart = (
+    patch: NeuronBits | WireBits | Partial<NeuronGroup> | CapBits | PartFill | null,
+  ) => {
     const sel = activeParts?.refs ?? []
     if (!sel.length) return
     commit((d) => sel.reduce((acc, p) => patchMlpPart(acc, p, bagOf(p.kind), patch), d))
@@ -1139,8 +1187,7 @@ export default function AiFigureMaker() {
              the same slot would arrive wearing the old one's colour. */
           if (p.kind === 'cap')
             return patchMlpPart(writeLabel(acc, p, ''), p, 'caps', null)
-          if (p.kind === 'group') return patchMlpPart(acc, p, 'groups', null)
-          return patchMlpPart(acc, p, p.kind === 'dot' ? 'neurons' : 'wires', null)
+          return patchMlpPart(acc, p, bagOf(p.kind), null)
         }, d),
       )
       if (parts.some((p) => p.kind === 'cap' || p.kind === 'group')) setSelPart(null)
@@ -1344,6 +1391,20 @@ export default function AiFigureMaker() {
 
     const hit = nodeOf('data-hit-node')
     if (!hit || hit.locked) return null
+    const solo1 = selNodesRef.current.length === 1 && selNodesRef.current[0] === hit.id
+    if (solo1 && hit.kind === 'grid') {
+      const cell = gridCellAt(hit, w)
+      const r = cell ? gridCellRect(hit, cell) : null
+      if (r) return boxOf(hit, r)
+    }
+    if (solo1 && hit.kind === 'stack') {
+      const k = stackSheetAt(hit, w)
+      const i = k ? Number(k.slice(1)) : -1
+      const off = hit.props.offset ?? 5
+      if (i >= 0) return boxOf(hit, { x: i * off, y: -i * off, w: hit.w, h: hit.h })
+    }
+    if (solo1 && hit.kind === 'cuboid' && cuboidFaceAt(hit, w))
+      return boxOf(hit, { x: 0, y: 0, w: hit.w, h: hit.h })
     if (hit.kind === 'mlp') {
       const tol = PART_TOL / viewRef.current.zoom
       /* The ladder, exactly as the press climbs it: parts only once the network
@@ -1680,6 +1741,21 @@ export default function AiFigureMaker() {
         const inParts = selPartsRef.current.length > 0
         const solo = already && selNodesRef.current.length === 1
         let part: PartRef | undefined
+        /* The same ladder every glyph with insides climbs: the first press takes
+           the whole thing, and once it is on its own a press reaches a cell, a
+           sheet or a face. One rule, so nothing has to be learned twice. */
+        if (solo && !n.locked && !ev.shiftKey) {
+          if (n.kind === 'grid') {
+            const cell = gridCellAt(n, world)
+            if (cell) part = { node: n.id, key: cell, kind: 'cell' }
+          } else if (n.kind === 'stack') {
+            const sheet = stackSheetAt(n, world)
+            if (sheet) part = { node: n.id, key: sheet, kind: 'sheet' }
+          } else if (n.kind === 'cuboid') {
+            const face = cuboidFaceAt(n, world)
+            if (face) part = { node: n.id, key: face, kind: 'face' }
+          }
+        }
         if (n.kind === 'mlp' && solo && (!ev.shiftKey || inParts) && !n.locked) {
           /* A circle first, then the outline of a group, then a synapse. The
              group is picked by its edge alone, so the units it holds stay

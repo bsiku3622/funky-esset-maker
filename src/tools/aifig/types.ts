@@ -186,9 +186,16 @@ export interface NodeProps {
   skew?: number // isometric angle, degrees
   faceTop?: string // top-face fill override (auto-shaded when absent)
   faceSide?: string
+  /** the front face, which otherwise borrows the node's own fill */
+  faceFront?: string
+  /** per-face overrides, keyed `top` / `side` / `front` — the same bag shape
+   *  every other pickable part uses, so one patch helper serves them all */
+  faces?: Record<string, { fill?: string; stroke?: string }>
   /* stack */
   count?: number // how many sheets
   offset?: number // per-sheet offset in px
+  /** per-sheet fill, keyed `s0` — the front sheet is the last one */
+  sheets?: Record<string, { fill?: string; stroke?: string }>
   /* mlp — see mlp.ts, which owns what these mean geometrically */
   layers?: number[] // neurons per layer
   showEdges?: boolean // draw full connections
@@ -237,6 +244,8 @@ export interface NodeProps {
   /* grid */
   rows?: number
   cols?: number
+  /** per-cell overrides, keyed `c<row>_<col>` — a fill, a text, or both */
+  cells?: Record<string, { fill?: string; label?: string; textColor?: string }>
   /** per-cell 0..1 intensities, row-major; blends fill toward `heatHi` */
   heat?: number[]
   heatHi?: string
@@ -252,6 +261,8 @@ export interface NodeProps {
   /** natural pixel size, kept so "reset to original ratio" works later */
   natW?: number
   natH?: number
+  /* curve — `fn` picks a preset, `data` overrides it with real numbers */
+  data?: number[]
   /* curve */
   fn?: 'relu' | 'sigmoid' | 'tanh' | 'gelu' | 'loss' | 'sine' | 'step'
   /* text */

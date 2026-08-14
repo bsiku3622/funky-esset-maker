@@ -51,7 +51,7 @@ import {
   parseDotKey,
   retypeLayers,
 } from './mlp'
-import { nodeMap } from './doc'
+import { nodeMap, type PartFill } from './doc'
 import { resolveEdge } from './resolve'
 import { dataUrlBytes, fileToImage, formatBytes } from './image'
 import { Chk, ColorBtn, Field, Group, Num, NumList, Sel, Seg } from './ui'
@@ -138,7 +138,9 @@ interface Props {
   /** the neurons or synapses reached inside a selected network */
   parts: SelParts | null
   /** merge into their overrides; null clears them back to the default */
-  onPart: (patch: NeuronBits | WireBits | Partial<NeuronGroup> | CapBits | null) => void
+  onPart: (
+    patch: NeuronBits | WireBits | Partial<NeuronGroup> | CapBits | PartFill | null,
+  ) => void
   /** step back out to the network as a whole */
   onExitPart: () => void
   /** take the selected neurons as one thing a connector can point at */
@@ -153,7 +155,7 @@ export interface SelParts {
   node: FigNode
   /** part keys, all of one kind and all inside `node` */
   keys: string[]
-  kind: 'dot' | 'wire' | 'group' | 'cap'
+  kind: 'dot' | 'wire' | 'group' | 'cap' | 'cell' | 'sheet' | 'face'
 }
 
 export default function Inspector({
@@ -698,6 +700,22 @@ function KindPanel({
     case 'curve':
       return (
         <Group title="곡선">
+          {/* Numbers win over the preset — a loss curve is data, not a shape. */}
+          <Field label="데이터" wide>
+            <input
+              className="af-input"
+              value={(p.data ?? []).join(', ')}
+              placeholder="0.9, 0.6, 0.35, 0.2 …"
+              onChange={(e) => {
+                const data = e.target.value
+                  .split(/[,\s]+/)
+                  .map((v) => parseFloat(v))
+                  .filter((v) => Number.isFinite(v))
+                onProps({ data: data.length > 1 ? data : undefined })
+              }}
+              onKeyDown={(e) => e.stopPropagation()}
+            />
+          </Field>
           <Field label="함수" wide>
             <Sel value={p.fn ?? 'relu'} options={FNS} onChange={(fn) => onProps({ fn })} />
           </Field>
@@ -893,7 +911,13 @@ function PartPanel({
             ? '라벨 하나'
             : parts.kind === 'wire'
               ? '연결선 하나'
-              : where
+              : parts.kind === 'cell'
+                ? '칸 하나'
+                : parts.kind === 'sheet'
+                  ? '낱장 하나'
+                  : parts.kind === 'face'
+                    ? '면 하나'
+                    : where
                 ? `${where.li + 1}층 ${where.n + 1}번`
                 : isGapKey(first)
                   ? '생략 표시 ⋮'
@@ -909,6 +933,56 @@ function PartPanel({
       기본값으로
     </button>
   )
+
+  /* The plain coloured parts: a grid cell, a stack sheet, a cuboid face. They
+     are the same idea as a neuron — a piece of a glyph you can pick out and
+     paint without exploding the glyph into separate shapes. */
+  if (parts.kind === 'cell' || parts.kind === 'sheet' || parts.kind === 'face') {
+    const bag =
+      parts.kind === 'cell' ? p.cells : parts.kind === 'sheet' ? p.sheets : p.faces
+    const b = (bag?.[first] ?? {}) as PartFill
+    const title =
+      parts.kind === 'cell' ? '칸' : parts.kind === 'sheet' ? '낱장' : '면'
+    return (
+      <Group title={many ? `${title} ${parts.keys.length}개` : title}>
+        {back}
+        {parts.kind === 'cell' ? (
+          <Field label="텍스트" wide>
+            <input
+              className="af-input"
+              value={b.label ?? ''}
+              onChange={(e) => onPart({ label: e.target.value })}
+              onKeyDown={(e) => e.stopPropagation()}
+            />
+          </Field>
+        ) : null}
+        <Field label="채우기 · 테두리">
+          <ColorBtn
+            value={b.fill ?? s.fill}
+            swatches={swatches}
+            allowNone
+            onChange={(fill) => onPart({ fill })}
+          />
+          <ColorBtn
+            value={b.stroke ?? s.stroke}
+            swatches={swatches}
+            onChange={(stroke) => onPart({ stroke })}
+          />
+          {parts.kind === 'cell' ? (
+            <ColorBtn
+              value={b.textColor ?? (s.textColor === 'none' ? '#222222' : s.textColor)}
+              swatches={swatches}
+              onChange={(textColor) => onPart({ textColor })}
+            />
+          ) : null}
+        </Field>
+        <Field label="표시">{reset}</Field>
+        <p className="af-note">
+          Shift로 여러 개를 고르면 한꺼번에 바뀝니다. Delete로 이 칸에 준 것만 지웁니다.
+        </p>
+      </Group>
+    )
+  }
 
   /* A caption is a thing in its own right, so it gets a panel of its own —
      text, ink, size and font, and the nudge it was dragged by. Its *text* lives

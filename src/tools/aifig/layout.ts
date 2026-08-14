@@ -6,6 +6,7 @@
 import type {
   CanvasCfg,
   CapBits,
+  Pt,
   EdgeStyle,
   FigDoc,
   FigEdge,
@@ -15,7 +16,7 @@ import type {
   Style,
 } from './types'
 import { FONT_STACK } from './presets'
-import { atLength, rotatePt, snapPos, snapSize } from './geometry'
+import { atLength, rectCenter, rotatePt, snapPos, snapSize } from './geometry'
 import { layoutLabel, type LabelLayout } from './latex'
 import {
   GROUP_CAP_GAP,
@@ -426,6 +427,114 @@ export function nodeTextBox(n: FigNode): NodeText | null {
     }
   }
   return null
+}
+
+/* ---------- grid cells and stack sheets ---------- */
+
+/* Keyed by where they are, because that is what they are: cell (2,3) of a
+ * matrix is that cell whatever it holds. Neurons are keyed by logical index for
+ * the opposite reason — the lattice moves them and the key must not. */
+export const cellKey = (r: number, c: number) => `c${r}_${c}`
+const CELL_RE = /^c(\d+)_(\d+)$/
+export const readCellKey = (k: string) => {
+  const m = CELL_RE.exec(k)
+  return m ? { r: +m[1], c: +m[2] } : null
+}
+export const sheetKey = (i: number) => `s${i}`
+
+/** The box of one grid cell, in the node's local frame. */
+export function gridCellRect(n: FigNode, key: string): Rect | null {
+  const at = readCellKey(key)
+  if (!at || n.kind !== 'grid') return null
+  const rows = Math.max(1, Math.min(64, n.props.rows ?? 4))
+  const cols = Math.max(1, Math.min(64, n.props.cols ?? 4))
+  if (at.r >= rows || at.c >= cols) return null
+  const gap = n.props.gap ?? 1
+  const cw = (n.w - gap * (cols - 1)) / cols
+  const ch = (n.h - gap * (rows - 1)) / rows
+  return { x: at.c * (cw + gap), y: at.r * (ch + gap), w: cw, h: ch }
+}
+
+/** Which cell a canvas point lands in, if any. */
+export function gridCellAt(n: FigNode, p: Pt): string | null {
+  if (n.kind !== 'grid') return null
+  const c = rectCenter({ x: n.x, y: n.y, w: n.w, h: n.h })
+  const q = n.rotation ? rotatePt(p, c, -n.rotation) : p
+  const local = { x: q.x - n.x, y: q.y - n.y }
+  const rows = Math.max(1, Math.min(64, n.props.rows ?? 4))
+  const cols = Math.max(1, Math.min(64, n.props.cols ?? 4))
+  for (let r = 0; r < rows; r++)
+    for (let col = 0; col < cols; col++) {
+      const box = gridCellRect(n, cellKey(r, col))
+      if (
+        box &&
+        local.x >= box.x &&
+        local.x <= box.x + box.w &&
+        local.y >= box.y &&
+        local.y <= box.y + box.h
+      )
+        return cellKey(r, col)
+    }
+  return null
+}
+
+/* ⚠️ Picked by geometry, not by asking the DOM what is under the pointer.
+ *
+ * The hit layer sits *above* the drawing, so `ev.target` is always one of its
+ * transparent rectangles — the sheet or the face itself is never the event's
+ * target. Reading a `data-` attribute off it worked for exactly nothing. */
+const toLocalPt = (n: FigNode, p: Pt): Pt => {
+  const c = rectCenter({ x: n.x, y: n.y, w: n.w, h: n.h })
+  const q = n.rotation ? rotatePt(p, c, -n.rotation) : p
+  return { x: q.x - n.x, y: q.y - n.y }
+}
+
+/** Which sheet of a stack a point lands on — the front one wins, as drawn. */
+export function stackSheetAt(n: FigNode, p: Pt): string | null {
+  if (n.kind !== 'stack') return null
+  const local = toLocalPt(n, p)
+  const count = Math.max(1, Math.min(12, n.props.count ?? 3))
+  const off = n.props.offset ?? 5
+  for (let i = 0; i < count; i++) {
+    const x = i * off
+    const y = -i * off
+    if (local.x >= x && local.x <= x + n.w && local.y >= y && local.y <= y + n.h)
+      return sheetKey(i)
+  }
+  return null
+}
+
+const inPoly = (p: Pt, poly: Pt[]) => {
+  let inside = false
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i]
+    const b = poly[j]
+    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x)
+      inside = !inside
+  }
+  return inside
+}
+
+/** Which face of a cuboid a point lands on. The front is drawn last, so it wins. */
+export function cuboidFaceAt(n: FigNode, p: Pt): string | null {
+  if (n.kind !== 'cuboid') return null
+  const local = toLocalPt(n, p)
+  if (local.x >= 0 && local.x <= n.w && local.y >= 0 && local.y <= n.h) return 'front'
+  const { dx, dy } = isoOff(n)
+  const top = [
+    { x: 0, y: 0 },
+    { x: dx, y: dy },
+    { x: n.w + dx, y: dy },
+    { x: n.w, y: 0 },
+  ]
+  if (inPoly(local, top)) return 'top'
+  const side = [
+    { x: n.w, y: 0 },
+    { x: n.w + dx, y: dy },
+    { x: n.w + dx, y: n.h + dy },
+    { x: n.w, y: n.h },
+  ]
+  return inPoly(local, side) ? 'side' : null
 }
 
 /* ---------- ink bounds ---------- */

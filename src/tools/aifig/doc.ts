@@ -256,8 +256,8 @@ export function equalize(doc: FigDoc, ids: string[], axis: 'w' | 'h' | 'both'): 
 export function patchMlpPart(
   doc: FigDoc,
   at: { node: string; key: string },
-  bag: 'neurons' | 'wires' | 'groups' | 'caps',
-  patch: NeuronBits | WireBits | Partial<NeuronGroup> | CapBits | null,
+  bag: 'neurons' | 'wires' | 'groups' | 'caps' | 'cells' | 'sheets' | 'faces',
+  patch: NeuronBits | WireBits | Partial<NeuronGroup> | CapBits | PartFill | null,
 ): FigDoc {
   return patchNodes(doc, [at.node], (n) => {
     const next: Record<string, object> = { ...(n.props[bag] ?? {}) }
@@ -265,6 +265,15 @@ export function patchMlpPart(
     else next[at.key] = { ...next[at.key], ...patch }
     return { props: { ...n.props, [bag]: Object.keys(next).length ? next : undefined } }
   })
+}
+
+/** What a plain coloured part — a grid cell, a stack sheet, a cuboid face —
+ *  can be told. They have no text of their own beyond the cell's. */
+export interface PartFill {
+  fill?: string
+  stroke?: string
+  label?: string
+  textColor?: string
 }
 
 /* ---------- grouping ---------- */

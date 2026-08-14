@@ -9,8 +9,17 @@
 import { memo } from 'react'
 import type { FigNode, NeuronBits, Style } from './types'
 import { dashArray, FONT_STACK, paint, readableOn, shade, tint } from './presets'
-import { fontCss, textWidth, type LabelLayout } from './latex'
-import { isoOff, labelStyle, mlpTextBoxes, neuronLabel, placeLabel } from './layout'
+import { fontCss, layoutLabel, textWidth, type LabelLayout } from './latex'
+import {
+  cellKey,
+  isoOff,
+  labelFont,
+  labelStyle,
+  mlpTextBoxes,
+  neuronLabel,
+  placeLabel,
+  sheetKey,
+} from './layout'
 import { GROUP_PAD, groupPad, mlpLattice, mlpPartRect, type MlpDot } from './mlp'
 
 /* ---------- label ---------- */
@@ -239,9 +248,10 @@ const Cylinder = ({ n }: BodyProps) => {
 const Cuboid = ({ n }: BodyProps) => {
   const { dx, dy } = isoOff(n)
   const s = n.style
-  const base = s.fill === 'none' ? '#ffffff' : s.fill
-  const top = n.props.faceTop ?? shade(base, 0.1)
-  const side = n.props.faceSide ?? shade(base, 0.22)
+  const f = n.props.faces ?? {}
+  const base = f.front?.fill ?? n.props.faceFront ?? (s.fill === 'none' ? '#ffffff' : s.fill)
+  const top = f.top?.fill ?? n.props.faceTop ?? shade(base, 0.1)
+  const side = f.side?.fill ?? n.props.faceSide ?? shade(base, 0.22)
   const sp = strokeProps(s)
   return (
     <g>
@@ -254,6 +264,7 @@ const Cuboid = ({ n }: BodyProps) => {
         ])}
         {...fillProps(top)}
         {...sp}
+        data-face="top"
       />
       <polygon
         points={pts([
@@ -264,8 +275,9 @@ const Cuboid = ({ n }: BodyProps) => {
         ])}
         {...fillProps(side)}
         {...sp}
+        data-face="side"
       />
-      <rect x={0} y={0} width={n.w} height={n.h} {...fillProps(base)} {...sp} />
+      <rect x={0} y={0} width={n.w} height={n.h} {...fillProps(base)} {...sp} data-face="front" />
     </g>
   )
 }
@@ -278,7 +290,9 @@ const Stack = ({ n }: BodyProps) => {
   // The front sheet sits exactly on the node box so the selection outline, the
   // label and the shape all line up; the rest fan out behind it to the upper
   // right (which is what shapeOverflow reports for the hit area).
+  const bits = n.props.sheets ?? {}
   for (let i = count - 1; i >= 0; i--) {
+    const b = bits[sheetKey(i)]
     sheets.push(
       <rect
         key={i}
@@ -288,8 +302,12 @@ const Stack = ({ n }: BodyProps) => {
         height={n.h}
         rx={s.radius}
         ry={s.radius}
-        {...fillProps(i === 0 ? s.fill : tint(s.fill === "none" ? "#ffffff" : s.fill, 0.25))}
+        {...fillProps(
+          b?.fill ?? (i === 0 ? s.fill : tint(s.fill === "none" ? "#ffffff" : s.fill, 0.25)),
+        )}
         {...strokeProps(s)}
+        {...(b?.stroke ? strokeOnly(b.stroke) : null)}
+        data-stack-sheet={sheetKey(i)}
       />,
     )
   }
@@ -451,23 +469,46 @@ const Grid = ({ n }: BodyProps) => {
   const ch = (n.h - gap * (rows - 1)) / rows
   const heat = n.props.heat
   const hi = n.props.heatHi ?? s.stroke
+  const bits = n.props.cells ?? {}
   const cells: React.ReactElement[] = []
   for (let r = 0; r < rows; r++)
     for (let c = 0; c < cols; c++) {
       const i = r * cols + c
       const v = heat ? Math.max(0, Math.min(1, heat[i] ?? 0)) : null
+      const b = bits[cellKey(r, c)]
+      const x = c * (cw + gap)
+      const y = r * (ch + gap)
+      /* A cell said something about itself wins over the heat ramp: the ramp is
+         a way of filling a whole matrix at once, and a cell picked out by hand
+         is the exception being drawn on top of it. */
+      const fill = b?.fill ?? (v === null ? s.fill : tint(hi, 1 - v))
       cells.push(
         <rect
           key={i}
-          x={c * (cw + gap)}
-          y={r * (ch + gap)}
+          x={x}
+          y={y}
           width={cw}
           height={ch}
-          {...fillProps(v === null ? s.fill : tint(hi, 1 - v))}
+          {...fillProps(fill)}
           {...strokeOnly(s.stroke)}
-          strokeWidth={Math.max(0.3, s.strokeWidth * 0.7)}
+          strokeWidth={s.strokeWidth}
+          data-grid-cell={cellKey(r, c)}
         />,
       )
+      if (b?.label) {
+        const style: Style = { ...s, align: 'center', textColor: b.textColor ?? s.textColor }
+        const l = layoutLabel(b.label, labelFont(style))
+        if (l.lines.length)
+          cells.push(
+            <LabelView
+              key={`t${i}`}
+              layout={l}
+              x={x + cw / 2}
+              y={y + ch / 2 - l.h / 2}
+              style={style}
+            />,
+          )
+      }
     }
   return <g>{cells}</g>
 }
@@ -524,10 +565,14 @@ const CURVES: Record<string, (t: number) => number> = {
 
 const Curve = ({ n }: BodyProps) => {
   const s = n.style
+  /* Real numbers beat the preset. The presets are activation shapes, which is
+     what most inline plots in a model figure are — but a loss curve is data,
+     and there was no way to put any in. */
+  const given = n.props.data?.filter((v) => Number.isFinite(v)) ?? []
   const fn = CURVES[n.props.fn ?? 'relu'] ?? CURVES.relu
-  const N = 72
-  const raw: number[] = []
-  for (let i = 0; i <= N; i++) raw.push(fn(-1 + (2 * i) / N))
+  const N = given.length > 1 ? given.length - 1 : 72
+  const raw: number[] = given.length > 1 ? given : []
+  if (!raw.length) for (let i = 0; i <= N; i++) raw.push(fn(-1 + (2 * i) / N))
   const lo = Math.min(...raw, 0)
   const hi = Math.max(...raw, lo + 1e-6)
   const padL = 8
