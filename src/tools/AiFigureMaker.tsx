@@ -153,7 +153,7 @@ import {
 } from './aifig/export'
 import Inspector from './aifig/Inspector'
 import LabelEditor from './aifig/LabelEditor'
-import Overlay, { type PartMark } from './aifig/Overlay'
+import Overlay, { type HoverMark, type PartMark } from './aifig/Overlay'
 import {
   ANCHOR_OUT,
   HANDLES,
@@ -465,6 +465,7 @@ export default function AiFigureMaker() {
   const [selEdges, setSelEdges] = useState<string[]>([])
   const [view, setView] = useState<View>({ x: 60, y: 48, zoom: 1 })
   const [hoverId, setHoverId] = useState<string | null>(null)
+  const [hoverMark, setHoverMark] = useState<HoverMark | null>(null)
   const hoverRef = useRef<string | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -1219,9 +1220,113 @@ export default function AiFigureMaker() {
     setHoverId((h) => (h === id ? h : id))
   }
 
+  /* What a press right here would take hold of, as something to outline.
+   *
+   * ⚠️ It reads the *same* attributes in the *same* order as `onPointerDown`,
+   * because a highlight that promised one thing and delivered another would be
+   * worse than none. Everything drawn is its own object — a caption as much as
+   * the shape it names — so everything gets an outline; a neuron gets a circle
+   * because a neuron is one. */
+  const markAt = (el: Element, w: Pt): HoverMark | null => {
+    const at = (n: FigNode, p: Pt) => {
+      const q = { x: n.x + p.x, y: n.y + p.y }
+      return n.rotation ? rotatePt(q, rectCenter(n), n.rotation) : q
+    }
+    const boxOf = (n: FigNode, r: Rect): HoverMark => ({
+      kind: 'box',
+      pts: [
+        { x: r.x, y: r.y },
+        { x: r.x + r.w, y: r.y },
+        { x: r.x + r.w, y: r.y + r.h },
+        { x: r.x, y: r.y + r.h },
+      ].map((p) => at(n, p)),
+    })
+    const get = (a: string) => el.getAttribute?.(a) ?? null
+    const nodeOf = (a: string) => {
+      const id = get(a)
+      return id ? (nmap.get(id) ?? null) : null
+    }
+
+    const capKeyHit = get('data-hit-cap')
+    const capNode = nodeOf('data-hit-node')
+    if (capKeyHit && capNode) {
+      const t = mlpTextBoxes(capNode).find((x) => x.key === capKeyHit)
+      return t ? boxOf(capNode, t.rect) : null
+    }
+    const labelNode = nodeOf('data-hit-nodelabel')
+    if (labelNode) {
+      const placed = placeLabel(labelNode)
+      if (!placed) return null
+      const align = labelStyle(labelNode).align
+      const lw = placed.layout.w
+      const left =
+        align === 'center' ? placed.x - lw / 2 : align === 'right' ? placed.x - lw : placed.x
+      return boxOf(labelNode, { x: left, y: placed.y, w: lw, h: placed.layout.h })
+    }
+    const dotLabelKey = get('data-hit-dotlabel')
+    if (dotLabelKey && capNode) {
+      const d = mlpLattice(capNode).dots.find((x) => x.key === dotLabelKey)
+      const placed = d ? neuronLabel(capNode, d, capNode.props.neurons?.[dotLabelKey]) : null
+      if (!placed) return null
+      return boxOf(capNode, {
+        x: placed.x - placed.layout.w / 2,
+        y: placed.y,
+        w: placed.layout.w,
+        h: placed.layout.h,
+      })
+    }
+    const labelEdge = get('data-hit-label')
+    if (labelEdge) {
+      const e = docRef.current.edges.find((x) => x.id === labelEdge)
+      const r = e ? resolvedRef.current.get(e.id) : null
+      const b = e && r ? edgeLabelBox(e, r) : null
+      return b
+        ? {
+            kind: 'box',
+            pts: [
+              { x: b.x, y: b.y },
+              { x: b.x + b.w, y: b.y },
+              { x: b.x + b.w, y: b.y + b.h },
+              { x: b.x, y: b.y + b.h },
+            ],
+          }
+        : null
+    }
+    const edgeId = get('data-hit-edge')
+    if (edgeId) {
+      const r = resolvedRef.current.get(edgeId)
+      return r ? { kind: 'path', d: r.info.d } : null
+    }
+
+    const hit = nodeOf('data-hit-node')
+    if (!hit || hit.locked) return null
+    if (hit.kind === 'mlp') {
+      const tol = PART_TOL / viewRef.current.zoom
+      /* The ladder, exactly as the press climbs it: parts only once the network
+         is the sole selection, so the outline says "this whole thing" until
+         reaching inside is actually what the next press will do. */
+      const solo = selNodesRef.current.length === 1 && selNodesRef.current[0] === hit.id
+      if (solo) {
+        const dot = mlpDotAt(hit, w, 2)
+        if (dot) return { kind: 'circle', c: at(hit, dot), r: dot.r }
+        const g = mlpGroupAt(hit, w, tol)
+        if (g) {
+          const r = mlpPartRect(hit, g)
+          return r ? boxOf(hit, r) : null
+        }
+        const wire = mlpWireAt(hit, w, 3 / viewRef.current.zoom)
+        if (wire) return { kind: 'line', a: at(hit, wire.a), b: at(hit, wire.b) }
+      }
+      if (!mlpHit(hit, w, tol)) return null
+    }
+    const b = inkRect(hit)
+    return boxOf(hit, { x: b.x - hit.x, y: b.y - hit.y, w: b.w, h: b.h })
+  }
+
   const onHoverMove = (ev: React.PointerEvent) => {
     if (dragRef.current) return
     const w = toWorld(ev.clientX, ev.clientY)
+    setHoverMark(markAt(ev.target as Element, w))
     const k = 1 / viewRef.current.zoom
     /* The dots float outside the box, so reaching one takes the pointer off the
        shape. Keep the node we already have while the pointer is out on one of
@@ -3159,6 +3264,7 @@ export default function AiFigureMaker() {
             onPointerEnter={() => setOverCanvas(true)}
             onPointerLeave={() => {
               setHover(null)
+              setHoverMark(null)
               setOverCanvas(false)
             }}
             onDoubleClick={onDoubleClick}
@@ -3421,6 +3527,7 @@ export default function AiFigureMaker() {
                 partMarks={partMarks}
                 partAnchors={partAnchors}
                 partGrips={partGrips}
+                hover={hoverMark}
                 dragging={dragging}
               />
             </g>

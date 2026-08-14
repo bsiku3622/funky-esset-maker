@@ -22,6 +22,19 @@ import {
   anchorHandlePoint,
 } from './handles'
 
+/* What a press right here would act on.
+ *
+ * ⚠️ Everything drawn is a thing in its own right — a label as much as the
+ * shape it names — and until this existed you had to press and find out. The
+ * mark is the same shape as the target: a circle for a neuron, because a
+ * neuron *is* one, and a box for everything else. */
+export type HoverMark =
+  /** corners in canvas order, so a rotated node still outlines squarely */
+  | { kind: 'box'; pts: Pt[] }
+  | { kind: 'circle'; c: Pt; r: number }
+  | { kind: 'line'; a: Pt; b: Pt }
+  | { kind: 'path'; d: string }
+
 /** One selected neuron, synapse or group, ready to draw. */
 export type PartMark =
   | { kind: 'dot'; c: Pt; r: number }
@@ -52,6 +65,8 @@ interface Props {
   partAnchors: { anchor: string; p: Pt; node: string; part: string }[]
   /** resize grips on a selected group — they drag its padding, not its size */
   partGrips: { handle: string; part: string; node: string; p: Pt }[]
+  /** outline of whatever a press would land on right now */
+  hover: HoverMark | null
   /** true while a drag is in flight — handles are hidden to reduce noise */
   dragging: boolean
 }
@@ -72,6 +87,7 @@ export default function Overlay({
   partMarks,
   partAnchors,
   partGrips,
+  hover,
   dragging,
 }: Props) {
   const k = 1 / zoom
@@ -197,6 +213,43 @@ export default function Overlay({
           </g>
         )
       })}
+
+      {/* What a press would take, drawn before the selection so a thing that is
+          both hovered and selected reads as selected. */}
+      {hover && !dragging ? (
+        hover.kind === 'circle' ? (
+          <circle
+            cx={hover.c.x}
+            cy={hover.c.y}
+            r={hover.r + 2 * k}
+            fill="none"
+            stroke="#7828c8"
+            strokeWidth={1.2 * k}
+            opacity={0.65}
+          />
+        ) : hover.kind === 'box' ? (
+          <polygon
+            points={hover.pts.map((p) => `${p.x},${p.y}`).join(' ')}
+            fill="none"
+            stroke="#7828c8"
+            strokeWidth={1.2 * k}
+            opacity={0.65}
+          />
+        ) : hover.kind === 'line' ? (
+          <line
+            x1={hover.a.x}
+            y1={hover.a.y}
+            x2={hover.b.x}
+            y2={hover.b.y}
+            stroke="#7828c8"
+            strokeWidth={3 * k}
+            opacity={0.3}
+            strokeLinecap="round"
+          />
+        ) : (
+          <path d={hover.d} fill="none" stroke="#7828c8" strokeWidth={3 * k} opacity={0.3} />
+        )
+      ) : null}
 
       {/* Reached inside a network. Drawn as a ring around the circle or a halo
           along the synapse rather than as a box, because the thing selected is
