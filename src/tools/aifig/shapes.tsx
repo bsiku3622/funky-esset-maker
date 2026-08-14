@@ -9,18 +9,9 @@
 import { memo } from 'react'
 import type { FigNode, NeuronBits, Style } from './types'
 import { dashArray, FONT_STACK, paint, readableOn, shade, tint } from './presets'
-import { fontCss, layoutLabel, textWidth, type LabelLayout } from './latex'
-import { isoOff, labelFont, labelStyle, mlpCapStyle, neuronLabel, placeLabel } from './layout'
-import {
-  GROUP_CAP_GAP,
-  GROUP_PAD,
-  groupPad,
-  hasCaps,
-  mlpCaps,
-  mlpLattice,
-  mlpPartRect,
-  type MlpDot,
-} from './mlp'
+import { fontCss, textWidth, type LabelLayout } from './latex'
+import { isoOff, labelStyle, mlpTextBoxes, neuronLabel, placeLabel } from './layout'
+import { GROUP_PAD, groupPad, mlpLattice, mlpPartRect, type MlpDot } from './mlp'
 
 /* ---------- label ---------- */
 
@@ -315,16 +306,20 @@ const Stack = ({ n }: BodyProps) => {
  * The caption font is deliberately the node's own: a layer caption is a label
  * on the same drawing, and giving it a size of its own would make "no bias"
  * under one network a different size from "no bias" under the next. */
-const MLP_CAP_GAP = 5
 
 const NeuronLabel = ({ n, d, bits }: { n: FigNode; d: MlpDot; bits?: NeuronBits }) => {
   const placed = neuronLabel(n, d, bits)
   if (!placed) return null
   const fill = bits?.fill ?? n.style.fill
+  /* A label nudged clear of its circle is no longer *on* the fill, so the
+     "pick something readable" default has nothing to read against — fall back
+     to the network's ink once it has left home. */
+  const away = !!(bits?.dx || bits?.dy)
   const color =
-    bits?.textColor ?? (n.style.textColor === 'none' ? readableOn(fill) : n.style.textColor)
+    bits?.textColor ??
+    (n.style.textColor === 'none' ? (away ? n.style.stroke : readableOn(fill)) : n.style.textColor)
   return (
-    <LabelView layout={placed.layout} x={d.x} y={placed.y} style={placed.style} color={color} />
+    <LabelView layout={placed.layout} x={placed.x} y={placed.y} style={placed.style} color={color} />
   )
 }
 
@@ -339,30 +334,15 @@ const Mlp = ({ n, editing }: BodyProps) => {
   const thin = n.props.wireWidth ?? Math.max(0.35, s.strokeWidth * 0.42)
   const wireFade = n.props.wireOpacity ?? 0.55
 
-  // prose, with its own ink — see mlpCapStyle for why
-  const capStyle = mlpCapStyle(n)
-  const caps = hasCaps(n.props)
-    ? lat.cols.flatMap((c) => {
-        const { top, bottom } = mlpCaps(n.props, c.li)
-        const out: React.ReactElement[] = []
-        const put = (text: string, y: number, above: boolean) => {
-          const layout = layoutLabel(text, labelFont(capStyle))
-          if (!layout.lines.length) return
-          out.push(
-            <LabelView
-              key={`${c.li}${above ? 'T' : 'B'}`}
-              layout={layout}
-              x={c.x}
-              y={above ? y - MLP_CAP_GAP - layout.h : y + MLP_CAP_GAP}
-              style={capStyle}
-            />,
-          )
-        }
-        if (top) put(top, c.top, true)
-        if (bottom) put(bottom, c.bottom, false)
-        return out
-      })
-    : null
+  /* Every caption the network carries — the layer captions and the group names
+     — laid out by `mlpTextBoxes`. The editor picks the one you double-click out
+     of the same list, which is the only way the two can agree about where a
+     caption is. */
+  const caps = mlpTextBoxes(n)
+    .filter((t) => t.key !== editing)
+    .map((t) => (
+      <LabelView key={t.key} layout={t.layout} x={t.x} y={t.y} style={t.style} color={t.color} />
+    ))
 
   /* Groups go down first, behind everything: the box is a backdrop for the
      units it holds, not a frame drawn over them. */
@@ -386,24 +366,7 @@ const Mlp = ({ n, editing }: BodyProps) => {
           data-mlp-group={key}
         />,
       )
-    /* The name, above the box. Prose for the same reason a layer caption is —
-       "입력층" and "shared weights" are words, and LaTeX mode would set them as
-       maths and eat the spaces. */
-    if (g.label && key !== editing) {
-      const style: Style = mlpCapStyle(n, g.fontSize)
-      const layout = layoutLabel(g.label, labelFont(style))
-      if (layout.lines.length)
-        out.push(
-          <LabelView
-            key={`${key}cap`}
-            layout={layout}
-            x={r.x + r.w / 2}
-            y={r.y - GROUP_CAP_GAP - layout.h}
-            style={style}
-            color={g.textColor ?? (s.textColor === 'none' ? s.stroke : s.textColor)}
-          />,
-        )
-    }
+    // the name itself is drawn with the other captions, from mlpTextBoxes
     return out
   })
 

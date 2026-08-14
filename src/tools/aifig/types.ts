@@ -110,6 +110,13 @@ export interface NeuronBits {
   fontWeight?: number
   italic?: boolean
   textColor?: string
+  /* Nudge away from the circle's centre, the way a connector's label carries
+   * one. A label that has to sit *outside* its unit — naming a circle too small
+   * to hold the name — is the reason: without it the only way to put text
+   * beside a neuron was a free-floating text node, which then had to be dragged
+   * again every time the lattice re-spaced underneath it. */
+  dx?: number
+  dy?: number
   fill?: string
   stroke?: string
   strokeWidth?: number

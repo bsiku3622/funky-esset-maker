@@ -16,7 +16,16 @@ import type {
 import { FONT_STACK } from './presets'
 import { atLength, rotatePt, snapPos, snapSize } from './geometry'
 import { layoutLabel, type LabelLayout } from './latex'
-import { hasCaps, mlpGroupOverflow, mlpNaturalSize } from './mlp'
+import {
+  GROUP_CAP_GAP,
+  hasCaps,
+  isGroupKey,
+  mlpCaps,
+  mlpGroupOverflow,
+  mlpLattice,
+  mlpNaturalSize,
+  mlpPartRect,
+} from './mlp'
 import type { ResolvedEdge } from './resolve'
 
 export function labelFont(s: Style) {
@@ -183,6 +192,8 @@ export function neuronLabelStyle(n: FigNode, r: number, bits?: NeuronBits): Styl
 export interface NeuronLabel {
   layout: LabelLayout
   style: Style
+  /** centre the block is drawn about, in the node's local frame */
+  x: number
   /** baseline-block top, in the node's local frame */
   y: number
   /** true when the source is being shown because TeX would not take it */
@@ -207,7 +218,128 @@ export function neuronLabel(
   const y = layout.ink
     ? dot.y - (layout.ink.top + layout.ink.bottom) / 2
     : dot.y - layout.h / 2
-  return { layout, style, y, raw }
+  // the nudge rides on top of the centring, so clearing it re-centres exactly
+  return { layout, style, x: dot.x + (bits?.dx ?? 0), y: y + (bits?.dy ?? 0), raw }
+}
+
+/* ---------- the text around a network ---------- */
+
+export interface MlpText {
+  /** `g0` for a group's name, `cap:t:2` / `cap:b:2` for a layer caption */
+  key: string
+  text: string
+  layout: LabelLayout
+  style: Style
+  color: string
+  /** centre of the block and its top, in the node's local frame */
+  x: number
+  y: number
+  /** the block's box, for hit-testing and for placing a field over it */
+  rect: Rect
+}
+
+/* Every caption a network draws, measured — the layer captions and the group
+ * names, in one list.
+ *
+ * ⚠️ The renderer draws from this and the editor picks from it, which is the
+ * only way the two can agree about where a caption *is*. They did not: the hit
+ * test guessed the box from the group's width, and a name wider than the column
+ * it sits over — "Input Layer" above a single column of circles — could only be
+ * double-clicked in the middle. Both ends of the word missed. */
+export function mlpTextBoxes(n: FigNode): MlpText[] {
+  if (n.kind !== 'mlp') return []
+  const out: MlpText[] = []
+  const put = (key: string, text: string, style: Style, x: number, top: number, above: boolean) => {
+    const layout = layoutLabel(text, labelFont(style))
+    if (!layout.lines.length) return
+    const y = above ? top - layout.h : top
+    out.push({
+      key,
+      text,
+      layout,
+      style,
+      color: style.textColor,
+      x,
+      y,
+      rect: { x: x - layout.w / 2, y, w: layout.w, h: layout.h },
+    })
+  }
+  const lat = mlpLattice(n)
+  if (hasCaps(n.props)) {
+    const style = mlpCapStyle(n)
+    for (const c of lat.cols) {
+      const { top, bottom } = mlpCaps(n.props, c.li)
+      if (top) put(capKey('t', c.li), top, style, c.x, c.top - MLP_CAP_GAP, true)
+      if (bottom) put(capKey('b', c.li), bottom, style, c.x, c.bottom + MLP_CAP_GAP, false)
+    }
+  }
+  for (const [key, g] of Object.entries(n.props.groups ?? {})) {
+    if (!g.label) continue
+    const r = mlpPartRect(n, key)
+    if (!r) continue
+    const style = mlpCapStyle(n, g.fontSize)
+    put(key, g.label, { ...style, textColor: g.textColor ?? style.textColor }, r.x + r.w / 2, r.y - GROUP_CAP_GAP, true)
+    /* ⚠️ A group over a whole column wants the same air as that column's own
+       caption, and both were drawn there — one on top of the other, so the
+       words overlapped and a double-click could only ever reach whichever came
+       first in the list. Lift the newcomer clear of anything already placed. */
+    const mine = out[out.length - 1]
+    if (mine?.key !== key) continue
+    for (const other of out) {
+      if (other === mine) continue
+      const overlaps =
+        mine.rect.x < other.rect.x + other.rect.w &&
+        other.rect.x < mine.rect.x + mine.rect.w &&
+        mine.rect.y < other.rect.y + other.rect.h &&
+        other.rect.y < mine.rect.y + mine.rect.h
+      if (!overlaps) continue
+      const lift = mine.rect.y + mine.rect.h - other.rect.y + GROUP_CAP_GAP
+      mine.y -= lift
+      mine.rect = { ...mine.rect, y: mine.rect.y - lift }
+    }
+  }
+  return out
+}
+
+/** How far a layer caption floats off the column it labels. */
+export const MLP_CAP_GAP = 5
+
+const CAP_RE = /^cap:([tb]):(\d+)$/
+/** Is this the key of a layer caption? — `cap:t:2` is the top one on layer 2. */
+export const isCapKey = (k: string) => CAP_RE.test(k)
+export const capKey = (which: 't' | 'b', li: number) => `cap:${which}:${li}`
+export const readCapKey = (k: string) => {
+  const m = CAP_RE.exec(k)
+  return m ? { which: m[1] === 't' ? ('capTop' as const) : ('capBottom' as const), li: +m[2] } : null
+}
+
+/* Where a caption *would* be drawn if it had anything in it.
+ *
+ * Only the empty case needs this — a caption with text is in `mlpTextBoxes`.
+ * It matters while one is being typed into: clear the field and the caption
+ * stops existing, and without somewhere to stand the field would jump away
+ * mid-edit and take the caret with it. */
+export function mlpCapSpot(n: FigNode, key: string): { x: number; y: number } | null {
+  const style = mlpCapStyle(n)
+  const h = style.fontSize * style.lineHeight
+  if (isGroupKey(key)) {
+    const r = mlpPartRect(n, key)
+    return r ? { x: r.x + r.w / 2, y: r.y - GROUP_CAP_GAP - h } : null
+  }
+  const at = readCapKey(key)
+  if (!at) return null
+  const col = mlpLattice(n).cols.find((c) => c.li === at.li)
+  if (!col) return null
+  return at.which === 'capTop'
+    ? { x: col.x, y: col.top - MLP_CAP_GAP - h }
+    : { x: col.x, y: col.bottom + MLP_CAP_GAP }
+}
+
+/** What a caption currently says. */
+export function mlpCapText(n: FigNode, key: string): string {
+  if (isGroupKey(key)) return n.props.groups?.[key]?.label ?? ''
+  const at = readCapKey(key)
+  return at ? (n.props[at.which]?.[at.li] ?? '') : ''
 }
 
 /* ---------- ink bounds ---------- */
@@ -338,19 +470,30 @@ export function shapeOverflow(n: FigNode): { l: number; t: number; r: number; b:
     return { l: 0, t: c * o, r: c * o, b: 0 }
   }
   if (n.kind === 'mlp') {
-    /* Layer captions sit outside the lattice, so they are part of what the
-       node paints — and therefore of what you can click and what the selection
-       outline has to contain. One line's worth each, the same estimate the
-       frame title uses rather than a full text layout on every hit test.
-       Group boxes hang outside it too, by their padding. */
-    const line = n.style.fontSize * 1.3
-    const caps = hasCaps(n.props)
+    /* Captions sit outside the lattice, so they are part of what the node
+       paints — and therefore of what you can click, what the selection outline
+       has to contain and what the export frame has to hold. Group boxes hang
+       outside it too, by their padding.
+
+       ⚠️ Measured, not estimated. A caption is as wide as its words, and a name
+       like "Input Layer" over one narrow column reaches well past both sides of
+       the network — an estimate that only counted its *height* left the ends of
+       it outside every box that was supposed to contain it, so they could not
+       be clicked and were cropped out of a trimmed export. */
     const g = n.props.groups ? mlpGroupOverflow(n) : { l: 0, t: 0, r: 0, b: 0 }
+    const out = { ...g }
+    if (hasCaps(n.props) || n.props.groups)
+      for (const t of mlpTextBoxes(n)) {
+        out.l = Math.max(out.l, -t.rect.x)
+        out.t = Math.max(out.t, -t.rect.y)
+        out.r = Math.max(out.r, t.rect.x + t.rect.w - n.w)
+        out.b = Math.max(out.b, t.rect.y + t.rect.h - n.h)
+      }
     return {
-      l: g.l,
-      t: Math.max(g.t, caps && n.props.capTop?.some(Boolean) ? line : 0),
-      r: g.r,
-      b: Math.max(g.b, caps && n.props.capBottom?.some(Boolean) ? line : 0),
+      l: Math.max(0, out.l),
+      t: Math.max(0, out.t),
+      r: Math.max(0, out.r),
+      b: Math.max(0, out.b),
     }
   }
   return { l: 0, t: 0, r: 0, b: 0 }

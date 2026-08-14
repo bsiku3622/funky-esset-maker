@@ -32,7 +32,15 @@ import {
 import { snapPos } from './geometry'
 import { resolveEdge } from './resolve'
 import { patchMlpPart } from './doc'
-import { neuronLabelStyle } from './layout'
+import {
+  isCapKey,
+  mlpCapSpot,
+  mlpCapText,
+  mlpTextBoxes,
+  neuronLabel,
+  neuronLabelStyle,
+  shapeOverflow,
+} from './layout'
 import type { FigDoc, FigNode, NodeProps, Style } from './types'
 
 const STYLE: Style = {
@@ -563,6 +571,97 @@ describe('a group of neurons', () => {
       r: 0,
       b: 0,
     })
+  })
+})
+
+/* ⚠️ Every caption is measured, not guessed at.
+ *
+ * The hit test used to ask whether a press was within half the *group's* width
+ * of its centre, and a name like "Input Layer" over one narrow column is far
+ * wider than the box it names — so both ends of the words missed and only the
+ * middle opened the editor. The renderer draws from this list and the editor
+ * picks out of it, which is the only way the two can agree. */
+describe('the captions a network carries', () => {
+  const n = fitted({
+    layers: [3, 3],
+    pitch: 40,
+    layerGap: 60,
+    neuronR: 12,
+    capTop: ['input', ''],
+    capBottom: ['', 'out'],
+    groups: { g0: { parts: [dotKey(0, 0), dotKey(0, 1)], label: 'Input Layer' } },
+  })
+
+  it('lists every one of them, keyed so they can be told apart', () => {
+    const keys = mlpTextBoxes(n).map((t) => t.key).sort()
+    expect(keys).toEqual(['cap:b:1', 'cap:t:0', 'g0'])
+  })
+
+  it('measures a name wider than the thing it names', () => {
+    const t = mlpTextBoxes(n).find((x) => x.key === 'g0')!
+    const box = mlpPartRect(n, 'g0')!
+    expect(t.rect.w).toBeGreaterThan(box.w)
+    // and it stays centred on the box despite overhanging both sides
+    expect(t.rect.x + t.rect.w / 2).toBeCloseTo(box.x + box.w / 2, 6)
+  })
+
+  it('sits clear of the thing it labels', () => {
+    const t = mlpTextBoxes(n).find((x) => x.key === 'g0')!
+    expect(t.rect.y + t.rect.h).toBeLessThanOrEqual(mlpPartRect(n, 'g0')!.y)
+    const top = mlpTextBoxes(n).find((x) => x.key === 'cap:t:0')!
+    expect(top.rect.y + top.rect.h).toBeLessThanOrEqual(mlpLattice(n).cols[0].top)
+  })
+
+  it('is inside what the node counts as its own ink', () => {
+    /* ⚠️ Otherwise the ends of a wide caption fall outside the hit rect, the
+       selection outline and the export frame all at once. */
+    const o = shapeOverflow(n)
+    for (const t of mlpTextBoxes(n)) {
+      expect(t.rect.x).toBeGreaterThanOrEqual(-o.l - 0.01)
+      expect(t.rect.y).toBeGreaterThanOrEqual(-o.t - 0.01)
+      expect(t.rect.x + t.rect.w).toBeLessThanOrEqual(n.w + o.r + 0.01)
+      expect(t.rect.y + t.rect.h).toBeLessThanOrEqual(n.h + o.b + 0.01)
+    }
+  })
+
+  it('reads and writes each kind through one pair of helpers', () => {
+    expect(mlpCapText(n, 'g0')).toBe('Input Layer')
+    expect(mlpCapText(n, 'cap:t:0')).toBe('input')
+    expect(mlpCapText(n, 'cap:b:1')).toBe('out')
+    expect(isCapKey('cap:t:0')).toBe(true)
+    expect(isCapKey('g0')).toBe(false)
+    expect(isCapKey(dotKey(0, 1))).toBe(false)
+  })
+
+  it('knows where an empty one would go, so the field does not run away', () => {
+    const bare = { ...n, props: { ...n.props, capTop: undefined } }
+    const spot = mlpCapSpot(bare, 'cap:t:0')!
+    expect(spot.x).toBeCloseTo(mlpLattice(bare).cols[0].x, 6)
+    expect(spot.y).toBeLessThan(mlpLattice(bare).cols[0].top)
+  })
+})
+
+/* A neuron's label carries a nudge, the way a connector's does: a name too long
+ * for a 24px circle has to be able to sit beside it. */
+describe('moving a neuron label off its circle', () => {
+  const n = fitted({
+    layers: [2],
+    pitch: 40,
+    neuronR: 12,
+    neurons: { [dotKey(0, 0)]: { label: 'x' } },
+  })
+  const dot = () => mlpLattice(n).dots[0]
+
+  it('centres on the circle when nothing was said', () => {
+    const placed = neuronLabel(n, dot(), n.props.neurons![dotKey(0, 0)])!
+    expect(placed.x).toBeCloseTo(dot().x, 6)
+  })
+
+  it('rides on top of the centring, so clearing it re-centres exactly', () => {
+    const moved = neuronLabel(n, dot(), { label: 'x', dx: 30, dy: -18 })!
+    const home = neuronLabel(n, dot(), { label: 'x' })!
+    expect(moved.x - home.x).toBeCloseTo(30, 6)
+    expect(moved.y - home.y).toBeCloseTo(-18, 6)
   })
 })
 

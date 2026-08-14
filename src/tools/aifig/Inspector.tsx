@@ -1042,6 +1042,25 @@ function PartPanel({
           onChange={(textColor) => onPart({ textColor })}
         />
       </Field>
+      {/* The same nudge a connector's label carries, for the same reason: a
+          name too long for its circle has to be able to sit beside it. */}
+      <Field label="글자 위치">
+        <Num
+          value={b.dx ?? 0}
+          onChange={(dx) => onPart({ dx })}
+          suffix="X"
+          width={54}
+        />
+        <Num
+          value={b.dy ?? 0}
+          onChange={(dy) => onPart({ dy })}
+          suffix="Y"
+          width={54}
+        />
+        <button type="button" className="af-mini" onClick={() => onPart({ dx: 0, dy: 0 })}>
+          가운데로
+        </button>
+      </Field>
       <Field label="채우기 · 테두리">
         <ColorBtn value={b.fill ?? s.fill} swatches={swatches} onChange={(fill) => onPart({ fill })} />
         <ColorBtn

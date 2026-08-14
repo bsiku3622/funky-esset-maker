@@ -97,10 +97,15 @@ import {
   edgeLabelBox,
   fitNodeToGrid,
   inkRect,
-  labelFont,
+  isCapKey,
   labelStyle,
+  mlpCapSpot,
   mlpCapStyle,
+  mlpCapText,
+  mlpTextBoxes,
+  neuronLabel,
   neuronLabelStyle,
+  readCapKey,
   placeLabel,
   ptOf,
   refitMlp,
@@ -120,7 +125,6 @@ import {
   mlpDotAt,
   mlpGaps,
   mlpGroupAt,
-  mlpGroupLabelAt,
   mlpHit,
   mlpPartCentre,
   mlpPartRect,
@@ -132,12 +136,11 @@ import {
   mlpToLocal,
   mlpWireAt,
   groupPad,
-  GROUP_CAP_GAP,
   GROUP_PAD_MAX,
   isGroupKey,
   parseDotKey,
 } from './aifig/mlp'
-import { ensureMathJax, layoutLabel, onMathReady } from './aifig/latex'
+import { ensureMathJax, onMathReady } from './aifig/latex'
 import { TEMPLATES } from './aifig/templates'
 import { fileToImage, fitBox, imagesFromDrop, imagesFromPaste } from './aifig/image'
 import {
@@ -230,6 +233,15 @@ type Drag =
   /** sliding a connector's label along its own path; `base` is where on the
    *  path the label sat when it was grabbed, so the offset rides along */
   | { t: 'label'; edge: string; start: Pt; base: Pt; moved: boolean }
+  /** nudging a neuron's label off its circle, the way a connector's label moves */
+  | {
+      t: 'dotlabel'
+      id: string
+      key: string
+      start: Pt
+      orig: { dx: number; dy: number }
+      moved: boolean
+    }
   /** pushing one straight run of an orthogonal route sideways */
   | {
       t: 'segment'
@@ -257,6 +269,40 @@ const PART_TOL = 7
 
 /** How far the pointer must travel, on screen, before a press counts as a drag. */
 const DEAD_ZONE = 3
+
+/* The caption under a point, measured. Used by the double-click both to decide
+ * that the press landed on text at all and to say which text it was. */
+function capAt(n: FigNode, p: Pt, tol: number) {
+  if (n.kind !== 'mlp') return null
+  const q = mlpToLocal(n, p)
+  return (
+    mlpTextBoxes(n).find(
+      (t) =>
+        q.x >= t.rect.x - tol &&
+        q.x <= t.rect.x + t.rect.w + tol &&
+        q.y >= t.rect.y - tol &&
+        q.y <= t.rect.y + t.rect.h + tol,
+    ) ?? null
+  )
+}
+
+/* Write a label back, wherever that label happens to live.
+ *
+ * The three kinds of text inside a network are kept three different ways — a
+ * unit's in its own bag, a group's on the group, a layer's in a plain array
+ * indexed by column. The editor should not have to know that; it hands over a
+ * key and a string. */
+function writeLabel(d: FigDoc, at: { node: string; key: string }, label: string): FigDoc {
+  const cap = readCapKey(at.key)
+  if (!cap) return patchMlpPart(d, at, isGroupKey(at.key) ? 'groups' : 'neurons', { label })
+  return patchNodes(d, [at.node], (n) => {
+    const list = [...(n.props[cap.which] ?? [])]
+    while (list.length <= cap.li) list.push('')
+    list[cap.li] = label
+    // an array of empty strings is the same as no captions at all
+    return { props: { ...n.props, [cap.which]: list.some(Boolean) ? list : undefined } }
+  })
+}
 
 /* Which column a part belongs to. A group is filed by its members, and one that
  * straddles two layers has no single column to move — those are left alone. */
@@ -1222,6 +1268,30 @@ export default function AiFigureMaker() {
       return
     }
 
+    /* 0.4) the label of a neuron that has been reached into. Only then: the
+       text sits on the circle, and while the network is merely selected a
+       press there means the network. Once you are inside, the circle moves its
+       layer and its text moves itself — the same split a connector has between
+       its line and its label. */
+    const dotLabel = el.getAttribute?.('data-hit-dotlabel')
+    if (dotLabel) {
+      const dl = nmap.get(el.getAttribute('data-hit-node') ?? '')
+      if (dl) {
+        const bits = dl.props.neurons?.[dotLabel]
+        beginDrag()
+        setDragging(true)
+        dragRef.current = {
+          t: 'dotlabel',
+          id: dl.id,
+          key: dotLabel,
+          start: world,
+          orig: { dx: bits?.dx ?? 0, dy: bits?.dy ?? 0 },
+          moved: false,
+        }
+        return
+      }
+    }
+
     // 0.5) a group's own grips, which sit inside the network's box and so have
     //      to be asked about before anything that hit-tests the canvas
     const gHandle = el.getAttribute?.('data-part-handle')
@@ -1818,6 +1888,26 @@ export default function AiFigureMaker() {
         return
       }
 
+      /* A neuron's label, off its circle. Stored as an offset from the centre,
+         so the text keeps its place when the lattice re-spaces underneath it —
+         the same reason a connector's label carries one. */
+      if (drag.t === 'dotlabel') {
+        const dn = docRef.current.nodes.find((x) => x.id === drag.id)
+        if (!dn) return
+        const away = { x: world.x - drag.start.x, y: world.y - drag.start.y }
+        const local = dn.rotation ? rotateDir(away, -dn.rotation) : away
+        if (!drag.moved && Math.hypot(away.x, away.y) * viewRef.current.zoom < DEAD_ZONE) return
+        drag.moved = true
+        const put = (v: number) => Math.round(gridSnap(v))
+        live((cur) =>
+          patchMlpPart(cur, { node: drag.id, key: drag.key }, 'neurons', {
+            dx: put(drag.orig.dx + local.x),
+            dy: put(drag.orig.dy + local.y),
+          }),
+        )
+        return
+      }
+
       /* One layer, sideways. The gap before it grows by exactly what the gap
          after it loses, so every other column stays put and the box does not
          move — except at the two ends, where there is only one gap to give:
@@ -2108,15 +2198,34 @@ export default function AiFigureMaker() {
 
   const onDoubleClick = (ev: React.MouseEvent) => {
     const el = ev.target as Element
+    /* A neuron's own text, wherever it has been nudged to. Its circle is the
+       usual way in, but once the label has been pulled clear of it the circle
+       is no longer under the words. */
+    const dotLabel = el.getAttribute?.('data-hit-dotlabel')
+    const dotLabelNode = el.getAttribute?.('data-hit-node')
+    if (dotLabel && dotLabelNode) {
+      setSelNodes([dotLabelNode])
+      setSelEdges([])
+      setSelPart({ node: dotLabelNode, key: dotLabel, kind: 'dot' })
+      setEditDot({ node: dotLabelNode, key: dotLabel })
+      setEditing(null)
+      return
+    }
     const hitNode = el.getAttribute?.('data-hit-node')
     if (hitNode) {
       /* Same rule as the press: a double-click in the space between two
-         columns belongs to whatever is drawn there, not to the network. */
+         columns belongs to whatever is drawn there, not to the network.
+         ⚠️ Except on a caption. The ink test cannot see how wide a word is —
+         it works from the lattice, and text is measured a layer above it — so
+         a caption sticking out past the columns would fall through the network
+         it belongs to. Ask the measured boxes first. */
+      const dw = toWorld(ev.clientX, ev.clientY)
       const first = nmap.get(hitNode)
+      const onCap = first?.kind === 'mlp' && !!capAt(first, dw, PART_TOL / viewRef.current.zoom)
       const n =
-        first && first.kind === 'mlp' &&
-        !mlpHit(first, toWorld(ev.clientX, ev.clientY), PART_TOL / viewRef.current.zoom)
-          ? pickNodeAt(toWorld(ev.clientX, ev.clientY))
+        !onCap && first && first.kind === 'mlp' &&
+        !mlpHit(first, dw, PART_TOL / viewRef.current.zoom)
+          ? pickNodeAt(dw)
           : first
       /* Inside a network the gesture is a ladder, one rung per press: select
          the network, then select the circle, then type into it. Jumping
@@ -2127,18 +2236,34 @@ export default function AiFigureMaker() {
          across the top of the drawing. */
       if (n?.kind === 'mlp') {
         const w = toWorld(ev.clientX, ev.clientY)
+        /* A caption first, whatever kind it is.
+         *
+         * ⚠️ Measured, not guessed. This used to ask whether the press was
+         * within half the group's *width* of its centre, and "Input Layer"
+         * over one narrow column is far wider than the box it names — so both
+         * ends of the words missed and only the middle opened the editor.
+         * `mlpTextBoxes` is the same measurement the renderer draws from. */
+        const tol = PART_TOL / viewRef.current.zoom
+        const cap = capAt(n, w, tol)
+        if (cap) {
+          /* Straight to typing: a caption has nothing underneath it, so there
+             is no other thing the double-click could have meant. Every edit on
+             the canvas is reached by double-clicking the text itself. */
+          setSelNodes([n.id])
+          setSelEdges([])
+          if (isGroupKey(cap.key)) setSelPart({ node: n.id, key: cap.key, kind: 'group' })
+          else setSelPart(null)
+          setEditDot({ node: n.id, key: cap.key })
+          setEditing(null)
+          return
+        }
         const dot = mlpDotAt(n, w, 2)
         if (!dot) {
-          /* A caption has nothing underneath it, so double-clicking one goes
-             straight to typing — every edit on the canvas is reached by
-             double-clicking the thing itself, not its parent. A group's *box*
-             still climbs the ladder, because the units inside are what a press
-             there usually means. */
-          const named = mlpGroupLabelAt(n, w, PART_TOL / viewRef.current.zoom)
-          const box = named ?? mlpGroupAt(n, w, PART_TOL / viewRef.current.zoom)
+          // a group's *box* still climbs the ladder: pressing inside one
+          // usually means the units it holds
+          const box = mlpGroupAt(n, w, tol)
           if (!box) return
-          const chosen =
-            !!named || selPartsRef.current.some((p) => p.key === box && p.node === n.id)
+          const chosen = selPartsRef.current.some((p) => p.key === box && p.node === n.id)
           setSelNodes([n.id])
           setSelEdges([])
           setSelPart({ node: n.id, key: box, kind: 'group' })
@@ -2561,27 +2686,26 @@ export default function AiFigureMaker() {
     if (!editDot) return null
     const n = nmap.get(editDot.node)
     if (!n) return null
-    if (isGroupKey(editDot.key)) {
-      const g = n.props.groups?.[editDot.key]
-      const r = mlpPartRect(n, editDot.key)
-      if (!g || !r) return null
-      const style = mlpCapStyle(n, g.fontSize)
-      // an empty name still needs a line's worth of box to type into
-      const layout = layoutLabel(g.label || '​', labelFont(style))
-      const cx = n.x + r.x + r.w / 2
-      const top = n.y + r.y - GROUP_CAP_GAP - layout.h
-      const w = Math.max(layout.w, 72)
+    /* A caption — a layer's or a group's. `mlpTextBoxes` measured it for the
+       renderer, so the field lands exactly on the glyphs it replaces. */
+    const cap = mlpTextBoxes(n).find((t) => t.key === editDot.key)
+    if (cap || isCapKey(editDot.key) || isGroupKey(editDot.key)) {
+      const style = cap?.style ?? mlpCapStyle(n)
+      // a caption with nothing in it yet still needs a line's worth to type into
+      const w = Math.max(cap?.rect.w ?? 0, 72)
+      const h = cap?.rect.h ?? style.fontSize * style.lineHeight
+      const spot = cap ?? mlpCapSpot(n, editDot.key)
+      if (!spot) return null
       return {
         n,
-        bag: 'groups' as const,
-        text: g.label ?? '',
+        text: mlpCapText(n, editDot.key),
         style,
-        color: g.textColor ?? style.textColor,
+        color: cap?.color ?? style.textColor,
         box: {
-          left: view.x + (cx - w / 2) * view.zoom,
-          top: view.y + top * view.zoom,
+          left: view.x + (n.x + spot.x - w / 2) * view.zoom,
+          top: view.y + (n.y + spot.y) * view.zoom,
           width: w * view.zoom,
-          height: layout.h * view.zoom,
+          height: h * view.zoom,
           rotation: n.rotation || undefined,
         },
       }
@@ -2590,12 +2714,12 @@ export default function AiFigureMaker() {
     if (!d) return null
     const bits = n.props.neurons?.[editDot.key]
     const style = neuronLabelStyle(n, d.r, bits)
-    const c = { x: n.x + d.x, y: n.y + d.y }
+    // the field follows the label's nudge, or it opens where the text is not
+    const c = { x: n.x + d.x + (bits?.dx ?? 0), y: n.y + d.y + (bits?.dy ?? 0) }
     const p = n.rotation ? rotatePt(c, rectCenter(n), n.rotation) : c
     const fill = bits?.fill ?? n.style.fill
     return {
       n,
-      bag: 'neurons' as const,
       text: bits?.label ?? '',
       style,
       color:
@@ -3085,6 +3209,36 @@ export default function AiFigureMaker() {
                     />
                   )
                 })}
+                {/* The text of a neuron you have reached into. Only then: while
+                    the network is merely selected a press here means the
+                    network, and once you are inside the circle moves its layer
+                    while its text moves itself. */}
+                {activeParts?.kind === 'dot'
+                  ? activeParts.refs.flatMap((ref) => {
+                      const an = activeParts.node
+                      const d = mlpLattice(an).dots.find((x) => x.key === ref.key)
+                      const placed = d ? neuronLabel(an, d, an.props.neurons?.[ref.key]) : null
+                      if (!placed) return []
+                      return [
+                        <rect
+                          key={`nl-${ref.key}`}
+                          x={an.x + placed.x - placed.layout.w / 2 - 2}
+                          y={an.y + placed.y - 2}
+                          width={placed.layout.w + 4}
+                          height={placed.layout.h + 4}
+                          transform={
+                            an.rotation
+                              ? `rotate(${an.rotation} ${an.x + an.w / 2} ${an.y + an.h / 2})`
+                              : undefined
+                          }
+                          fill="transparent"
+                          data-hit-dotlabel={ref.key}
+                          data-hit-node={an.id}
+                          style={{ cursor: 'grab' }}
+                        />,
+                      ]
+                    })
+                  : null}
                 {/* Last, so a label stays grabbable where it overlaps a node —
                     it is drawn on top, and a hit layer that disagreed with the
                     paint order would give you the box under the text. */}
@@ -3094,7 +3248,7 @@ export default function AiFigureMaker() {
                   if (!b || e.locked) return null
                   return (
                     <rect
-                      key={`l-${e.id}`}
+                      key={`dl-${e.id}`}
                       x={b.x - 2}
                       y={b.y - 2}
                       width={b.w + 4}
@@ -3164,7 +3318,7 @@ export default function AiFigureMaker() {
               box={dotEdit.box}
               multiline={false}
               onChange={(label) =>
-                live((d) => patchMlpPart(d, editDot!, dotEdit.bag, { label }))
+                live((d) => writeLabel(d, editDot!, label))
               }
               onStart={() => beginDrag()}
               onDone={endDotEdit}

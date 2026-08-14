@@ -471,30 +471,6 @@ export function mlpGroupAt(n: FigNode, p: Pt, tol = 4): string | null {
   return best
 }
 
-/* The group whose *name* is under the point.
- *
- * A caption is the one thing on a figure with nothing else beneath it, so
- * double-clicking it can go straight to editing rather than climbing the
- * select-then-select-again ladder the circles need. One line's worth of band
- * above the box, the same estimate `shapeOverflow` uses — a real text layout
- * lives a layer above this one. */
-export function mlpGroupLabelAt(n: FigNode, p: Pt, tol = 4): string | null {
-  const local = toLocal(n, p)
-  for (const [key, g] of Object.entries(n.props.groups ?? {})) {
-    if (!g.label) continue
-    const r = mlpPartRect(n, key)
-    if (!r) continue
-    const h = (g.fontSize ?? n.style.fontSize) * 1.3
-    if (
-      Math.abs(local.x - (r.x + r.w / 2)) <= r.w / 2 + tol &&
-      local.y >= r.y - GROUP_CAP_GAP - h - tol &&
-      local.y <= r.y - GROUP_CAP_GAP + tol
-    )
-      return key
-  }
-  return null
-}
-
 /** The neuron under a point, in canvas coordinates. `pad` widens the circle. */
 export function mlpDotAt(n: FigNode, p: Pt, pad = 0): MlpDot | null {
   const local = toLocal(n, p)
@@ -568,9 +544,12 @@ export function mlpHit(n: FigNode, p: Pt, tol = 0): boolean {
     const g = n.props.groups?.[key]
     const r = mlpPartRect(n, key)
     if (!g || !r) continue
+    /* The name's band. Its width is a guess — text is measured a layer above
+       this one — so it is deliberately generous: `shapeOverflow` knows the real
+       extent, and anything this misses is caught there. */
     if (
       g.label &&
-      Math.abs(local.x - (r.x + r.w / 2)) <= r.w / 2 &&
+      Math.abs(local.x - (r.x + r.w / 2)) <= Math.max(r.w, g.label.length * (g.fontSize ?? n.style.fontSize)) / 2 &&
       local.y >= r.y - GROUP_CAP_GAP - (g.fontSize ?? n.style.fontSize) * 1.3 - tol &&
       local.y <= r.y
     )
