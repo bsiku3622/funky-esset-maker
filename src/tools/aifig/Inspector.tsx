@@ -1303,6 +1303,18 @@ function MlpPanel({
           />
           <span className="af-hint-inline">위·아래 라벨 공통</span>
         </Field>
+        {p.capOffsets && Object.keys(p.capOffsets).length ? (
+          <Field label="옮긴 라벨">
+            <button
+              type="button"
+              className="af-mini"
+              onClick={() => onProps({ capOffsets: undefined })}
+            >
+              제자리로 ({Object.keys(p.capOffsets).length}개)
+            </button>
+            <span className="af-hint-inline">캔버스에서 끌어 옮깁니다</span>
+          </Field>
+        ) : null}
         {layers.map((count, li) => (
           <Field key={li} label={`${li + 1}층 (${count})`} wide>
             <input

@@ -207,6 +207,11 @@ export interface NodeProps {
   capBottom?: string[]
   /** ink for both rows of captions; absent follows the node's text colour */
   capColor?: string
+  /* Where each caption has been nudged to, keyed the way `mlpTextBoxes` keys
+   * them — `cap:t:2` for a layer's, `g0` for a group's. One bag for both kinds
+   * because a caption is a caption: the thing that differs is where its *text*
+   * is kept, and by the time it has a position that no longer matters. */
+  capOffsets?: Record<string, { dx: number; dy: number }>
   /* grid */
   rows?: number
   cols?: number

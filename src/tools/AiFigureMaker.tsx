@@ -233,6 +233,15 @@ type Drag =
   /** sliding a connector's label along its own path; `base` is where on the
    *  path the label sat when it was grabbed, so the offset rides along */
   | { t: 'label'; edge: string; start: Pt; base: Pt; moved: boolean }
+  /** nudging a caption — a layer's or a group's — off where it lands by default */
+  | {
+      t: 'caplabel'
+      id: string
+      key: string
+      start: Pt
+      orig: { dx: number; dy: number }
+      moved: boolean
+    }
   /** nudging a neuron's label off its circle, the way a connector's label moves */
   | {
       t: 'dotlabel'
@@ -1268,6 +1277,32 @@ export default function AiFigureMaker() {
       return
     }
 
+    /* 0.3) a caption. There is nothing underneath a caption, so pressing one
+       moves it — no reaching in first, no modifier. Which is the answer to
+       "how am I supposed to move this?": the same way you move anything, by
+       putting the pointer on it and pulling. */
+    const capHit = el.getAttribute?.('data-hit-cap')
+    if (capHit) {
+      const cn = nmap.get(el.getAttribute('data-hit-node') ?? '')
+      if (cn) {
+        const off = cn.props.capOffsets?.[capHit]
+        setSelNodes([cn.id])
+        setSelEdges([])
+        setSelPart(isGroupKey(capHit) ? { node: cn.id, key: capHit, kind: 'group' } : null)
+        beginDrag()
+        setDragging(true)
+        dragRef.current = {
+          t: 'caplabel',
+          id: cn.id,
+          key: capHit,
+          start: world,
+          orig: { dx: off?.dx ?? 0, dy: off?.dy ?? 0 },
+          moved: false,
+        }
+        return
+      }
+    }
+
     /* 0.4) the label of a neuron that has been reached into. Only then: the
        text sits on the circle, and while the network is merely selected a
        press there means the network. Once you are inside, the circle moves its
@@ -1895,6 +1930,24 @@ export default function AiFigureMaker() {
         return
       }
 
+      /* A caption, off its default spot. */
+      if (drag.t === 'caplabel') {
+        const cn = docRef.current.nodes.find((x) => x.id === drag.id)
+        if (!cn) return
+        const away = { x: world.x - drag.start.x, y: world.y - drag.start.y }
+        const local = cn.rotation ? rotateDir(away, -cn.rotation) : away
+        if (!drag.moved && Math.hypot(away.x, away.y) * viewRef.current.zoom < DEAD_ZONE) return
+        drag.moved = true
+        const put = (v: number) => Math.round(gridSnap(v))
+        const at = { dx: put(drag.orig.dx + local.x), dy: put(drag.orig.dy + local.y) }
+        live((cur) =>
+          patchNodes(cur, [drag.id], (nn) => ({
+            props: { ...nn.props, capOffsets: { ...nn.props.capOffsets, [drag.key]: at } },
+          })),
+        )
+        return
+      }
+
       /* A neuron's label, off its circle. Stored as an offset from the centre,
          so the text keeps its place when the lattice re-spaces underneath it —
          the same reason a connector's label carries one. */
@@ -2208,6 +2261,18 @@ export default function AiFigureMaker() {
     /* A neuron's own text, wherever it has been nudged to. Its circle is the
        usual way in, but once the label has been pulled clear of it the circle
        is no longer under the words. */
+    /* A caption — its own hit target now, so the double-click lands exactly
+       where the press does rather than being re-derived from the geometry. */
+    const capHit = el.getAttribute?.('data-hit-cap')
+    const capNode = el.getAttribute?.('data-hit-node')
+    if (capHit && capNode && nmap.has(capNode)) {
+      setSelNodes([capNode])
+      setSelEdges([])
+      setSelPart(isGroupKey(capHit) ? { node: capNode, key: capHit, kind: 'group' } : null)
+      setEditDot({ node: capNode, key: capHit })
+      setEditing(null)
+      return
+    }
     /* A node's own label, which may be sitting well away from its shape. */
     const nodeLabel = el.getAttribute?.('data-hit-nodelabel')
     if (nodeLabel && nmap.has(nodeLabel)) {
@@ -3225,6 +3290,30 @@ export default function AiFigureMaker() {
                     />
                   )
                 })}
+                {/* Every caption a network carries — measured, so the target is
+                    the words rather than a guess at where they might be. */}
+                {doc.nodes.flatMap((n) =>
+                  n.hidden || n.locked || n.kind !== 'mlp'
+                    ? []
+                    : mlpTextBoxes(n).map((t) => (
+                        <rect
+                          key={`cp-${n.id}-${t.key}`}
+                          x={n.x + t.rect.x - 2}
+                          y={n.y + t.rect.y - 2}
+                          width={t.rect.w + 4}
+                          height={t.rect.h + 4}
+                          transform={
+                            n.rotation
+                              ? `rotate(${n.rotation} ${n.x + n.w / 2} ${n.y + n.h / 2})`
+                              : undefined
+                          }
+                          fill="transparent"
+                          data-hit-cap={t.key}
+                          data-hit-node={n.id}
+                          style={{ cursor: connecting ? 'crosshair' : 'move' }}
+                        />
+                      )),
+                )}
                 {/* Every node's own label, wherever it was placed.
                     ⚠️ A label set to sit above or beside its shape is nowhere
                     near the shape's box, so double-clicking the words did

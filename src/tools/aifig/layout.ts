@@ -236,6 +236,8 @@ export interface MlpText {
   y: number
   /** the block's box, for hit-testing and for placing a field over it */
   rect: Rect
+  /** true once it has been dragged off its default spot */
+  moved: boolean
 }
 
 /* Every caption a network draws, measured — the layer captions and the group
@@ -249,10 +251,13 @@ export interface MlpText {
 export function mlpTextBoxes(n: FigNode): MlpText[] {
   if (n.kind !== 'mlp') return []
   const out: MlpText[] = []
-  const put = (key: string, text: string, style: Style, x: number, top: number, above: boolean) => {
+  const put = (key: string, text: string, style: Style, x0: number, top: number, above: boolean) => {
     const layout = layoutLabel(text, labelFont(style))
     if (!layout.lines.length) return
-    const y = above ? top - layout.h : top
+    // the nudge rides on top of the default placement, so clearing it re-homes
+    const off = n.props.capOffsets?.[key]
+    const x = x0 + (off?.dx ?? 0)
+    const y = (above ? top - layout.h : top) + (off?.dy ?? 0)
     out.push({
       key,
       text,
@@ -262,6 +267,7 @@ export function mlpTextBoxes(n: FigNode): MlpText[] {
       x,
       y,
       rect: { x: x - layout.w / 2, y, w: layout.w, h: layout.h },
+      moved: !!(off?.dx || off?.dy),
     })
   }
   const lat = mlpLattice(n)
@@ -284,7 +290,7 @@ export function mlpTextBoxes(n: FigNode): MlpText[] {
        words overlapped and a double-click could only ever reach whichever came
        first in the list. Lift the newcomer clear of anything already placed. */
     const mine = out[out.length - 1]
-    if (mine?.key !== key) continue
+    if (mine?.key !== key || mine.moved) continue
     for (const other of out) {
       if (other === mine) continue
       const overlaps =
