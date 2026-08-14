@@ -291,13 +291,23 @@
   opacity: 0.6;
 }
 
+/* ⚠️ The buttons take the width their words need, and the row wraps.
+ *
+ * Three equal thirds of a 171px rail is 53px, and "붙여넣기" does not fit in
+ * that — so it broke, and Korean breaks between any two characters, which
+ * turned one button into a four-line column of single letters and stretched
+ * the other two to match. Sizing from the content puts 열기 and 저장 on one
+ * line and lets 붙여넣기 have the next one to itself. */
 .fem__project-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
 .fem__action {
-  flex: 1 1 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   justify-content: center;
