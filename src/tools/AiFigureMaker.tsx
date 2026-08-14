@@ -229,6 +229,9 @@ const SNAP_PX = 5
  * into a fat halo at 400%. Divide by the zoom at the call site. */
 const PART_TOL = 7
 
+/** How far the pointer must travel, on screen, before a press counts as a drag. */
+const DEAD_ZONE = 3
+
 /* The page as something to line up with. It is drawn, so it plays by the same
  * rule as any other drawn thing: its edges and its centre are alignment
  * targets. It is not a *shape*, though — it has no place in a row's rhythm, so
@@ -1816,10 +1819,20 @@ export default function AiFigureMaker() {
          * Two points say everything about where a run should sit; the rest of
          * the route is the router's business, and it re-derives it. */
         const d = docRef.current
-        const raw =
-          drag.axis === 'x'
-            ? drag.corners[drag.index].x + (world.x - drag.start.x)
-            : drag.corners[drag.index].y + (world.y - drag.start.y)
+        const shift =
+          drag.axis === 'x' ? world.x - drag.start.x : world.y - drag.start.y
+        /* ⚠️ Nothing is written until the pointer has genuinely travelled.
+         *
+         * A press on a connector arms this drag, and a plain *click* still
+         * delivers a pointermove or two with a delta of zero — which then went
+         * through the grid snap, so the run jumped to the nearest gridline and
+         * bends appeared out of nowhere. Clicking a line to select it silently
+         * rerouted it. Bends are made on purpose (double-click) or by actually
+         * dragging a run; never by looking at one. */
+        if (!drag.moved && Math.abs(shift) * viewRef.current.zoom < DEAD_ZONE) return
+        const raw = drag.axis === 'x'
+          ? drag.corners[drag.index].x + shift
+          : drag.corners[drag.index].y + shift
         const v = Math.round(
           d.canvas.snap && !ev.metaKey && !ev.ctrlKey ? snapPos(raw, d.canvas.grid) : raw,
         )
@@ -1860,6 +1873,15 @@ export default function AiFigureMaker() {
       }
 
       if (drag.t === 'waypoint') {
+        // same dead zone: clicking a bend must not snap it to the nearest cell
+        const r = resolvedRef.current.get(drag.edge)
+        const at = r?.wps[drag.index]
+        if (
+          !drag.moved &&
+          at &&
+          Math.hypot(world.x - at.x, world.y - at.y) * viewRef.current.zoom < DEAD_ZONE
+        )
+          return
         const p = { x: Math.round(gridSnap(world.x)), y: Math.round(gridSnap(world.y)) }
         drag.moved = true
         live((cur) =>
