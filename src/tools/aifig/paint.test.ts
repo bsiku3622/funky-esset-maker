@@ -69,3 +69,26 @@ describe('writing a colour', () => {
     expect(withAlpha('#ffffff', -3)).toBe('#ffffff00')
   })
 })
+
+/* ⚠️ Picking a swatch answers one of the two questions the popover asks.
+ *
+ * It used to hand back a plain six-digit hex, which threw the transparency
+ * away — so trying a few colours at 40% snapped back to opaque on every try
+ * and the slider had to be redone each time. This is the arithmetic behind
+ * the swatch chips in ui.tsx. */
+describe('changing the colour without changing the transparency', () => {
+  it('carries the alpha across to the new colour', () => {
+    const before = withAlpha('#ff2d9b', 0.4)
+    const after = withAlpha('#3decfd', alphaOf(before))
+    expect(paint(after).color).toBe('#3decfd')
+    expect(alphaOf(after)).toBeCloseTo(0.4, 2)
+  })
+
+  it('leaves an opaque colour six digits long, as it found it', () => {
+    expect(withAlpha('#3decfd', alphaOf('#ff2d9b'))).toBe('#3decfd')
+  })
+
+  it('treats a slot set to "none" as fully opaque when a colour is chosen', () => {
+    expect(withAlpha('#3decfd', alphaOf('none'))).toBe('#3decfd')
+  })
+})

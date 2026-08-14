@@ -453,6 +453,14 @@ export function ColorBtn({
             visibility: pos ? 'visible' : 'hidden',
           }}
         >
+          {/* ⚠️ A swatch changes the colour, not the transparency.
+              Picking one used to hand back a plain six-digit hex, which threw
+              away whatever alpha had been set — so trying a few colours at 40%
+              snapped back to opaque every time and the slider had to be redone
+              on each try. The two are separate decisions made in the same
+              popover; only one of them is being answered here. And the chip
+              matches on the colour alone, or a translucent fill would show
+              nothing as selected. */}
           <div className="af-color__rows">
             {[swatches, GRAYS].map((row, i) => (
               <div className="af-color__row" key={i}>
@@ -461,10 +469,12 @@ export function ColorBtn({
                     key={c}
                     type="button"
                     title={c}
-                    className={`af-color__chip${value.toLowerCase() === c.toLowerCase() ? ' is-on' : ''}`}
+                    className={`af-color__chip${
+                      paint(value).color.toLowerCase() === c.toLowerCase() ? ' is-on' : ''
+                    }`}
                     style={{ background: c }}
                     onClick={() => {
-                      onChange(c)
+                      onChange(withAlpha(c, alphaOf(value)))
                       setHost(null)
                     }}
                   />
