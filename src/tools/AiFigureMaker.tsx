@@ -1438,8 +1438,15 @@ export default function AiFigureMaker() {
          for the zoom, a cuboid's rect covers the face it leans out into — and
          insisting on `pointOnNode` there would take that reach away. */
       const direct = nmap.get(hitNode)
+      // a press on the node's own label is a press on the node, wherever that
+      // label ended up — the ink test only knows about the lattice
+      const onLabel = !!el.getAttribute?.('data-hit-nodelabel')
       const usable =
-        direct && !direct.locked && (direct.kind !== 'mlp' || mlpHit(direct, world, PART_TOL / viewRef.current.zoom))
+        direct &&
+        !direct.locked &&
+        (onLabel ||
+          direct.kind !== 'mlp' ||
+          mlpHit(direct, world, PART_TOL / viewRef.current.zoom))
           ? direct
           : null
       const n = usable ?? pickNodeAt(world)
@@ -2201,6 +2208,15 @@ export default function AiFigureMaker() {
     /* A neuron's own text, wherever it has been nudged to. Its circle is the
        usual way in, but once the label has been pulled clear of it the circle
        is no longer under the words. */
+    /* A node's own label, which may be sitting well away from its shape. */
+    const nodeLabel = el.getAttribute?.('data-hit-nodelabel')
+    if (nodeLabel && nmap.has(nodeLabel)) {
+      setSelNodes([nodeLabel])
+      setSelEdges([])
+      setSelPart(null)
+      setEditing(nodeLabel)
+      return
+    }
     const dotLabel = el.getAttribute?.('data-hit-dotlabel')
     const dotLabelNode = el.getAttribute?.('data-hit-node')
     if (dotLabel && dotLabelNode) {
@@ -3206,6 +3222,39 @@ export default function AiFigureMaker() {
                       strokeWidth={outline ? Math.max(12, n.style.strokeWidth + 8) / view.zoom : undefined}
                       data-hit-node={n.id}
                       style={{ cursor: connecting ? 'crosshair' : n.locked ? 'default' : 'move' }}
+                    />
+                  )
+                })}
+                {/* Every node's own label, wherever it was placed.
+                    ⚠️ A label set to sit above or beside its shape is nowhere
+                    near the shape's box, so double-clicking the words did
+                    nothing and the only way in was the shape itself. Editing on
+                    the canvas means double-clicking the thing you are editing,
+                    and for a label that is the label. */}
+                {doc.nodes.map((n) => {
+                  if (n.hidden || n.locked || !n.label) return null
+                  const placed = placeLabel(n)
+                  if (!placed) return null
+                  const align = labelStyle(n).align
+                  const w = placed.layout.w
+                  const left =
+                    align === 'center' ? placed.x - w / 2 : align === 'right' ? placed.x - w : placed.x
+                  return (
+                    <rect
+                      key={`lb-${n.id}`}
+                      x={n.x + left - 2}
+                      y={n.y + placed.y - 2}
+                      width={w + 4}
+                      height={placed.layout.h + 4}
+                      transform={
+                        n.rotation
+                          ? `rotate(${n.rotation} ${n.x + n.w / 2} ${n.y + n.h / 2})`
+                          : undefined
+                      }
+                      fill="transparent"
+                      data-hit-nodelabel={n.id}
+                      data-hit-node={n.id}
+                      style={{ cursor: connecting ? 'crosshair' : 'move' }}
                     />
                   )
                 })}
