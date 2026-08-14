@@ -301,7 +301,7 @@ export function mlpPartRect(n: FigNode, key: string): Rect | null {
     const y = Math.min(...ys) - pt
     return { x, y, w: Math.max(...xs) + pr - x, h: Math.max(...ys) + pb - y }
   }
-  const d = lat.dots.find((x) => x.key === key)
+  const d = [...lat.dots, ...lat.gaps].find((x) => x.key === key)
   return d ? { x: d.x - d.r, y: d.y - d.r, w: d.r * 2, h: d.r * 2 } : null
 }
 
@@ -471,15 +471,30 @@ export function mlpGroupAt(n: FigNode, p: Pt, tol = 4): string | null {
   return best
 }
 
-/** The neuron under a point, in canvas coordinates. `pad` widens the circle. */
+/* The neuron under a point, in canvas coordinates. `pad` widens the circle.
+ *
+ * ⚠️ The ⋮ marks count. They are drawn, they stand for the units a big layer
+ * does not draw, and leaving them out of the picking meant the one glyph in a
+ * network that says "and more of these" could be neither selected nor given a
+ * colour of its own — it was stuck with the network's stroke while every circle
+ * around it could be repainted. */
 export function mlpDotAt(n: FigNode, p: Pt, pad = 0): MlpDot | null {
   const local = toLocal(n, p)
-  for (const d of mlpLattice(n).dots) {
+  const lat = mlpLattice(n)
+  for (const d of lat.dots) {
     const rr = d.r + pad
     if ((local.x - d.x) ** 2 + (local.y - d.y) ** 2 <= rr * rr) return d
   }
+  for (const g of lat.gaps) {
+    const rr = g.r + pad
+    if ((local.x - g.x) ** 2 + (local.y - g.y) ** 2 <= rr * rr) return g
+  }
   return null
 }
+
+const GAP_KEY_RE = /^l(\d+)gap$/
+/** Is this the key of an ellipsis mark rather than of a unit? */
+export const isGapKey = (k: string) => GAP_KEY_RE.test(k)
 
 /* The wire under a point. Circles win ties: a synapse ends underneath the
  * neuron it joins, and at a junction the neuron is the thing being aimed at. */
@@ -662,7 +677,7 @@ const rekey = <T,>(
   if (!bag) return undefined
   const out: Record<string, T> = {}
   for (const [key, v] of Object.entries(bag)) {
-    const m = /^l(\d+)(n.*)$/.exec(key)
+    const m = /^l(\d+)(n.*|gap)$/.exec(key)
     if (!m) continue
     const from = +m[1]
     if (span && from === at - 1) continue

@@ -393,14 +393,24 @@ const Mlp = ({ n, editing }: BodyProps) => {
         )
       })}
 
-      {/* the ⋮ standing in for the units a big layer does not draw */}
-      {lat.gaps.map((g) => (
-        <g key={g.key} {...fillProps(s.stroke)}>
-          {[-1, 0, 1].map((i) => (
-            <circle key={i} cx={g.x} cy={g.y + i * Math.max(3, g.r * 0.62)} r={Math.max(0.7, g.r * 0.16)} />
-          ))}
-        </g>
-      ))}
+      {/* The ⋮ standing in for the units a big layer does not draw. It reads
+          the same overrides a circle does, so the mark that says "and more of
+          these" can be recoloured to match the units it stands for. */}
+      {lat.gaps.map((g) => {
+        const b = parts[g.key]
+        return (
+          <g key={g.key} {...fillProps(b?.stroke ?? b?.fill ?? s.stroke)} opacity={b?.opacity}>
+            {[-1, 0, 1].map((i) => (
+              <circle
+                key={i}
+                cx={g.x}
+                cy={g.y + i * Math.max(3, g.r * 0.62)}
+                r={Math.max(0.7, g.r * 0.16)}
+              />
+            ))}
+          </g>
+        )
+      })}
 
       {lat.dots.map((d) => {
         const b = parts[d.key]

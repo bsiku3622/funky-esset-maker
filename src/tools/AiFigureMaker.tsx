@@ -235,6 +235,14 @@ type Drag =
   /** sliding a connector's label along its own path; `base` is where on the
    *  path the label sat when it was grabbed, so the offset rides along */
   | { t: 'label'; edge: string; start: Pt; base: Pt; moved: boolean }
+  /** nudging a node's own label off whichever of the seven positions it uses */
+  | {
+      t: 'nodelabel'
+      id: string
+      start: Pt
+      orig: { dx: number; dy: number }
+      moved: boolean
+    }
   /** nudging a caption — a layer's or a group's — off where it lands by default */
   | {
       t: 'caplabel'
@@ -1390,6 +1398,29 @@ export default function AiFigureMaker() {
       return
     }
 
+    /* 0.2) a node's own label. It is drawn away from the shape as often as on
+       it, and it is its own thing to place — so pressing the words moves the
+       words, and pressing the shape moves the shape. */
+    const nLabel = el.getAttribute?.('data-hit-nodelabel')
+    if (nLabel) {
+      const ln = nmap.get(nLabel)
+      if (ln && !ln.locked) {
+        setSelNodes([ln.id])
+        setSelEdges([])
+        setSelPart(null)
+        beginDrag()
+        setDragging(true)
+        dragRef.current = {
+          t: 'nodelabel',
+          id: ln.id,
+          start: world,
+          orig: { dx: ln.labelDx ?? 0, dy: ln.labelDy ?? 0 },
+          moved: false,
+        }
+        return
+      }
+    }
+
     /* 0.3) a caption. There is nothing underneath a caption, so pressing one
        moves it — no reaching in first, no modifier. Which is the answer to
        "how am I supposed to move this?": the same way you move anything, by
@@ -2040,6 +2071,24 @@ export default function AiFigureMaker() {
         ]
         drag.moved = true
         live((cur) => patchMlpPart(cur, { node: drag.id, key: drag.key }, 'groups', { pad }))
+        return
+      }
+
+      /* A node's own label, off its preset position. */
+      if (drag.t === 'nodelabel') {
+        const ln = docRef.current.nodes.find((x) => x.id === drag.id)
+        if (!ln) return
+        const away = { x: world.x - drag.start.x, y: world.y - drag.start.y }
+        const local = ln.rotation ? rotateDir(away, -ln.rotation) : away
+        if (!drag.moved && Math.hypot(away.x, away.y) * viewRef.current.zoom < DEAD_ZONE) return
+        drag.moved = true
+        const put = (v: number) => Math.round(gridSnap(v))
+        live((cur) =>
+          patchNodes(cur, [drag.id], () => ({
+            labelDx: put(drag.orig.dx + local.x),
+            labelDy: put(drag.orig.dy + local.y),
+          })),
+        )
         return
       }
 

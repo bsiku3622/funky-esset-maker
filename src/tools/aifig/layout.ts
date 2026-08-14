@@ -93,14 +93,22 @@ export function placeLabel(n: FigNode): PlacedLabel | null {
       y = n.h + PAD
       break
     case 'left':
-      return { layout, x: -PAD, y: n.h / 2 - layout.h / 2 }
+      return nudged(n, { layout, x: -PAD, y: n.h / 2 - layout.h / 2 })
     case 'right':
-      return { layout, x: n.w + PAD, y: n.h / 2 - layout.h / 2 }
+      return nudged(n, { layout, x: n.w + PAD, y: n.h / 2 - layout.h / 2 })
   }
   if (s.align === 'left') x = inside ? 6 : cx - layout.w / 2
   else if (s.align === 'right') x = inside ? n.w - 6 : cx + layout.w / 2
-  return { layout, x, y }
+  return nudged(n, { layout, x, y })
 }
+
+/** The free offset rides on top of whichever of the seven positions was picked,
+ *  so clearing it puts the label back exactly where the preset says. */
+const nudged = (n: FigNode, p: PlacedLabel): PlacedLabel => ({
+  ...p,
+  x: p.x + (n.labelDx ?? 0),
+  y: p.y + (n.labelDy ?? 0),
+})
 
 /** Side labels always face outward, regardless of the style alignment. */
 export function labelStyle(n: FigNode): Style {

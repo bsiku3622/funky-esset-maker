@@ -43,6 +43,7 @@ import {
   MLP_SLOT_CAP,
   GROUP_PAD_MAX,
   groupPad,
+  isGapKey,
   isLattice,
   mlpGaps,
   mlpLayers,
@@ -464,6 +465,29 @@ function NodePanel({
         <Field label="위치">
           <Sel value={n.labelPos} options={LABEL_POS} onChange={(labelPos) => onNode(() => ({ labelPos }))} />
         </Field>
+        {/* The seven presets are starting points; the offset is the rest of the
+            vocabulary, and the canvas drag writes the same two numbers. */}
+        <Field label="미세 위치">
+          <Num
+            value={n.labelDx ?? 0}
+            onChange={(labelDx) => onNode(() => ({ labelDx }))}
+            suffix="X"
+            width={54}
+          />
+          <Num
+            value={n.labelDy ?? 0}
+            onChange={(labelDy) => onNode(() => ({ labelDy }))}
+            suffix="Y"
+            width={54}
+          />
+          <button
+            type="button"
+            className="af-mini"
+            onClick={() => onNode(() => ({ labelDx: 0, labelDy: 0 }))}
+          >
+            제자리로
+          </button>
+        </Field>
         <Field label="글꼴">
           <Sel
             value={s.fontFamily}
@@ -862,7 +886,9 @@ function PartPanel({
               ? '연결선 하나'
               : where
                 ? `${where.li + 1}층 ${where.n + 1}번`
-                : '뉴런 하나'}
+                : isGapKey(first)
+                  ? '생략 표시 ⋮'
+                  : '뉴런 하나'}
       </span>
       <button type="button" className="af-mini" onClick={onExit}>
         네트워크 전체로 (Esc)
@@ -1056,6 +1082,35 @@ function PartPanel({
 
   const b: NeuronBits = p.neurons?.[first] ?? {}
   const mode = b.fontFamily ?? s.fontFamily
+  /* The ⋮ is a neuron's neighbour, not a neuron: it stands for the units the
+     column does not draw, so it has ink but no text and no outline of its own. */
+  const gap = isGapKey(first)
+  if (gap)
+    return (
+      <Group title={many ? `생략 표시 ${parts.keys.length}개` : '생략 표시 ⋮'}>
+        {back}
+        <Field label="색 · 투명도">
+          <ColorBtn
+            value={b.stroke ?? s.stroke}
+            swatches={swatches}
+            onChange={(stroke) => onPart({ stroke })}
+          />
+          <Num
+            value={b.opacity ?? 1}
+            step={0.05}
+            min={0}
+            max={1}
+            onChange={(opacity) => onPart({ opacity })}
+            width={46}
+          />
+          {reset}
+        </Field>
+        <p className="af-note">
+          이 열이 그리지 않은 유닛들을 대신합니다 — 개수는 「층 구성」에서, 몇 개까지 그릴지는
+          「생략」에서 정합니다.
+        </p>
+      </Group>
+    )
   return (
     <Group title={many ? `뉴런 ${parts.keys.length}개` : '뉴런 하나'}>
       {back}

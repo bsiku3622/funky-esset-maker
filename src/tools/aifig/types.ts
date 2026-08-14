@@ -277,6 +277,14 @@ export interface FigNode {
   rotation: number // degrees, about the box centre
   label: string // may contain $…$ inline LaTeX
   labelPos: LabelPos
+  /* Free nudge off whatever `labelPos` picked, in px.
+   *
+   * ⚠️ The seven positions are starting points, not the whole vocabulary. A
+   * connector's label and a neuron's both carry an offset; a node's did not, so
+   * the only way to put a name a little to the left of "above" was a separate
+   * text node that then had to be moved by hand every time the shape did. */
+  labelDx?: number
+  labelDy?: number
   style: Style
   props: NodeProps
   locked: boolean
