@@ -413,27 +413,36 @@ export function mlpPartAnchors(n: FigNode, key: string, out: number): { anchor: 
   })
 }
 
-/* A group is picked by its outline rather than its interior — the units inside
- * it have to stay clickable, and a group that swallowed every press on its
- * members would make the thing it groups unreachable. */
+/* A group is picked anywhere inside it, not just on its outline.
+ *
+ * ⚠️ It used to be the outline alone, on the theory that a group swallowing
+ * presses on its own members would put them out of reach. That theory was
+ * wrong, because the caller asks about the *circles first*: a press on a unit
+ * never gets here. What outline-only actually produced was a box you had to
+ * hit within a few pixels to select at all — one more layer of the network is
+ * how it reads on screen, and that is how it should behave.
+ *
+ * The smallest group wins, so a group nested inside another stays reachable. */
 export function mlpGroupAt(n: FigNode, p: Pt, tol = 4): string | null {
   const local = toLocal(n, p)
+  let best: string | null = null
+  let bestArea = Infinity
   for (const key of Object.keys(n.props.groups ?? {})) {
     const r = mlpPartRect(n, key)
     if (!r) continue
-    const inOuter =
+    const inside =
       local.x >= r.x - tol &&
       local.x <= r.x + r.w + tol &&
       local.y >= r.y - tol &&
       local.y <= r.y + r.h + tol
-    const inInner =
-      local.x > r.x + tol &&
-      local.x < r.x + r.w - tol &&
-      local.y > r.y + tol &&
-      local.y < r.y + r.h - tol
-    if (inOuter && !inInner) return key
+    if (!inside) continue
+    const area = r.w * r.h
+    if (area < bestArea) {
+      best = key
+      bestArea = area
+    }
   }
-  return null
+  return best
 }
 
 /** The neuron under a point, in canvas coordinates. `pad` widens the circle. */
@@ -517,25 +526,18 @@ export function mlpHit(n: FigNode, p: Pt, tol = 0): boolean {
     )
       return true
     if (g.bare) continue
-    /* The band is symmetric about the outline, which matters at the very edge:
-       measured only inwards, the outermost pixel of the box belonged to nobody
-       and a click that visibly landed on the line fell through it. */
+    /* The whole box, not just its outline — a drawn group is one more layer of
+       the network, and the gap between two of its units belongs to it rather
+       than to whatever is behind the network. The band is symmetric about the
+       edge so the outermost pixel of the line belongs to somebody. */
     const band = Math.max(tol, 4)
-    const inside =
+    if (
       local.x >= r.x - band &&
       local.x <= r.x + r.w + band &&
       local.y >= r.y - band &&
       local.y <= r.y + r.h + band
-    if (!inside) continue
-    // a filled box is solid ink; an empty one is grabbed by its edge
-    const solid = !!g.fill && g.fill !== 'none' && g.fill !== 'transparent'
-    if (solid) return true
-    const inner =
-      local.x > r.x + band &&
-      local.x < r.x + r.w - band &&
-      local.y > r.y + band &&
-      local.y < r.y + r.h - band
-    if (!inner) return true
+    )
+      return true
   }
   return false
 }

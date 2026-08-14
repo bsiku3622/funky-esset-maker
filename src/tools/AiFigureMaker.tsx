@@ -1804,11 +1804,17 @@ export default function AiFigureMaker() {
       }
 
       if (drag.t === 'segment') {
-        /* Move the run and hand the whole corner list back as waypoints. The
-           waypoint router dog-legs through them in order, and every corner of
-           an orthogonal route already shares a coordinate with its neighbour,
-           so replaying them reproduces the path exactly — with this one run
-           somewhere else. */
+        /* Pin the run being moved, and only that run.
+         *
+         * ⚠️ This used to hand the *whole* corner list back as waypoints, on
+         * the grounds that replaying every corner reproduces the path exactly.
+         * It does — and then the figure is nailed to the page. One nudge of one
+         * run froze four or five points, each tied to a node's centre, and from
+         * then on the route could not respond to anything: move a block and the
+         * pins came along at the wrong offsets, until a connector that used to
+         * be two clean corners was a staircase wandering across the drawing.
+         * Two points say everything about where a run should sit; the rest of
+         * the route is the router's business, and it re-derives it. */
         const d = docRef.current
         const raw =
           drag.axis === 'x'
@@ -1833,11 +1839,17 @@ export default function AiFigureMaker() {
           x: (pts[drag.index].x + pts[drag.index + 1].x) / 2,
           y: (pts[drag.index].y + pts[drag.index + 1].y) / 2,
         }
+        /* The two ends of the moved run — minus either endpoint of the whole
+           connector, which is not a bend and cannot be pinned: those belong to
+           the shapes. */
+        const keep = [drag.index, drag.index + 1]
+          .filter((i) => i > 0 && i < pts.length - 1)
+          .map((i) => pts[i])
         live((cur) =>
           patchEdges(cur, [drag.edge], (e) => {
             const rel = tieToEnd(e, mid, cur).rel
             return {
-              waypoints: pts.slice(1, -1).map((p) => {
+              waypoints: keep.map((p) => {
                 const t = tieToEnd(e, p, cur)
                 return rel && t.rel !== rel ? tieToEnd(e, p, cur, rel) : t
               }),
@@ -2012,7 +2024,17 @@ export default function AiFigureMaker() {
         patchEdges(d, [hitEdge], (e) => {
           // insert at the nearest segment so the path keeps its shape
           const r = resolved.get(e.id)
-          const tied = tieToEnd(e, p, docRef.current)
+          /* ⚠️ Every bend on one connector follows the same shape.
+           *
+           * A bend is stored as an offset from the nearer end's node centre,
+           * decided per bend — so a route could end up with half its bends
+           * following the block at one end and half following the block at the
+           * other. Move either block and those halves went different ways: the
+           * ones that stayed behind were left stranded off in the margin, miles
+           * from the line that was supposed to pass through them. Adopt
+           * whatever the existing bends already use. */
+          const rel = e.waypoints[0]?.rel
+          const tied = tieToEnd(e, p, docRef.current, rel)
           if (!r) return { waypoints: [...e.waypoints, tied] }
           /* Sorting by position along the path keeps the inserted bend in the
              place it was clicked. Relative bends have to be resolved first —

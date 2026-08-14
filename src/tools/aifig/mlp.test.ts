@@ -484,12 +484,33 @@ describe('a group of neurons', () => {
     expect(Math.abs(p.y - c.y)).toBeLessThanOrEqual(r.h / 2 + 0.001)
   })
 
-  it('is picked by its outline, so the units inside stay reachable', () => {
+  /* ⚠️ Picked anywhere inside, not on its outline alone. The units it holds
+     stay reachable because the caller asks about the circles first — an
+     outline-only target just meant a box you had to hit within a few pixels. */
+  it('is picked anywhere inside it', () => {
     const r = mlpPartRect(n, 'g0')!
     const onEdge = { x: n.x + r.x, y: n.y + r.y + r.h / 2 }
-    const inside = mlpPartCentre(n, dotKey(0, 0))!
+    const middle = { x: n.x + r.x + r.w / 2, y: n.y + r.y + r.h / 2 }
+    const outside = { x: n.x + r.x + r.w + 40, y: n.y + r.y }
     expect(mlpGroupAt(n, onEdge)).toBe('g0')
-    expect(mlpGroupAt(n, inside)).toBeNull()
+    expect(mlpGroupAt(n, middle)).toBe('g0')
+    expect(mlpGroupAt(n, mlpPartCentre(n, dotKey(0, 0))!)).toBe('g0')
+    expect(mlpGroupAt(n, outside)).toBeNull()
+  })
+
+  it('lets the smaller of two nested groups win', () => {
+    const nested = {
+      ...n,
+      props: {
+        ...n.props,
+        groups: {
+          g0: { parts: [dotKey(0, 0), dotKey(0, 1), dotKey(0, 2)] },
+          g1: { parts: [dotKey(0, 0)] },
+        },
+      },
+    }
+    expect(mlpGroupAt(nested, mlpPartCentre(nested, dotKey(0, 0))!)).toBe('g1')
+    expect(mlpGroupAt(nested, mlpPartCentre(nested, dotKey(0, 2))!)).toBe('g0')
   })
 
   it('has no rectangle once its members are gone', () => {
@@ -646,32 +667,38 @@ describe('what counts as pressing the network', () => {
     expect(mlpHit(bare, at(n.w / 2, n.h / 2))).toBe(false)
   })
 
-  it('answers for a group box, but not for the air inside it', () => {
-    const g = {
-      ...n,
-      props: { ...n.props, groups: { g0: { parts: [dotKey(0, 0), dotKey(0, 1)] } } },
-    }
-    const r = mlpPartRect(g, 'g0')!
-    expect(mlpHit(g, at(r.x, r.y + r.h / 2))).toBe(true)
-    // between the two circles it holds, well clear of both the rim and them
-    const lat = mlpLattice(g)
-    const mid = (lat.dots[0].y + lat.dots[1].y) / 2
-    const bare = { ...g, props: { ...g.props, showEdges: false } }
-    expect(mlpHit(bare, at(lat.dots[0].x, mid))).toBe(false)
-  })
-
-  it('answers for a filled group box all the way through', () => {
+  /* A drawn group is one more layer of the network, so the space it encloses
+     belongs to it — including the gap between two of the units it holds. */
+  it('answers anywhere inside a group box, gap between its units included', () => {
     const g = {
       ...n,
       props: {
         ...n.props,
         showEdges: false,
-        groups: { g0: { parts: [dotKey(0, 0), dotKey(0, 1)], fill: '#eeeeee' } },
+        groups: { g0: { parts: [dotKey(0, 0), dotKey(0, 1)] } },
+      },
+    }
+    const r = mlpPartRect(g, 'g0')!
+    const lat = mlpLattice(g)
+    const mid = (lat.dots[0].y + lat.dots[1].y) / 2
+    expect(mlpHit(g, at(r.x, r.y + r.h / 2))).toBe(true)
+    expect(mlpHit(g, at(lat.dots[0].x, mid))).toBe(true)
+    // and outside it the network still lets go
+    expect(mlpHit(g, at(r.x + r.w + 30, r.y + r.h / 2))).toBe(false)
+  })
+
+  it('does not answer for a group whose box is not drawn', () => {
+    const g = {
+      ...n,
+      props: {
+        ...n.props,
+        showEdges: false,
+        groups: { g0: { parts: [dotKey(0, 0), dotKey(0, 1)], bare: true } },
       },
     }
     const lat = mlpLattice(g)
     const mid = (lat.dots[0].y + lat.dots[1].y) / 2
-    expect(mlpHit(g, at(lat.dots[0].x, mid))).toBe(true)
+    expect(mlpHit(g, at(lat.dots[0].x, mid))).toBe(false)
   })
 
   it('answers for a layer caption', () => {
