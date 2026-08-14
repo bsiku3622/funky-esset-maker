@@ -110,6 +110,7 @@ import {
   gridCellRect,
   stackSheetAt,
   mlpTextBoxes,
+  mlpWireLabels,
   neuronLabel,
   nodeTextBox,
   neuronLabelStyle,
@@ -253,6 +254,15 @@ type Drag =
       orig: { dx: number; dy: number }
       moved: boolean
     }
+  /** nudging the weight written on a synapse */
+  | {
+      t: 'wirelabel'
+      id: string
+      key: string
+      start: Pt
+      orig: { dx: number; dy: number }
+      moved: boolean
+    }
   /** nudging a caption — a layer's or a group's — off where it lands by default */
   | {
       t: 'caplabel'
@@ -327,7 +337,13 @@ function writeLabel(d: FigDoc, at: { node: string; key: string }, label: string)
       props: { ...n.props, [n.kind === 'frame' ? 'title' : 'symbol']: label },
     }))
   const cap = readCapKey(at.key)
-  if (!cap) return patchMlpPart(d, at, isGroupKey(at.key) ? 'groups' : 'neurons', { label })
+  if (!cap)
+    return patchMlpPart(
+      d,
+      at,
+      isGroupKey(at.key) ? 'groups' : at.key.includes('-') ? 'wires' : 'neurons',
+      { label },
+    )
   return patchNodes(d, [at.node], (n) => {
     const list = [...(n.props[cap.which] ?? [])]
     while (list.length <= cap.li) list.push('')
@@ -1510,6 +1526,29 @@ export default function AiFigureMaker() {
       }
     }
 
+    /* 0.25) a synapse's label, which moves like a caption. */
+    const wLabel = el.getAttribute?.('data-hit-wirelabel')
+    if (wLabel) {
+      const wn = nmap.get(el.getAttribute('data-hit-node') ?? '')
+      if (wn) {
+        const b = wn.props.wires?.[wLabel]
+        setSelNodes([wn.id])
+        setSelEdges([])
+        setSelPart({ node: wn.id, key: wLabel, kind: 'wire' })
+        beginDrag()
+        setDragging(true)
+        dragRef.current = {
+          t: 'wirelabel',
+          id: wn.id,
+          key: wLabel,
+          start: world,
+          orig: { dx: b?.labelDx ?? 0, dy: b?.labelDy ?? 0 },
+          moved: false,
+        }
+        return
+      }
+    }
+
     /* 0.3) a caption. There is nothing underneath a caption, so pressing one
        moves it — no reaching in first, no modifier. Which is the answer to
        "how am I supposed to move this?": the same way you move anything, by
@@ -2196,6 +2235,24 @@ export default function AiFigureMaker() {
         return
       }
 
+      /* A synapse's weight, off the middle of its run. */
+      if (drag.t === 'wirelabel') {
+        const wn = docRef.current.nodes.find((x) => x.id === drag.id)
+        if (!wn) return
+        const away = { x: world.x - drag.start.x, y: world.y - drag.start.y }
+        const local = wn.rotation ? rotateDir(away, -wn.rotation) : away
+        if (!drag.moved && Math.hypot(away.x, away.y) * viewRef.current.zoom < DEAD_ZONE) return
+        drag.moved = true
+        const put = (v: number) => Math.round(gridSnap(v))
+        live((cur) =>
+          patchMlpPart(cur, { node: drag.id, key: drag.key }, 'wires', {
+            labelDx: put(drag.orig.dx + local.x),
+            labelDy: put(drag.orig.dy + local.y),
+          }),
+        )
+        return
+      }
+
       /* A caption, off its default spot. */
       if (drag.t === 'caplabel') {
         const cn = docRef.current.nodes.find((x) => x.id === drag.id)
@@ -2533,6 +2590,17 @@ export default function AiFigureMaker() {
     /* A neuron's own text, wherever it has been nudged to. Its circle is the
        usual way in, but once the label has been pulled clear of it the circle
        is no longer under the words. */
+    /* A synapse's weight. */
+    const wLab = el.getAttribute?.('data-hit-wirelabel')
+    const wLabNode = el.getAttribute?.('data-hit-node')
+    if (wLab && wLabNode && nmap.has(wLabNode)) {
+      setSelNodes([wLabNode])
+      setSelEdges([])
+      setSelPart({ node: wLabNode, key: wLab, kind: 'wire' })
+      setEditDot({ node: wLabNode, key: wLab })
+      setEditing(null)
+      return
+    }
     /* A frame's title or an operator's symbol. */
     const nodeText = el.getAttribute?.('data-hit-nodetext')
     if (nodeText && nmap.has(nodeText)) {
@@ -3065,6 +3133,31 @@ export default function AiFigureMaker() {
           top: view.y + (n.y + t.y) * view.zoom,
           width: w * view.zoom,
           height: t.rect.h * view.zoom,
+          rotation: n.rotation || undefined,
+        },
+      }
+    }
+    const wl = mlpWireLabels(n).find((t) => t.key === editDot.key)
+    if (wl || n.props.wires?.[editDot.key]) {
+      const style = wl?.style ?? mlpCapStyle(n)
+      const w = mlpLattice(n).wires.find((x) => x.key === editDot.key)
+      if (!wl && !w) return null
+      const b = n.props.wires?.[editDot.key]
+      const t = Math.max(0, Math.min(1, b?.labelT ?? 0.5))
+      const cx = wl ? wl.x : w!.a.x + (w!.b.x - w!.a.x) * t + (b?.labelDx ?? 0)
+      const top = wl ? wl.y : w!.a.y + (w!.b.y - w!.a.y) * t + (b?.labelDy ?? 0)
+      const bw = Math.max(wl?.rect.w ?? 0, 56)
+      const bh = wl?.rect.h ?? style.fontSize * style.lineHeight
+      return {
+        n,
+        text: b?.label ?? '',
+        style,
+        color: style.textColor,
+        box: {
+          left: view.x + (n.x + cx - bw / 2) * view.zoom,
+          top: view.y + (n.y + top) * view.zoom,
+          width: bw * view.zoom,
+          height: bh * view.zoom,
           rotation: n.rotation || undefined,
         },
       }
@@ -3612,6 +3705,29 @@ export default function AiFigureMaker() {
                           }
                           fill="transparent"
                           data-hit-cap={t.key}
+                          data-hit-node={n.id}
+                          style={{ cursor: connecting ? 'crosshair' : 'move' }}
+                        />
+                      )),
+                )}
+                {/* A weight written on a synapse. */}
+                {doc.nodes.flatMap((n) =>
+                  n.hidden || n.locked || n.kind !== 'mlp'
+                    ? []
+                    : mlpWireLabels(n).map((t) => (
+                        <rect
+                          key={`wl-${n.id}-${t.key}`}
+                          x={n.x + t.rect.x - 2}
+                          y={n.y + t.rect.y - 2}
+                          width={t.rect.w + 4}
+                          height={t.rect.h + 4}
+                          transform={
+                            n.rotation
+                              ? `rotate(${n.rotation} ${n.x + n.w / 2} ${n.y + n.h / 2})`
+                              : undefined
+                          }
+                          fill="transparent"
+                          data-hit-wirelabel={t.key}
                           data-hit-node={n.id}
                           style={{ cursor: connecting ? 'crosshair' : 'move' }}
                         />

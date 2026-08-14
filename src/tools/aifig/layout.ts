@@ -429,6 +429,40 @@ export function nodeTextBox(n: FigNode): NodeText | null {
   return null
 }
 
+/* A synapse's own label.
+ *
+ * ⚠️ A connector carries one and a synapse did not, so a network that wanted to
+ * write a weight on a wire had to park a free text node beside it — which then
+ * had to be moved by hand every time the lattice re-spaced. Same picture, same
+ * machinery: a fraction along the run and a nudge off it. */
+export interface WireLabel {
+  key: string
+  layout: LabelLayout
+  style: Style
+  /** the block's anchor and box, in the node's local frame */
+  x: number
+  y: number
+  rect: Rect
+}
+
+export function mlpWireLabels(n: FigNode): WireLabel[] {
+  const bag = n.props.wires
+  if (!bag) return []
+  const out: WireLabel[] = []
+  const style = mlpCapStyle(n)
+  for (const w of mlpLattice(n).wires) {
+    const b = bag[w.key]
+    if (!b?.label || b.hidden) continue
+    const l = layoutLabel(b.label, labelFont(style))
+    if (!l.lines.length) continue
+    const t = Math.max(0, Math.min(1, b.labelT ?? 0.5))
+    const x = w.a.x + (w.b.x - w.a.x) * t + (b.labelDx ?? 0)
+    const y = w.a.y + (w.b.y - w.a.y) * t + (b.labelDy ?? 0) - l.h / 2
+    out.push({ key: w.key, layout: l, style, x, y, rect: { x: x - l.w / 2, y, w: l.w, h: l.h } })
+  }
+  return out
+}
+
 /* ---------- grid cells and stack sheets ---------- */
 
 /* Keyed by where they are, because that is what they are: cell (2,3) of a

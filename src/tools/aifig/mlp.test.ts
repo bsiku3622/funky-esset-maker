@@ -11,6 +11,7 @@ import {
   MLP_SLOT_CAP,
   dotKey,
   evenGaps,
+  isGapKey,
   isLattice,
   mlpAnchorPoint,
   mlpDotAt,
@@ -33,10 +34,12 @@ import { snapPos } from './geometry'
 import { resolveEdge } from './resolve'
 import { patchMlpPart } from './doc'
 import {
+  capBits,
   isCapKey,
   mlpCapSpot,
   mlpCapText,
   mlpTextBoxes,
+  mlpWireLabels,
   neuronLabel,
   neuronLabelStyle,
   shapeOverflow,
@@ -571,6 +574,101 @@ describe('a group of neurons', () => {
       r: 0,
       b: 0,
     })
+  })
+})
+
+/* Everything drawn is a thing in its own right, and these are the ones that
+ * were not. The ⋮ could be neither picked nor painted; a synapse had no label;
+ * a caption had no settings of its own. */
+describe('the parts that had no life of their own', () => {
+  it('picks the ⋮ the way it picks a circle', () => {
+    const n = fitted({ layers: [2, 40], maxDots: 4, pitch: 40, layerGap: 96, neuronR: 12 })
+    const mark = mlpLattice(n).gaps[0]
+    const hit = mlpDotAt(n, { x: n.x + mark.x, y: n.y + mark.y })
+    expect(hit?.key).toBe(mark.key)
+    expect(isGapKey(mark.key)).toBe(true)
+    expect(isGapKey(dotKey(0, 1))).toBe(false)
+  })
+
+  it('keeps an ellipsis override when a layer is spliced in', () => {
+    const p: NodeProps = { layers: [2, 40], neurons: { l1gap: { stroke: '#f00' } } }
+    expect(retypeLayers(p, [2, 3, 40]).neurons).toEqual({ l2gap: { stroke: '#f00' } })
+  })
+
+  it('gives a synapse a label of its own, placed along its run', () => {
+    const n = fitted({
+      layers: [2, 2],
+      pitch: 40,
+      layerGap: 96,
+      neuronR: 12,
+      wires: { [wireKey(0, 0, 1)]: { label: 'w' } },
+    })
+    const [t] = mlpWireLabels(n)
+    expect(t.key).toBe(wireKey(0, 0, 1))
+    const w = mlpLattice(n).wires.find((x) => x.key === t.key)!
+    // halfway along by default, and the box is centred on that point
+    expect(t.rect.x + t.rect.w / 2).toBeCloseTo((w.a.x + w.b.x) / 2, 6)
+  })
+
+  it('moves that label where it is told', () => {
+    const at = (bits: object) =>
+      mlpWireLabels(
+        fitted({
+          layers: [2, 2],
+          pitch: 40,
+          layerGap: 96,
+          neuronR: 12,
+          wires: { [wireKey(0, 0, 1)]: { label: 'w', ...bits } },
+        }),
+      )[0]
+    const home = at({})
+    const moved = at({ labelDx: 12, labelDy: -8 })
+    expect(moved.x - home.x).toBeCloseTo(12, 6)
+    expect(moved.y - home.y).toBeCloseTo(-8, 6)
+    // and along the run
+    expect(at({ labelT: 1 }).x).toBeGreaterThan(home.x)
+  })
+
+  it('says nothing for a synapse that is hidden or unlabelled', () => {
+    const bare = fitted({ layers: [2, 2], pitch: 40, layerGap: 96, neuronR: 12 })
+    expect(mlpWireLabels(bare)).toEqual([])
+    const hidden = fitted({
+      layers: [2, 2],
+      pitch: 40,
+      layerGap: 96,
+      neuronR: 12,
+      wires: { [wireKey(0, 0, 1)]: { label: 'w', hidden: true } },
+    })
+    expect(mlpWireLabels(hidden)).toEqual([])
+  })
+
+  it('lets a caption carry its own ink, size and font', () => {
+    const n = fitted({
+      layers: [2, 2],
+      pitch: 40,
+      layerGap: 96,
+      neuronR: 12,
+      capTop: ['in', ''],
+      caps: { 'cap:t:0': { textColor: '#ff0000', fontSize: 22, fontFamily: 'mono' } },
+    })
+    const [t] = mlpTextBoxes(n)
+    expect(t.color).toBe('#ff0000')
+    expect(t.style.fontSize).toBe(22)
+    expect(t.style.fontFamily).toBe('mono')
+  })
+
+  it('still reads a caption position saved under the old name', () => {
+    const n = fitted({
+      layers: [2, 2],
+      pitch: 40,
+      layerGap: 96,
+      neuronR: 12,
+      capTop: ['in', ''],
+      capOffsets: { 'cap:t:0': { dx: 9, dy: -4 } },
+    })
+    expect(capBits(n, 'cap:t:0')).toEqual({ dx: 9, dy: -4 })
+    const [t] = mlpTextBoxes(n)
+    expect(t.moved).toBe(true)
   })
 })
 

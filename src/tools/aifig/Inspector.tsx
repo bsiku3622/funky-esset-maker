@@ -1143,6 +1143,18 @@ function PartPanel({
         </Field>
         <Field label="선 모양">
           <Sel value={w.dash ?? 'solid'} options={DASHES} onChange={(dash) => onPart({ dash })} />
+          {/* Both ends belong to the lattice, so a bulge is the only shape a
+              synapse can honestly take — enough to pick one skip link out of a
+              fully-connected sheaf. */}
+          <Num
+            value={w.bow ?? 0}
+            step={4}
+            min={-200}
+            max={200}
+            onChange={(bow) => onPart({ bow })}
+            suffix="휨"
+            width={58}
+          />
           <Num
             value={w.opacity ?? 0.55}
             step={0.05}
@@ -1152,6 +1164,31 @@ function PartPanel({
             width={46}
           />
         </Field>
+        {/* A weight written on the wire. A connector has carried one from the
+            start; a synapse is the same picture and had nowhere to put it. */}
+        <Field label="라벨" wide>
+          <input
+            className="af-input"
+            value={w.label ?? ''}
+            placeholder="$w_{ij}$"
+            onChange={(e) => onPart({ label: e.target.value })}
+            onKeyDown={(e) => e.stopPropagation()}
+          />
+        </Field>
+        {w.label ? (
+          <Field label="라벨 위치">
+            <Num
+              value={Math.round((w.labelT ?? 0.5) * 100)}
+              min={0}
+              max={100}
+              onChange={(v) => onPart({ labelT: v / 100 })}
+              suffix="%"
+              width={56}
+            />
+            <Num value={w.labelDx ?? 0} onChange={(labelDx) => onPart({ labelDx })} suffix="X" width={48} />
+            <Num value={w.labelDy ?? 0} onChange={(labelDy) => onPart({ labelDy })} suffix="Y" width={48} />
+          </Field>
+        ) : null}
         <Field label="표시">
           <Chk checked={!w.hidden} onChange={(on) => onPart({ hidden: !on })} label="그리기" />
           {reset}

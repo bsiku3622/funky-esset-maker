@@ -16,6 +16,7 @@ import {
   labelFont,
   labelStyle,
   mlpTextBoxes,
+  mlpWireLabels,
   neuronLabel,
   placeLabel,
   sheetKey,
@@ -341,6 +342,19 @@ const NeuronLabel = ({ n, d, bits }: { n: FigNode; d: MlpDot; bits?: NeuronBits 
   )
 }
 
+/** A quadratic through the midpoint, pushed `k` px off the chord's normal. */
+function bowed(a: { x: number; y: number }, b: { x: number; y: number }, k: number) {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const L = Math.hypot(dx, dy) || 1
+  const bend = Math.sign(k) * Math.min(Math.abs(k), L / 2)
+  const c = {
+    x: (a.x + b.x) / 2 - (dy / L) * bend * 2,
+    y: (a.y + b.y) / 2 + (dx / L) * bend * 2,
+  }
+  return `M${a.x.toFixed(2)} ${a.y.toFixed(2)} Q${c.x.toFixed(2)} ${c.y.toFixed(2)} ${b.x.toFixed(2)} ${b.y.toFixed(2)}`
+}
+
 const Mlp = ({ n, editing }: BodyProps) => {
   const s = n.style
   const lat = mlpLattice(n)
@@ -395,20 +409,18 @@ const Mlp = ({ n, editing }: BodyProps) => {
         const b = wireBits[w.key]
         if (b?.hidden) return null
         const sw = b?.strokeWidth ?? thin
-        return (
-          <line
-            key={w.key}
-            x1={w.a.x}
-            y1={w.a.y}
-            x2={w.b.x}
-            y2={w.b.y}
-            {...strokeOnly(b?.stroke ?? wireInk)}
-            strokeWidth={sw}
-            strokeDasharray={b?.dash ? dashArray(b.dash, sw) : undefined}
-            opacity={b?.opacity ?? wireFade}
-            data-mlp-wire={w.key}
-          />
-        )
+        const common = {
+          ...strokeOnly(b?.stroke ?? wireInk),
+          strokeWidth: sw,
+          strokeDasharray: b?.dash ? dashArray(b.dash, sw) : undefined,
+          opacity: b?.opacity ?? wireFade,
+          'data-mlp-wire': w.key,
+        }
+        /* A bow bends the run without moving either end — the ends belong to
+           the lattice — which is the one shape a synapse can honestly take
+           besides straight. */
+        if (b?.bow) return <path key={w.key} d={bowed(w.a, w.b, b.bow)} fill="none" {...common} />
+        return <line key={w.key} x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} {...common} />
       })}
 
       {/* The ⋮ standing in for the units a big layer does not draw. It reads
@@ -456,6 +468,21 @@ const Mlp = ({ n, editing }: BodyProps) => {
       )}
 
       {caps}
+
+      {/* A weight written on a synapse — the same picture a connector's label
+          draws, and drawn last so it is never under a circle. */}
+      {mlpWireLabels(n).map((t) =>
+        t.key === editing ? null : (
+          <LabelView
+            key={`w${t.key}`}
+            layout={t.layout}
+            x={t.x}
+            y={t.y}
+            style={t.style}
+            color={t.style.textColor}
+          />
+        ),
+      )}
     </g>
   )
 }

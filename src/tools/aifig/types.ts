@@ -172,6 +172,12 @@ export interface WireBits {
    * two are the same picture — "this quantity travels along this line" — and a
    * network drawn without it has to caption its weights somewhere else. */
   label?: string
+  /* Signed bulge in px, the way a connector's `arc` route carries one. A
+   * straight synapse is right for a fully-connected layer and wrong for the one
+   * skip link somebody wants to pick out of it — and a bulge is all a run
+   * between two fixed circles can honestly have, since both its ends are
+   * placed by the lattice. */
+  bow?: number
   /** where along the run the label sits, 0..1, and its nudge off the line */
   labelT?: number
   labelDx?: number
