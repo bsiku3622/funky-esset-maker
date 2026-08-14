@@ -435,11 +435,20 @@ function orthoPoints(
        this before the detour lanes, which straddle the endpoints and can only
        reach the far side by crossing back over the node they left. */
     cands.push(zy(e.y))
+    /* ⚠️ And the same trick on the other axis, which is the one that was
+       missing. Both stubs pointing the same way is only half the story; the
+       far end may be *beside* rather than behind, and then the route wants to
+       cross at the target's own column. Without it the router fell through to
+       the detour lanes, which straddle both endpoints — so a connector that
+       should have gone up-and-across set off in the wrong direction first,
+       opening with a pointless little dog-leg away from where it was going. */
+    cands.push(zx(e.x))
     for (const my of near(laneY, (s.y + e.y) / 2)) cands.push(zy(my))
     cands.push(zx(s.x + a.dir.x * D))
   } else if (!horizA && !horizB) {
     if (agrees(s, e, a.dir, false) && agrees(e, s, b.dir, false)) cands.push(zy((s.y + e.y) / 2))
     cands.push(zx(e.x))
+    cands.push(zy(e.y))
     for (const mx of near(laneX, (s.x + e.x) / 2)) cands.push(zx(mx))
     cands.push(zy(s.y + a.dir.y * D))
   } else if (horizA) {
@@ -459,13 +468,47 @@ function orthoPoints(
      and a corner is the cheaper thing to give up. */
   for (const strict of [true, false]) {
     for (const mids of cands) {
-      const pts = dedupe([a.p, s, ...mids, e, b.p])
+      const pts = straighten(dedupe([a.p, s, ...mids, e, b.p]))
       if (!legsFit(pts, radius)) continue
       if (strict && !clearOf(pts, avoid)) continue
       return pts
     }
   }
-  return dedupe([a.p, s, ...cands[0], e, b.p])
+  return straighten(dedupe([a.p, s, ...cands[0], e, b.p]))
+}
+
+/* Drop a vertex that is not a corner.
+ *
+ * ⚠️ A stub and the leg after it often run the same way — leave a shape
+ * upward, then carry on upward to the lane you are crossing on — and that
+ * leaves a vertex sitting in the middle of a straight run. `roundCorners`
+ * already knows not to fillet it, but `legsFit` counted it as two legs and
+ * demanded a full corner radius of room for each. So the router *rejected*
+ * routes for having a straight line in them: the sensible up-and-across
+ * candidate kept failing on a 13px phantom leg and the line fell back to a
+ * detour that set off in the wrong direction first.
+ *
+ * Only exactly-collinear, same-direction vertices go. A sub-pixel jog between
+ * two long runs is a real corner — see `dedupe`. */
+function straighten(pts: Pt[]): Pt[] {
+  if (pts.length < 3) return pts
+  const out: Pt[] = [pts[0]]
+  for (let i = 1; i < pts.length - 1; i++) {
+    const p = out[out.length - 1]
+    const q = pts[i]
+    const r = pts[i + 1]
+    const sameX = Math.abs(p.x - q.x) < 0.01 && Math.abs(q.x - r.x) < 0.01
+    const sameY = Math.abs(p.y - q.y) < 0.01 && Math.abs(q.y - r.y) < 0.01
+    const forward = sameX
+      ? (q.y - p.y) * (r.y - q.y) >= 0
+      : sameY
+        ? (q.x - p.x) * (r.x - q.x) >= 0
+        : false
+    if ((sameX || sameY) && forward) continue
+    out.push(q)
+  }
+  out.push(pts[pts.length - 1])
+  return out
 }
 
 /* An orthogonal route that has to pass through the user's bends.
@@ -530,6 +573,9 @@ function orthoThrough(a: AnchorPoint, b: AnchorPoint, waypoints: Pt[]): Pt[] {
     out.push(q)
     t = { x: q.x - prev.x, y: q.y - prev.y }
   }
+  /* Deliberately not straightened: a bend sitting in the middle of a straight
+     run is still the user's bend, and the corner list is what the run-dragging
+     grabs hold of. `roundCorners` already declines to fillet it. */
   return dedupe(out)
 }
 

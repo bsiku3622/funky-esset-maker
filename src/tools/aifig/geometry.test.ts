@@ -168,6 +168,24 @@ describe('orthogonal routing', () => {
     const segs = ortho(node(0, 0), node(400, 0))
     expect(segs.every((s) => s.t === 'L')).toBe(true)
   })
+
+  /* ⚠️ Both ends leaving upward, far apart across the page: up, across, down.
+   * The router had no candidate for "cross at the target's own column" when
+   * both stubs were vertical, so it fell through to the detour lanes — and
+   * those straddle both endpoints, so the line set off *away* from where it was
+   * going and opened with a pointless dog-leg before turning back. */
+  it('goes up and across rather than doubling out sideways first', () => {
+    const src = node(100, 200, 60, 40)
+    const dst = node(900, 60, 60, 40)
+    const p = pathInfo(
+      route('ortho', anchorPoint(src, 'n', center(dst)), anchorPoint(dst, 'n', center(src)), [], 0, RADIUS),
+    ).pts
+    for (let i = 1; i < p.length; i++)
+      expect(p[i].x).toBeGreaterThanOrEqual(p[i - 1].x - 0.01) // never travels left
+    // and it never climbs above the lane it crosses on
+    const top = Math.min(...p.map((q) => q.y))
+    expect(top).toBeGreaterThan(dst.y - 40)
+  })
 })
 
 /* ⚠️ Routing *through the user's bends* used to be a different, much dumber
