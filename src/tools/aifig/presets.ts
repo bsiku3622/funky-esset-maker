@@ -16,6 +16,7 @@ import type {
   Style,
 } from './types'
 import { retypeLabel } from './latex'
+import { DIAGRAM_COLOR_HEX as FUNKY } from '../../cores/palette'
 
 /* ---------- units ---------- */
 
@@ -41,6 +42,16 @@ export interface Palette {
 }
 
 export const PALETTES: Palette[] = [
+  {
+    id: 'funky',
+    label: 'Funky 네온',
+    note: '슬라이드용 — 뒷자리에서도 읽히는 네온. 펑키 모드와 함께 쓰세요',
+    colors: [FUNKY.pink, FUNKY.cyan, FUNKY.yellow, FUNKY.purple, FUNKY.orange, FUNKY.green],
+    ink: '#222222',
+    // funky outlines and connectors are the same black, not a lighter grey
+    line: '#222222',
+    neutral: '#ffffff',
+  },
   {
     id: 'tab10',
     label: 'Matplotlib tab10',

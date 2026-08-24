@@ -6,6 +6,8 @@
  * colour. Drawing them inline keeps every exported file self-contained. */
 
 import { memo } from 'react'
+import { useTheme } from '../../theme'
+import { funkyEdgeStyle } from './funky'
 import type { FigEdge, Pt } from './types'
 import { atLength } from './geometry'
 import { dashArray, headGeom, paint } from './presets'
@@ -60,8 +62,9 @@ export const EdgeView = memo(function EdgeView({
   /** bumped when MathJax finishes loading; only here to bust memo */
   rev?: number
 }) {
+  const funky = useTheme() === 'funky'
   if (e.hidden) return null
-  const s = e.style
+  const s = funky ? funkyEdgeStyle(e.style) : e.style
   const start = atLength(r.info, 0)
   const end = atLength(r.info, 1)
   const style = edgeLabelStyle(s)

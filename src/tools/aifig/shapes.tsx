@@ -7,6 +7,14 @@
  * opens the same way in Illustrator, Inkscape and a LaTeX \includegraphics. */
 
 import { memo } from 'react'
+import { useTheme } from '../../theme'
+import {
+  FUNKY_SHADOW,
+  FUNKY_SHADOW_OPACITY,
+  castsShadow,
+  funkyNode,
+  shadowNode,
+} from './funky'
 import type { FigNode, NeuronBits, Style } from './types'
 import { dashArray, FONT_STACK, paint, readableOn, shade, tint } from './presets'
 import { fontCss, layoutLabel, textWidth, type LabelLayout } from './latex'
@@ -831,22 +839,36 @@ export const NodeView = memo(function NodeView({
   /** the label being typed into, which the editor draws instead — see BodyProps */
   editing?: string
 }) {
+  const funky = useTheme() === 'funky'
   if (n.hidden) return null
   const Body = BODIES[n.kind] ?? Rect
-  const placed = editing === '' ? null : placeLabel(n)
+  /* The whole node is restyled up front rather than at each use, so the label
+     — which reads its own style off the node — comes out bold with it. */
+  const node = funky ? funkyNode(n) : n
+  const placed = editing === '' ? null : placeLabel(node)
   const cx = n.w / 2
   const cy = n.h / 2
   const transform =
     `translate(${n.x} ${n.y})` + (n.rotation ? ` rotate(${n.rotation} ${cx} ${cy})` : '')
   return (
     <g transform={transform} opacity={n.style.opacity} data-node={n.id}>
-      <Body n={n} editing={editing} />
+      {/* A duplicated silhouette, offset — the hard shadow. Deliberately not
+          marked data-ui: it is part of the drawing and must survive export. */}
+      {funky && castsShadow(n.kind) ? (
+        <g
+          transform={`translate(${FUNKY_SHADOW} ${FUNKY_SHADOW})`}
+          opacity={FUNKY_SHADOW_OPACITY}
+        >
+          <Body n={shadowNode(n)} />
+        </g>
+      ) : null}
+      <Body n={node} editing={editing} />
       {placed ? (
         <LabelView
           layout={placed.layout}
           x={placed.x}
           y={placed.y}
-          style={labelStyle(n)}
+          style={labelStyle(node)}
         />
       ) : null}
     </g>
