@@ -51,3 +51,133 @@
   border-top: 3px solid var(--funky-border-color, #222);
   flex: 0 0 auto;
 }
+
+/* ---------- toolbar extras ---------- */
+
+.scope-chart .cm-preset {
+  padding: 5px 8px;
+  border: 2px solid #222;
+  border-radius: 0;
+  background: #fff;
+  font-family: var(--funky-font-family);
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #222;
+  cursor: pointer;
+  outline: none;
+}
+.scope-chart .cm-preset:focus {
+  box-shadow: 3px 3px 0 0 rgba(0, 0, 0, 0.2);
+}
+
+/* a read-only palette preview, so it must not look pressable */
+.scope-chart .swatch--flat {
+  width: 16px;
+  height: 24px;
+  cursor: default;
+}
+.scope-chart .swatch--flat:hover {
+  box-shadow: none;
+}
+
+/* ---------- inspector tabs ---------- */
+
+/* The panel holds four unrelated groups of properties, so it needs a switch
+   rather than one very long scroll. Sticky because the groups below are long
+   enough that the tabs would otherwise scroll out of reach. */
+.scope-chart .cm-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  background: #fff;
+  border-bottom: 2px solid #222;
+}
+
+.scope-chart .cm-tab {
+  flex: 1 1 0;
+  padding: 6px 4px;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #222;
+  background: #fff;
+  border: 0;
+  border-right: 2px solid #222;
+  cursor: pointer;
+}
+.scope-chart .cm-tab:last-child {
+  border-right: 0;
+}
+.scope-chart .cm-tab:hover {
+  background: #ffd500;
+}
+.scope-chart .cm-tab.is-on {
+  background: #7828c8;
+  color: #fff;
+}
+
+/* ---------- series / panel chips ---------- */
+
+.scope-chart .cm-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.scope-chart .cm-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 3px 7px;
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: #222;
+  background: #fff;
+  border: 2px solid #222;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scope-chart .cm-chip i {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border: 1px solid #222;
+}
+.scope-chart .cm-chip:hover {
+  background: #ffd500;
+}
+.scope-chart .cm-chip.is-on {
+  background: #7828c8;
+  color: #fff;
+}
+.scope-chart .cm-chip.is-off {
+  opacity: 0.45;
+}
+.scope-chart .cm-chip--add {
+  font-weight: 900;
+}
+
+.scope-chart .cm-swatch {
+  width: 14px;
+  height: 14px;
+  border: 1px solid #222;
+}
+
+.scope-chart .cm-palette-note {
+  font-size: 0.68rem;
+  font-weight: 700;
+  opacity: 0.6;
+  line-height: 1.35;
+}
+
+/* the data pane is a table, so it gets more room than a one-line formula */
+.scope-chart .editor__input {
+  font-size: 0.88rem;
+  line-height: 1.45;
+  tab-size: 12;
+}

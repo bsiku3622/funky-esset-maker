@@ -26,3 +26,30 @@ export type {
   ChartPoint,
   ChartBg,
 } from './Chart'
+
+export { default as Plot } from './plot/Plot'
+export type { PlotProps, PlotBg, PlotPick } from './plot/Plot'
+export type {
+  PlotSpec,
+  PanelSpec,
+  SeriesSpec,
+  AnnotationSpec,
+  LegendSpec,
+  MarkKind,
+  MarkerKind,
+  DashKind,
+  CoordKind,
+} from './plot/spec'
+export { MARK_LABELS, emptyPanel, newId } from './plot/spec'
+export type { AxisSpec, ScaleKind, TickFormat } from './plot/scale'
+export { parseTable, tableToText } from './plot/data'
+export type { DataTable, Column } from './plot/data'
+export {
+  PALETTES,
+  COLOR_MAPS,
+  paletteById,
+  colorMapById,
+  sampleMap,
+  inkOn,
+} from './palette'
+export type { NamedPalette, ColorMap } from './palette'

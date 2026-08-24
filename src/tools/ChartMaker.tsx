@@ -1,163 +1,166 @@
+/* Chart Maker — the editor around the plot engine.
+ *
+ * The document is two things: a table of numbers as text, and a spec that says
+ * what to draw with them. Keeping the data as text is what makes this fast to
+ * use — you paste a table from anywhere and it plots — and keeping the spec as
+ * a structure is what lets an inspector edit it without parsing prose.
+ *
+ * ⚠️ The old tool's document was a single `라벨 = 값` string and one chart type.
+ * `migrate` below turns those saved files into a spec so nothing anyone made
+ * before is lost; the storage key is deliberately unchanged, because it is the
+ * name every project file already carries. */
+
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, Text } from '@studio-baeks/funky-ui'
-import { Chart, CHART_PALETTE } from '../cores'
+import {
+  Plot,
+  MARK_LABELS,
+  PALETTES,
+  emptyPanel,
+  newId,
+  paletteById,
+  parseTable,
+  figColors,
+  type MarkKind,
+  type PanelSpec,
+  type PlotPick,
+  type PlotSpec,
+  type SeriesSpec,
+} from '../cores'
 import { useFitScale, useHistory, usePersist, useStored, useSvgExport } from './hooks'
 import BgPicker from './BgPicker'
 import { BG_HEX, type BgKey } from './bg'
-import { figColors, ptOf, printWidthIn as widthInOf } from './paper'
+import { ptOf, printWidthIn as widthInOf } from './paper'
 import { useTheme } from '../theme'
-import Inspector, { Field, Row } from './Inspector'
+import Inspector from './Inspector'
 import PrintBar from './PrintBar'
 import UndoRedo from './UndoRedo'
 import SharedNumField from './NumField'
+import { PRESETS, presetById } from './chart/presets'
+import { AxesPanel, FigurePanel, PanelPanel, SeriesPanel, type Ctl } from './chart/panels'
 import './ChartMaker.css'
-
-/* ---------- model ---------- */
-
-type ChartType = 'bar' | 'line' | 'pie' | 'scatter'
-
-const TYPES: { key: ChartType; label: string }[] = [
-  { key: 'bar', label: '막대' },
-  { key: 'line', label: '선' },
-  { key: 'pie', label: '원' },
-  { key: 'scatter', label: '산점도' },
-]
-
-const SAMPLE = `사과 = 30
-바나나 = 45
-체리 = 18
-포도 = 27`
-const SAMPLE_SCATTER = `(1, 2)
-(2, 3.5)
-(3, 2.8)
-(4, 5)
-(5, 4.2)`
 
 const STORE_KEY = 'fem.chart.v1'
 
 interface Persisted {
-  type: ChartType
-  input: string
-  scatterInput: string
-  title: string
-  accent: number // palette index
-  showValues: boolean
-  figW: number
-  figH: number
+  /** the data pane, verbatim */
+  data: string
+  spec: PlotSpec
   bg: BgKey
   widthId: string
   dpi: number
 }
 
 const DEFAULTS: Persisted = {
-  type: 'bar',
-  input: SAMPLE,
-  scatterInput: SAMPLE_SCATTER,
-  title: '',
-  accent: 0,
-  showValues: true,
-  figW: 640,
-  figH: 440,
+  data: PRESETS[0].data,
+  spec: PRESETS[0].spec,
   bg: 'transparent',
   widthId: 'screen',
   dpi: 600,
 }
 
-/* ---------- parsing ---------- */
+/* ---------- reading what the old tool saved ---------- */
 
-interface Datum {
-  label: string
-  value: number
-  /** source line, so the inspector can rewrite exactly one */
-  line: number
-}
-function parsePairs(input: string): Datum[] {
-  const out: Datum[] = []
-  input.split('\n').forEach((raw, line) => {
-    const text = raw.trim()
-    if (!text || text.startsWith('#')) return
-    const m = /^(.+?)\s*[=:]\s*(-?[\d.]+)\s*$/.exec(text)
-    if (m) out.push({ label: m[1].trim(), value: parseFloat(m[2]), line })
-  })
-  return out
-}
-interface Pt {
-  x: number
-  y: number
-  line: number
-}
-function parsePoints(input: string): Pt[] {
-  const out: Pt[] = []
-  input.split('\n').forEach((raw, line) => {
-    const text = raw.trim()
-    if (!text || text.startsWith('#')) return
-    const m = /^\(?\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)?/.exec(text)
-    if (m) out.push({ x: parseFloat(m[1]), y: parseFloat(m[2]), line })
-  })
-  return out
+interface LegacySaved {
+  type?: string
+  input?: string
+  scatterInput?: string
+  title?: string
+  showValues?: boolean
+  figW?: number
+  figH?: number
 }
 
-const num = (v: number) => String(+v.toFixed(6))
+/** `사과 = 30` lines become a two-column table; `(1, 2)` lines become x/y. */
+function legacyTable(saved: LegacySaved): { data: string; mark: MarkKind; x: string; y: string } {
+  if (saved.type === 'scatter') {
+    const rows: string[] = ['x\ty']
+    for (const line of (saved.scatterInput ?? '').split('\n')) {
+      const m = /^\(?\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)?/.exec(line.trim())
+      if (m) rows.push(`${m[1]}\t${m[2]}`)
+    }
+    return { data: rows.join('\n'), mark: 'scatter', x: 'x', y: 'y' }
+  }
+  const rows: string[] = ['항목\t값']
+  for (const line of (saved.input ?? '').split('\n')) {
+    const m = /^(.+?)\s*[=:]\s*(-?[\d.]+)\s*$/.exec(line.trim())
+    if (m) rows.push(`${m[1].trim()}\t${m[2]}`)
+  }
+  const mark: MarkKind = saved.type === 'line' ? 'line' : saved.type === 'pie' ? 'pie' : 'bar'
+  return { data: rows.join('\n'), mark, x: '항목', y: '값' }
+}
 
-/* ---------- numeric field (free typing, commit on blur) ---------- */
+function migrate(saved: Partial<Persisted> & LegacySaved, defaults: Persisted): Persisted {
+  if (saved.spec && saved.data !== undefined) return { ...defaults, ...saved } as Persisted
+  if (saved.input === undefined && saved.scatterInput === undefined)
+    return { ...defaults, ...saved } as Persisted
 
-const NumField = (props: { value: number; onCommit: (n: number) => void }) => (
-  <SharedNumField {...props} className="cm-num" integer />
-)
+  const { data, mark, x, y } = legacyTable(saved)
+  const spec: PlotSpec = {
+    title: saved.title || undefined,
+    width: saved.figW ?? 640,
+    height: saved.figH ?? 440,
+    // the old tool drew neon; keeping that is what "opens the same" means
+    palette: 'funky',
+    columns: 1,
+    panels: [
+      {
+        ...emptyPanel('p1'),
+        legend: { pos: mark === 'pie' ? 'right' : 'none', frame: mark !== 'pie' },
+        y: { grid: true, zero: true },
+        x: { grid: false },
+        series: [{ id: 's1', mark, x, y, labels: saved.showValues ?? true }],
+      },
+    ],
+  }
+  return { ...defaults, ...saved, data, spec }
+}
+
+/* ---------- tabs ---------- */
+
+type Tab = 'series' | 'axes' | 'panel' | 'figure'
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'series', label: '계열' },
+  { id: 'axes', label: '축' },
+  { id: 'panel', label: '패널' },
+  { id: 'figure', label: '그림' },
+]
 
 /* ---------- app ---------- */
 
 export default function ChartMakerTool() {
   const theme = useTheme()
-  const initial = useStored(STORE_KEY, DEFAULTS)
-  const [type, setType] = useState<ChartType>(initial.type)
-  const [input, setInput] = useState(initial.input)
-  const [scatterInput, setScatterInput] = useState(initial.scatterInput)
-  const [title, setTitle] = useState(initial.title)
-  const [accent, setAccent] = useState(initial.accent)
-  const [showValues, setShowValues] = useState(initial.showValues)
-  const [figW, setFigW] = useState(initial.figW)
-  const [figH, setFigH] = useState(initial.figH)
+  const initial = useStored<Persisted>(STORE_KEY, DEFAULTS, migrate as never)
+
+  const [data, setData] = useState(initial.data)
+  const [spec, setSpec] = useState<PlotSpec>(initial.spec)
   const [bg, setBg] = useState<BgKey>(initial.bg)
   const [widthId, setWidthId] = useState(initial.widthId)
   const [dpi, setDpi] = useState(initial.dpi)
-  const [sel, setSel] = useState<number | null>(null)
+
+  const [panelIndex, setPanelIndex] = useState(0)
+  const [seriesId, setSeriesId] = useState<string | null>(
+    initial.spec.panels[0]?.series[0]?.id ?? null,
+  )
+  const [tab, setTab] = useState<Tab>('series')
+  const [pick, setPick] = useState<PlotPick | null>(null)
+  const [presetId, setPresetId] = useState('')
 
   const stageRef = useRef<HTMLDivElement>(null)
   const shotRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
-  const isScatter = type === 'scatter'
-  const data = useMemo(() => parsePairs(input), [input])
-  const points = useMemo(() => parsePoints(scatterInput), [scatterInput])
+  const table = useMemo(() => parseTable(data), [data])
+  const palette = paletteById(spec.palette).colors
   const bgHex = BG_HEX[bg]
-  const c = figColors(theme, bg === 'dark', CHART_PALETTE)
 
-  const persisted = {
-    type,
-    input,
-    scatterInput,
-    title,
-    accent,
-    showValues,
-    figW,
-    figH,
-    bg,
-    widthId,
-    dpi,
-  }
+  const persisted: Persisted = { data, spec, bg, widthId, dpi }
   usePersist(STORE_KEY, persisted)
 
   const history = useHistory(persisted, (s) => {
-    setType(s.type)
-    setInput(s.input)
-    setScatterInput(s.scatterInput)
-    setTitle(s.title)
-    setAccent(s.accent)
-    setShowValues(s.showValues)
-    setFigW(s.figW)
-    setFigH(s.figH)
+    setData(s.data)
+    setSpec(s.spec)
     setBg(s.bg)
     setWidthId(s.widthId)
     setDpi(s.dpi)
@@ -167,66 +170,144 @@ export default function ChartMakerTool() {
     const ta = inputRef.current
     if (!ta) return
     ta.style.height = 'auto'
-    ta.style.height = `${Math.min(180, ta.scrollHeight)}px`
-  }, [input, scatterInput, type])
+    ta.style.height = `${Math.min(200, ta.scrollHeight)}px`
+  }, [data])
 
   const { scale, nat } = useFitScale({
     stageRef,
     shotRef,
-    signature: `${figW}|${figH}|${bg}|${type}|${title}|${theme}`,
+    signature: `${spec.width}|${spec.height}|${bg}|${theme}|${spec.panels.length}|${spec.title ?? ''}`,
   })
 
-  const printIn = widthInOf(widthId, figW)
+  const printIn = widthInOf(widthId, spec.width)
 
   const { saveSvg, savePng, copyPng, pixels, busy, toast } = useSvgExport({
     svgRef,
     filename: 'chart',
     printWidthIn: printIn,
-    figPxWidth: figW,
-    figPxHeight: figH,
+    figPxWidth: spec.width,
+    figPxHeight: spec.height,
     bg: bgHex,
-    fontFamily: c.text,
+    fontFamily: figColors(theme, bg === 'dark', palette).text,
     dpi,
     title: 'Made with Funky Esset Maker — Chart Maker',
   })
 
-  /* ---- editing through the inspector ---- */
+  /* ---------- editing ---------- */
 
-  const replaceLine = useCallback(
-    (scatter: boolean, line: number, next: string | null) => {
-      const set = scatter ? setScatterInput : setInput
-      set((text) => {
-        const lines = text.split('\n')
-        if (line < 0 || line >= lines.length) return text
-        if (next === null) lines.splice(line, 1)
-        else lines[line] = next
-        return lines.join('\n')
-      })
-    },
-    [],
+  const patchFigure = useCallback((over: Partial<PlotSpec>) => {
+    setSpec((s) => ({ ...s, ...over }))
+  }, [])
+
+  const patchPanelAt = useCallback((index: number, over: Partial<PanelSpec>) => {
+    setSpec((s) => ({
+      ...s,
+      panels: s.panels.map((p, i) => (i === index ? { ...p, ...over } : p)),
+    }))
+  }, [])
+
+  const patchPanel = useCallback(
+    (over: Partial<PanelSpec>) => patchPanelAt(panelIndex, over),
+    [panelIndex, patchPanelAt],
   )
 
-  const selDatum = !isScatter && sel !== null ? (data[sel] ?? null) : null
-  const selPoint = isScatter && sel !== null ? (points[sel] ?? null) : null
+  const patchSeries = useCallback(
+    (id: string, over: Partial<SeriesSpec>) => {
+      setSpec((s) => ({
+        ...s,
+        panels: s.panels.map((p, i) =>
+          i === panelIndex
+            ? { ...p, series: p.series.map((q) => (q.id === id ? { ...q, ...over } : q)) }
+            : p,
+        ),
+      }))
+    },
+    [panelIndex],
+  )
 
-  // the inspector edits the source line; the text stays the document
-  const patchDatum = (over: Partial<Pick<Datum, 'label' | 'value'>>) => {
-    if (!selDatum) return
-    const next = { ...selDatum, ...over }
-    replaceLine(false, selDatum.line, `${next.label} = ${num(next.value)}`)
-  }
-  const patchPoint = (over: Partial<Pick<Pt, 'x' | 'y'>>) => {
-    if (!selPoint) return
-    const next = { ...selPoint, ...over }
-    replaceLine(true, selPoint.line, `(${num(next.x)}, ${num(next.y)})`)
+  const addSeries = useCallback(
+    (mark: MarkKind) => {
+      const id = newId('s')
+      const firstNumeric = table.columns.find((c) => c.numeric)?.name
+      const firstText = table.columns.find((c) => !c.numeric)?.name
+      setSpec((s) => ({
+        ...s,
+        panels: s.panels.map((p, i) =>
+          i === panelIndex
+            ? { ...p, series: [...p.series, { id, mark, x: firstText ?? firstNumeric, y: firstNumeric }] }
+            : p,
+        ),
+      }))
+      setSeriesId(id)
+      setTab('series')
+    },
+    [panelIndex, table.columns],
+  )
+
+  const removeSeries = useCallback(
+    (id: string) => {
+      setSpec((s) => ({
+        ...s,
+        panels: s.panels.map((p, i) =>
+          i === panelIndex ? { ...p, series: p.series.filter((q) => q.id !== id) } : p,
+        ),
+      }))
+      setSeriesId((cur) => (cur === id ? null : cur))
+    },
+    [panelIndex],
+  )
+
+  const addPanel = useCallback(() => {
+    setSpec((s) => ({ ...s, panels: [...s.panels, emptyPanel()] }))
+    setPanelIndex(spec.panels.length)
+    setTab('panel')
+  }, [spec.panels.length])
+
+  const removePanel = useCallback((index: number) => {
+    setSpec((s) => ({ ...s, panels: s.panels.filter((_, i) => i !== index) }))
+    setPanelIndex((i) => Math.max(0, Math.min(i, spec.panels.length - 2)))
+  }, [spec.panels.length])
+
+  const ctl: Ctl = {
+    spec,
+    columns: table.columns,
+    palette,
+    panelIndex: Math.min(panelIndex, Math.max(0, spec.panels.length - 1)),
+    seriesId,
+    patchFigure,
+    patchPanel,
+    patchSeries,
+    addSeries,
+    removeSeries,
+    addPanel,
+    removePanel,
+    selectPanel: setPanelIndex,
+    selectSeries: setSeriesId,
   }
 
-  const addRow = () => {
-    if (isScatter) setScatterInput((t) => `${t.replace(/\s*$/, '')}\n(0, 0)`)
-    else setInput((t) => `${t.replace(/\s*$/, '')}\n항목 = 10`)
+  const loadPreset = (id: string) => {
+    if (!id) return
+    const p = presetById(id)
+    setData(p.data)
+    // a preset is a whole figure, but the page it prints on is the author's
+    setSpec({ ...p.spec, palette: spec.palette })
+    setPanelIndex(0)
+    setSeriesId(p.spec.panels[0]?.series[0]?.id ?? null)
+    setPick(null)
+    setPresetId(id)
+    setTab('series')
   }
 
-  const anySelected = selDatum !== null || selPoint !== null
+  const onPick = (p: PlotPick) => {
+    const idx = spec.panels.findIndex((q) => q.id === p.panelId)
+    if (idx >= 0) setPanelIndex(idx)
+    setSeriesId(p.seriesId)
+    setPick(p)
+    setTab('series')
+  }
+
+  const panel = spec.panels[ctl.panelIndex]
+  const selectedSeries = panel?.series.find((s) => s.id === seriesId)
 
   return (
     <div className="app">
@@ -238,60 +319,71 @@ export default function ChartMakerTool() {
         <UndoRedo history={history} />
 
         <div className="toolbar__group">
-          {TYPES.map((t) => (
-            <Button
-              key={t.key}
-              variant={type === t.key ? 'primary' : 'neutral'}
-              size="sm"
-              onClick={() => {
-                setType(t.key)
-                setSel(null)
-              }}
-            >
-              {t.label}
-            </Button>
-          ))}
+          <span className="toolbar__label">예제</span>
+          <select
+            className="cm-preset"
+            value={presetId}
+            aria-label="예제 그래프"
+            onChange={(e) => loadPreset(e.target.value)}
+          >
+            <option value="">불러오기…</option>
+            {[...new Set(PRESETS.map((p) => p.group))].map((g) => (
+              <optgroup key={g} label={g}>
+                {PRESETS.filter((p) => p.group === g).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
         </div>
 
         <input
           className="cm-title"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
+          value={spec.title ?? ''}
+          onChange={(e) => patchFigure({ title: e.target.value || undefined })}
           placeholder="제목 (선택)"
           spellCheck={false}
-          aria-label="차트 제목"
+          aria-label="그래프 제목"
         />
 
         <div className="toolbar__group">
           <span className="toolbar__label">색</span>
+          <select
+            className="cm-preset"
+            value={spec.palette}
+            aria-label="팔레트"
+            onChange={(e) => patchFigure({ palette: e.target.value })}
+          >
+            {PALETTES.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </select>
           <div className="swatches">
-            {c.series.map((col, i) => (
-              <button
-                key={col}
-                type="button"
-                title={col}
-                aria-label={`색 ${i + 1}`}
-                className={`swatch${accent === i ? ' swatch--active' : ''}`}
-                style={{ background: col }}
-                onClick={() => setAccent(i)}
-              />
+            {palette.slice(0, 6).map((c) => (
+              <span key={c} className="swatch swatch--flat" style={{ background: c }} />
             ))}
           </div>
         </div>
 
-        <Button
-          variant={showValues ? 'secondary' : 'neutral'}
-          size="sm"
-          onClick={() => setShowValues((v) => !v)}
-        >
-          값 표시
-        </Button>
-
         <div className="toolbar__group">
           <span className="toolbar__label">크기</span>
-          <NumField value={figW} onCommit={(n) => setFigW(Math.max(280, n))} />
+          <SharedNumField
+            className="cm-num"
+            integer
+            value={spec.width}
+            onCommit={(n) => patchFigure({ width: Math.max(280, n) })}
+          />
           <span className="cm-tilde">×</span>
-          <NumField value={figH} onCommit={(n) => setFigH(Math.max(220, n))} />
+          <SharedNumField
+            className="cm-num"
+            integer
+            value={spec.height}
+            onCommit={(n) => patchFigure({ height: Math.max(220, n) })}
+          />
         </div>
 
         <PrintBar
@@ -299,14 +391,13 @@ export default function ChartMakerTool() {
           onWidth={(id, px) => {
             setWidthId(id)
             if (px) {
-              const ratio = figH / figW
-              setFigW(px)
-              setFigH(Math.round(px * ratio))
+              const ratio = spec.height / spec.width
+              patchFigure({ width: px, height: Math.round(px * ratio) })
             }
           }}
           dpi={dpi}
           onDpi={setDpi}
-          labelPt={ptOf(theme === 'paper' ? 10 : 13, printIn, figW)}
+          labelPt={ptOf(theme === 'paper' ? 10 : 13, printIn, spec.width)}
           pixels={pixels}
         />
 
@@ -333,145 +424,72 @@ export default function ChartMakerTool() {
           <div
             className="shot"
             ref={shotRef}
-            style={{
-              transform: `scale(${scale})`,
-              ...(bgHex ? { background: bgHex } : null),
-            }}
+            style={{ transform: `scale(${scale})`, ...(bgHex ? { background: bgHex } : null) }}
             onPointerDown={(e) => {
-              if (e.target === e.currentTarget) setSel(null)
+              if (e.target === e.currentTarget) setPick(null)
             }}
           >
-            {/* bg is passed for the ink/grid colors it picks; the card itself is
-                painted by .shot above so the padding is covered too */}
-            <Chart
-              type={type}
-              data={data}
-              points={points}
-              title={title || undefined}
-              accent={accent}
-              showValues={showValues}
-              width={figW}
-              height={figH}
-              bg={bg}
+            <Plot
+              spec={spec}
+              data={table}
               theme={theme}
-              /* the legend has to be inside the SVG or the vector export
-                 silently loses it — the HTML list is not in the element we
-                 serialise */
-              legend="svg"
+              bg={bg}
               svgRef={svgRef}
-              selected={sel}
-              onPick={setSel}
+              onPick={onPick}
+              selected={pick}
             />
           </div>
         </div>
 
-        {selDatum && (
-          <Inspector
-            title={type === 'pie' ? '조각' : type === 'line' ? '점' : '막대'}
-            hint={`${selDatum.label} = ${num(selDatum.value)}`}
-            onClose={() => setSel(null)}
-          >
-            <Field label="라벨">
-              <input
-                type="text"
-                value={selDatum.label}
-                onChange={(e) => patchDatum({ label: e.target.value || '항목' })}
-              />
-            </Field>
-            <Field label="값">
-              <SharedNumField
-                value={selDatum.value}
-                onCommit={(value) => patchDatum({ value })}
-              />
-            </Field>
-            <Row label="">
+        <Inspector
+          title={TABS.find((t) => t.id === tab)?.label ?? '속성'}
+          hint={
+            tab === 'series'
+              ? selectedSeries
+                ? `${selectedSeries.name || selectedSeries.y || ''} · ${MARK_LABELS[selectedSeries.mark]}`
+                : '계열을 고르세요'
+              : `패널 ${ctl.panelIndex + 1} / ${spec.panels.length}`
+          }
+        >
+          <div className="cm-tabs" role="tablist">
+            {TABS.map((t) => (
               <button
+                key={t.id}
                 type="button"
-                className="fx-insp__btn"
-                onClick={() => patchDatum({ value: +(selDatum.value * 1.1).toFixed(4) })}
+                role="tab"
+                aria-selected={tab === t.id}
+                className={`cm-tab${tab === t.id ? ' is-on' : ''}`}
+                onClick={() => setTab(t.id)}
               >
-                +10%
+                {t.label}
               </button>
-              <button
-                type="button"
-                className="fx-insp__btn"
-                onClick={() => patchDatum({ value: +(selDatum.value * 0.9).toFixed(4) })}
-              >
-                −10%
-              </button>
-            </Row>
-            <Row label="">
-              <button
-                type="button"
-                className="fx-insp__btn fx-insp__btn--danger"
-                onClick={() => {
-                  replaceLine(false, selDatum.line, null)
-                  setSel(null)
-                }}
-              >
-                삭제
-              </button>
-            </Row>
-          </Inspector>
-        )}
+            ))}
+          </div>
+          {tab === 'series' && <SeriesPanel ctl={ctl} />}
+          {tab === 'axes' && <AxesPanel ctl={ctl} />}
+          {tab === 'panel' && <PanelPanel ctl={ctl} />}
+          {tab === 'figure' && <FigurePanel ctl={ctl} />}
+        </Inspector>
 
-        {selPoint && (
-          <Inspector
-            title="점"
-            hint={`(${num(selPoint.x)}, ${num(selPoint.y)})`}
-            onClose={() => setSel(null)}
-          >
-            <Field label="x">
-              <SharedNumField value={selPoint.x} onCommit={(x) => patchPoint({ x })} />
-            </Field>
-            <Field label="y">
-              <SharedNumField value={selPoint.y} onCommit={(y) => patchPoint({ y })} />
-            </Field>
-            <Row label="">
-              <button
-                type="button"
-                className="fx-insp__btn fx-insp__btn--danger"
-                onClick={() => {
-                  replaceLine(true, selPoint.line, null)
-                  setSel(null)
-                }}
-              >
-                삭제
-              </button>
-            </Row>
-          </Inspector>
-        )}
-
-        {!anySelected && (
-          <p className="fx-insp-tip">막대 · 조각 · 점을 클릭하면 편집합니다</p>
-        )}
-
-        {/* the toast lives in the stage so its offset does not depend on how
-            much chrome this particular tool puts below it */}
         {toast && <div className="toast">{toast}</div>}
       </div>
 
       <div className="editor">
-        <span className="editor__prompt">{isScatter ? 'xy' : '='}</span>
+        <span className="editor__prompt">▦</span>
         <textarea
           ref={inputRef}
           className="editor__input"
-          value={isScatter ? scatterInput : input}
-          onChange={(e) => (isScatter ? setScatterInput(e.target.value) : setInput(e.target.value))}
-          placeholder={isScatter ? '(x, y) 점을 한 줄에 하나씩' : '라벨 = 값 (한 줄에 하나)'}
+          value={data}
+          onChange={(e) => setData(e.target.value)}
+          placeholder={'첫 줄은 열 이름 — 쉼표, 탭, 공백 아무거나\n항목\t값\n사과\t30'}
           spellCheck={false}
           rows={1}
-          aria-label="차트 데이터"
+          aria-label="데이터 표"
         />
-        <Button variant="neutral" size="sm" onClick={addRow} title="한 줄 추가">
-          +
-        </Button>
       </div>
 
       <Text variant="chrome" muted className="hint">
-        {isScatter
-          ? '산점도 — (x, y) 점을 한 줄에 하나씩 · 축은 자동 범위 · 점을 클릭해 편집'
-          : '막대 / 선 / 원 — 라벨 = 값 (한 줄에 하나) · 클릭해 편집 · SVG / PNG로 내보내기'}
+        {`${table.columns.length}열 × ${table.rows.length}행 · 표를 붙여넣으면 바로 그려집니다 · 마크를 클릭하면 그 계열을 편집합니다`}
       </Text>
     </div>
   )
