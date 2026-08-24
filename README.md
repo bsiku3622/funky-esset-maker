@@ -55,6 +55,7 @@ Everything has a **paper mode** alongside the funky one, switched in the sidebar
 | type | Pretendard, bold labels | Times / Helvetica, no bold data labels |
 | colour | neon | Okabe–Ito (colour-vision-safe) |
 | tables | full grid, coloured header | booktabs — three rules, no verticals |
+| figures | 2px black outlines, square corners, hard shadow | hairlines, rounded corners, no shadow |
 
 It is a *render* mode, not a second document. Colour choices stay in the file; paper mode just does not paint them, so switching back restores the slide look exactly. A saved project records which mode it was exported from.
 
@@ -99,6 +100,8 @@ Undo is deliberately not intercepted while a text field has focus: inside a text
 
 Because a project is just JSON with defaults for everything unset, an assistant can write one for you — a table, a plot, a figure — and you open it. [`public/llms.txt`](./public/llms.txt) documents every tool's schema and input grammar for exactly that, and is served at `/llms.txt`. There is also a Claude Code skill under `.claude/skills/esset/`.
 
+Which also means a payload whose shape is only partly right is a normal input here, not a corrupt-file edge case — so one is not allowed to cost the whole app. What a tool reads back is filtered against the shape of its defaults first, two levels deep, and a field that does not match falls back to its default alone rather than taking the file with it. Anything that gets past that (objects keyed by your own strings cannot be checked against a default) is caught per tool, which leaves the sidebar alive and offers to clear that tool's saved state — the payload lives in `localStorage`, so a reload would otherwise replay the same crash forever.
+
 ## Getting started
 
 ```bash
@@ -124,12 +127,14 @@ Opens at `http://localhost:5178`.
 ```
 src/
   App.tsx          sidebar navigation · tool switching · project open/save · render mode
+  ToolBoundary.tsx what catches a tool that cannot render what it was given
   project.ts       the project envelope, and each tool's storage key
   theme.ts         the funky/paper mode and its context
   paper.css        paper-mode restyle for the HTML-rendered tools
   tools/           one file per tool (UI · toolbar · export) + generated scoped CSS
     shell.css      the toolbar / stage / editor / hint / toast every tool wears
     hooks.ts       shared machinery: persistence, undo/redo, preview fit, PNG + SVG export
+    routing.ts     connector routing, shared by Grapher and AI Figure Maker
     svg.ts         serialise a live <svg> into a standalone file; rasterise it at any dpi
     paper.ts       printed-width presets, dpi, px→pt
     tex.ts         booktabs tables and listings blocks
@@ -138,7 +143,8 @@ src/
     UndoRedo.tsx   the undo/redo pair, same place in every toolbar
     BgPicker.tsx   the background swatches (+ bg.ts for the constants)
     NumField.tsx   numeric input that lets you finish typing before committing
-    aifig/         AI Figure Maker modules (document model · shapes · routing · LaTeX · export)
+    aifig/         AI Figure Maker modules (document model · shapes · anchors · LaTeX · export)
+      funky.ts     the funky look, applied to a stored Style at render time
   cores/           pure render components (CodeBlock · Diagram · Chart) + figure tokens
 public/
   llms.txt         tool schemas and input grammars, for an assistant
@@ -167,6 +173,14 @@ The same was true of the chrome. Ten copies of a toolbar, a checkerboard stage, 
 
 `.shot` carries no frame of its own, on purpose: it is the element that gets exported, so a border drawn there shows on screen and not in the file.
 
+### Connector routing
+
+Both editors that draw boxes and arrows share one router (`tools/routing.ts`). It takes two anchors — a point and the direction the line leaves in — plus optional bends and boxes to stay out of, and returns path segments. It never sees a node, which is what lets AI Figure Maker resolve its own shapes down to anchors while Grapher does the same from a plain rectangle.
+
+Four routings: straight, orthogonal, curved, arc. The orthogonal one generates candidate paths in preference order and takes the first whose every leg can host a full corner fillet, detouring rather than shaving the radius — so corners stay identical whether two shapes are far apart or nearly touching.
+
+⚠️ Grapher's PNG is drawn onto a canvas rather than rasterised from the SVG on screen, which makes it a second renderer. It has to route through the same call and hand the `d` string to `Path2D`, or an orthogonal edge exports as a diagonal. The arrow head takes its angle from the path's own final direction for the same reason.
+
 ### Render cores
 
 `src/cores/` holds the display-only half of a tool, with the toolbar and export machinery stripped out, so another app (e.g. Funky Slide) can import it. Chart Maker renders through `cores/Chart` directly. Highlighter and Grapher are editors — a display-only component cannot replace them — so they share the parts that must not drift instead: the Prism highlighting step (`cores/highlight.ts`) and the node palette (`cores/palette.ts`).
@@ -191,6 +205,7 @@ A dedicated editor for the model architecture figures that go into AI/ML papers.
 - **Palettes** — matplotlib tab10, Nature muted, greyscale + accent, Okabe–Ito and Paul Tol (colour-vision-deficiency safe). Switching palettes recolours an existing figure while preserving which shape maps to which colour.
 - **Templates** — 16 of them: Transformer, Attention, ViT, ResNet, U-Net, CNN pipeline, encoder–decoder, GAN, diffusion, DeepONet, PINN, training loop, and more.
 - **Export** — vector SVG (physical size written in mm, so `\includegraphics` lands exactly on the column width), PNG up to 2400 dpi (sRGB-tagged), project JSON, and approximate TikZ.
+- **Both looks** — the sidebar's funky/paper switch reaches this tool too. Funky redraws the stored figure with 2px black outlines, square corners, a hard offset shadow and bold labels, so the same document goes on a slide or into a paper without being rebuilt. It restyles at render time and never edits the document, so switching back restores the authored figure exactly; the shadow is a duplicated shape rather than an SVG `<filter>`, which vector editors rasterise on import. Colours are left as authored — the **Funky 네온** palette is there for when the fills should change too, and that is a document edit you can undo.
 
 MathJax is heavy, so it is lazy-loaded in its own chunk the first time this tool is opened. Until it arrives, formulas show briefly as their LaTeX source and are then replaced.
 

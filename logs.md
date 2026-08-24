@@ -1,5 +1,136 @@
 # 작업 기록
 
+## 2026-08-24 — 배선은 한 곳에서만 계산한다
+
+- 변경 파일: `routing.ts`(신규), `aifig/geometry.ts`, `aifig/types.ts`, `Grapher.tsx`, `tool-sources/Grapher/App.css`, `routing.test.ts`(신규)
+- 요약: AI Figure Maker의 커넥터 라우터를 공용 모듈로 꺼내 Grapher에 붙였습니다. 직선·직각·곡선·호.
+
+라우터는 **이미 옮길 수 있는 모양으로 잘려 있었습니다.** `route()`가 받는 건 앵커
+두 개(점 + 나가는 방향)와 피할 사각형 목록뿐이고 `FigNode`를 모릅니다. 그래서 옮긴 건
+파일 위치지 코드가 아닙니다 — `aifig/geometry.ts`는 그것들을 그대로 re-export하므로
+aifig 코드는 한 줄도 바뀌지 않았습니다. `Pt`·`Rect`·`RouteKind`도 정의를 하나로 모으고
+`aifig/types.ts`가 re-export합니다.
+
+geometry.ts에 남은 것은 `FigNode`를 아는 절반(앵커·히트·정렬 가이드·측정)입니다.
+⚠️ 앞으로 여기 추가하는 것 중 `FigNode`가 필요 없는 게 있으면 그건 `routing.ts` 쪽입니다.
+
+Grapher가 채운 건 **방향 하나**였습니다. `borderPoint`가 경계점만 주던 것을 그 면의
+법선까지 주도록 바꾸면 그게 곧 `AnchorPoint`입니다.
+
+⚠️ 방향은 **닿은 면 기준으로 스냅**해야 합니다. 상대 노드를 향한 대각선을 그대로 주면
+직각 라우트의 첫 다리가 방금 떠난 상자를 가로질러 돌아옵니다.
+
+⚠️ **Grapher의 PNG는 화면 SVG를 래스터화하는 게 아니라 canvas에 다시 그립니다** — 즉
+두 번째 렌더러입니다. 화면에만 라우팅을 붙였다면 직각 간선이 PNG에서 대각선으로
+나갔을 겁니다. 같은 `route()`를 부르고 `pathD()` 문자열을 `Path2D`에 넘깁니다. 화살촉
+각도도 두 끝점을 잇는 선이 아니라 **경로 자신의 마지막 방향**(`atLength(info, 1)`)에서
+받아야 하고, 선을 화살촉만큼 줄이는 것도 `trimPath`가 이미 합니다.
+
+간선의 `route`는 없으면 `'straight'`로 읽습니다. 이 기능이 생기기 전에 그린 간선이
+전부 직선이었으니, 옛 파일은 저장된 그대로 열립니다.
+
+## 2026-08-24 — 논문용 도구에 슬라이드 옷을 입힌다
+
+- 변경 파일: `aifig/funky.ts`(신규), `aifig/shapes.tsx`, `aifig/edges.tsx`, `aifig/presets.ts`
+- 요약: AI Figure Maker가 펑키 모드를 압니다. 2px 검정 테두리 · 각진 모서리 · 하드 그림자 · 볼드.
+
+aifig는 `useTheme`을 쓰지 않는 두 도구 중 하나였습니다. 논문용으로 만들었으니 저장된
+Style이 저널 값(가는 선, 둥근 모서리, 보통 굵기)이고, 사이드바의 모드 스위치가 닿지
+않았습니다.
+
+**문서는 건드리지 않습니다.** 다른 도구의 논문 모드와 같은 원리로, 그리는 순간에 Style을
+변환할 뿐입니다. 되돌리면 저장된 그림이 픽셀 단위로 돌아옵니다 — 확인했습니다
+(펑키 2px/#000000/rx 0 ↔ 논문 1.4px/#2B2B2B/rx 3).
+
+⚠️ 그림자는 SVG `<filter>`가 아니라 **도형을 복제해 오프셋한 것**입니다. 필터는
+Illustrator·Inkscape가 가져올 때 래스터화하므로, 벡터 그림이 첫 편집에서 그림의 사진이
+됩니다.
+
+⚠️ 그림자 그룹에 `data-ui`를 붙이면 안 됩니다. 그건 내보낼 때 지워지는 표시고, 그림자는
+그림의 일부입니다.
+
+**색은 그대로 둡니다.** funky-ui 원칙이 "구조는 loud, 내용은 quiet"이고, loud여야 하는
+건 테두리·그림자·굵기지 이 파일이 저자 대신 고른 색이 아닙니다. 채움까지 네온으로
+바꾸고 싶으면 새로 넣은 **Funky 네온 팔레트**를 고르면 되고, 그건 되돌릴 수 있는 문서
+편집입니다. 팔레트 색은 `cores/palette.ts`의 `DIAGRAM_COLOR_HEX`에서 가져옵니다 —
+Grapher와 Diagram 코어가 읽는 바로 그 표라서 셋이 어긋날 수 없습니다.
+
+그림자를 **모든 도형에 주면 안 됩니다.** MLP는 하나의 면이 아니라 여러 부품의 그림이라,
+복제하면 시냅스 위에 시냅스의 그림자가 얹혀 팬 전체가 뭉갭니다. 격자의 칸, 획뿐인 도형
+(brace·bracket·curve), 글자와 비트맵도 같은 이유로 제외했습니다 — `castsShadow`가 그
+목록입니다.
+
+## 2026-08-23 — 바깥에서 온 JSON은 틀릴 수 있다
+
+- 변경 파일: `hooks.ts`, `ToolBoundary.tsx`(신규), `App.tsx`, `App.css`, `hooks.test.ts`(신규)
+- 요약: 저장된 값이 도구가 아는 형태인지 먼저 거르고, 그래도 터지면 ErrorBoundary가 받습니다.
+
+프로젝트 파일은 손으로 고칠 수 있는 JSON이고, `llms.txt`는 어시스턴트더러 하나 써
+보라고 초대하는 문서입니다. 그러니 **형태가 군데군데만 맞는 payload는 이 앱의 정상
+입력**이지 예외적인 손상 파일이 아닙니다. 그런데 그 대가가 지금까지 총액이었습니다 —
+렌더 중 throw는 트리 전체를 내리므로 사이드바까지 사라져 다른 도구로 도망칠 수도
+없고, 문제의 payload는 이미 localStorage에 있으니 **새로고침하면 같은 크래시가 다시
+재생됩니다.** 유일한 탈출구가 devtools 콘솔이었습니다.
+
+재현은 한 줄이면 됩니다. `tabler.v1`의 `cells`에 행 하나를 배열 대신 문자열로 넣으면
+`row.map is not a function`이 뜨고 `#root`가 빕니다.
+
+막는 층을 둘로 나눴습니다.
+
+- **`shapeMatches`** — 저장된 값을 defaults의 JSON 형태와 **두 단계까지** 비교합니다.
+  한 단계만 보면 `cells`가 배열이라는 이유로 통과하고, 정작 throw는 그 안쪽 `row.map`
+  에서 납니다. 어긋난 **필드만** 기본값으로 되돌리므로 `fontSize`처럼 멀쩡한 값은
+  살아남습니다.
+- **`ToolBoundary`** — 그물을 빠져나간 것을 받습니다. 객체는 키별로 검사하지 않기
+  때문에(`codes`, `fills` 같은 record는 defaults가 어떤 키가 정당한지 말해주지 않습니다)
+  `codes: {python: 12345}` 같은 건 여전히 통과해 `str.slice is not a function`으로
+  끝납니다. 그때 도구 자리에 패널을 띄우고 **그 도구의 슬롯만 지우는** 버튼을 줍니다.
+
+⚠️ 형태 검사는 **얕습니다. 스키마가 아닙니다.** 깊이 2라는 숫자에 기대는 코드를 쓰면
+안 됩니다 — 실제로 막아주는 것의 절반은 ErrorBoundary 쪽입니다.
+
+⚠️ defaults에 **없는** 키는 그냥 통과시킵니다. 그것들이 바로 `migrate`가 읽으려고
+존재하는 옛 형태라, 여기서 쓰레기라고 판정할 자리가 아닙니다.
+
+기존 저장 데이터 11개 도구를 전부 열어 확인했습니다 — 경고 0건, 하나도 걸리지
+않았습니다.
+
+## 2026-08-23 — 소스에 박힌 NUL 한 바이트가 파일을 검색에서 지운다
+
+- 변경 파일: `Grapher.tsx`, `aifig/latex.ts`
+- 요약: 캐시 키 구분자를 이스케이프(`\u0000`)로 바꿨습니다. 동작은 그대로입니다.
+
+두 파일이 구분자로 NUL을 쓰는 것 자체는 맞습니다. 문제는 이스케이프가 아니라 **바이트를
+소스에 직접 박아 넣었다는 것**입니다. 그래서 `file`이 두 파일을 `data`로 판정하고,
+ripgrep이 바이너리로 보고 **디렉터리 검색에서 조용히 건너뜁니다.**
+
+```
+$ rg -l "textWidth" src
+src/tools/aifig/shapes.tsx      ← 쓰는 쪽만 나오고 정의부는 없음
+```
+
+Claude Code의 검색도 ripgrep이라 같습니다. 1430줄짜리 `Grapher.tsx`와 548줄짜리
+`latex.ts`가 코드베이스 전체 검색에서 **없는 파일처럼** 취급되고 있었습니다. git diff는
+정상이라 커밋에는 티가 나지 않아 더 오래 남았습니다.
+
+⚠️ 구분자로 제어 문자를 쓸 거면 `'\u0000'`으로 **적으세요.** 런타임 값은 완전히 같고,
+파일은 텍스트로 남습니다.
+
+## 2026-08-23 — KaTeX CSS는 KaTeX를 쓰는 도구가 가져간다
+
+- 변경 파일: `main.tsx`, `LatexImager.tsx`, `HwpMath.tsx`
+- 요약: `main.tsx`에서 내리고 두 도구가 각자 import 합니다. 초기 CSS가 gzip 13.6kB → 5.5kB.
+
+KaTeX를 쓰는 건 LaTeX Imager와 HWP Math 둘뿐인데 스타일시트는 메인 청크에 있었습니다.
+JS는 제대로 지연 로드되고 있었으니 **CSS만 남아 있던 셈**입니다. Highlighter나 Tabler를
+열어도 28kB를 받아갔습니다.
+
+⚠️ 두 도구 안에서 **자기 CSS보다 먼저** import 해야 합니다. `.scope-latex .eq__line
+.katex-display`처럼 앱이 KaTeX 규칙을 덮어쓰는 자리가 있고, specificity가 더 높긴 하지만
+순서까지 맞춰두는 편이 안전합니다. 프로덕션 빌드에서 로드 순서가
+`index → katex → LatexImager`인 것과 `.katex-display`의 margin이 0으로 남는 것을
+확인했습니다.
+
 ## 2026-08-14 — 그려진 건 전부 개체다
 
 - 변경 파일: `types.ts`, `layout.ts`, `shapes.tsx`, `mlp.ts`, `doc.ts`, `Inspector.tsx`, `AiFigureMaker.tsx`, `mlp.test.ts`
