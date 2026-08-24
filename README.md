@@ -1,6 +1,6 @@
 # Funky Esset Maker
 
-A set of web tools for making visual assets you can drop straight into slides, handouts, and papers — code listings, equations, tables, data structures, graphs, charts — all wearing the same [`@studio-baeks/funky-ui`](https://www.npmjs.com/package/@studio-baeks/funky-ui) neo-brutalist look, and exported as PNG.
+A set of web tools for making visual assets you can drop straight into slides, handouts, and papers — code listings, equations, tables, data structures, graphs, plots, structural formulas — all wearing the same [`@studio-baeks/funky-ui`](https://www.npmjs.com/package/@studio-baeks/funky-ui) neo-brutalist look, and exported as PNG.
 
 ## Tools
 
@@ -13,10 +13,11 @@ A set of web tools for making visual assets you can drop straight into slides, h
 | **Grapher** | Graphs and diagrams |
 | **AI Figure Maker** | Model architecture figures for papers (vector SVG · LaTeX) |
 | **Cartesian Plotter** | Function plots |
-| **Chart Maker** | Bar · line · pie · scatter |
+| **Chart Maker** | Plots — 17 marks over cartesian, polar, ternary and 3-D axes |
 | **Number Line** | Number lines, intervals, inequalities |
 | **Truth Table** | Truth tables |
 | **HWP Math** | LaTeX ↔ 한글(HWP) equation script |
+| **Chem Draw** | Structural formulas and reaction schemes |
 
 The tool you used last is remembered in `localStorage` and reopens on your next visit.
 
@@ -67,13 +68,13 @@ Beyond that, each tool exports whatever its content actually is:
 
 | | also exports |
 | --- | --- |
-| Cartesian Plotter · Chart Maker · Number Line · AI Figure Maker | **vector SVG** (`⌘⇧E`) — physical width in millimetres, so `\includegraphics` lands on the column width. Their PNG is rasterised from that same SVG at up to 1200 dpi (2400 in AI Figure Maker) |
+| Cartesian Plotter · Chart Maker · Number Line · Chem Draw · AI Figure Maker | **vector SVG** (`⌘⇧E`) — physical width in millimetres, so `\includegraphics` lands on the column width. Their PNG is rasterised from that same SVG at up to 1200 dpi (2400 in AI Figure Maker) |
 | Tabler · Truth Table | **booktabs LaTeX** — a table belongs in a paper as source, not as a picture of a table |
 | Highlighter | **`listings` block** |
 | AI Figure Maker | approximate **TikZ** |
 | HWP Math | **한글 equation script**, or **LaTeX** back out of one — copied as text (`⌘⇧C`); there is no image |
 
-The four SVG tools also carry a printed-width preset (ICML, CVPR, Nature, …) and show the resulting point size in the toolbar, turning red below 6 pt — the failure mode is otherwise invisible until the PDF comes back.
+The five SVG tools also carry a printed-width preset (ICML, CVPR, Nature, …) and show the resulting point size in the toolbar, turning red below 6 pt — the failure mode is otherwise invisible until the PDF comes back.
 
 ## Projects
 
@@ -182,6 +183,25 @@ Four routings: straight, orthogonal, curved, arc. The orthogonal one generates c
 ⚠️ Grapher's PNG is drawn onto a canvas rather than rasterised from the SVG on screen, which makes it a second renderer. It has to route through the same call and hand the `d` string to `Path2D`, or an orthogonal edge exports as a diagonal. The arrow head takes its angle from the path's own final direction for the same reason.
 
 ### Render cores
+
+### One plotting engine, four coordinate systems
+
+Chart Maker draws through `src/cores/plot/`, which separates three things that
+are usually tangled: `resolve.ts` decides what the data *means* (grouping,
+stacking, binning, gridding, what the axes must span), `scale.ts` owns domains
+and ticks, and the panels only turn numbers into paths. So a bar chart's
+stacking can be tested without a DOM.
+
+Most of what looks like a special chart type is a combination of general
+features. A climograph is a twin axis with a bar and a line on it; a wind rose
+is a polar bar chart; an H–R diagram is a scatter with a reversed log axis. The
+engine is built along those seams — coordinate system × mark × axis options —
+rather than around a list of named charts.
+
+⚠️ `panel.x` is the axis that runs *across the page* and `panel.y` the one that
+runs up it, whichever way the marks are turned. Marks think in terms of a
+datum's x and y, which is the other pairing; `axisSpecs()` and `Proj` are the
+only two places that translate between them.
 
 `src/cores/` holds the display-only half of a tool, with the toolbar and export machinery stripped out, so another app (e.g. Funky Slide) can import it. Chart Maker renders through `cores/Chart` directly. Highlighter and Grapher are editors — a display-only component cannot replace them — so they share the parts that must not drift instead: the Prism highlighting step (`cores/highlight.ts`) and the node palette (`cores/palette.ts`).
 
