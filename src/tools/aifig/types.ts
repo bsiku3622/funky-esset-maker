@@ -7,17 +7,11 @@
 
 /* ---------- geometry primitives ---------- */
 
-export interface Pt {
-  x: number
-  y: number
-}
+import type { Pt, RouteKind } from '../routing'
 
-export interface Rect {
-  x: number
-  y: number
-  w: number
-  h: number
-}
+/* Geometry primitives live with the router that is shared with Grapher, and
+   are re-exported here so aifig code has one place to import types from. */
+export type { Pt, Rect, RouteKind } from '../routing'
 
 /* ---------- style ---------- */
 
@@ -350,7 +344,6 @@ export interface Waypoint extends Pt {
   rel?: 'from' | 'to'
 }
 
-export type RouteKind = 'straight' | 'ortho' | 'curve' | 'arc'
 export type HeadKind =
   | 'none'
   | 'arrow' // filled triangle
