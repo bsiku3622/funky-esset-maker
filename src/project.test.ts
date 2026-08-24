@@ -41,7 +41,7 @@ beforeEach(() => {
 
 describe('storage keys', () => {
   it('covers every tool', () => {
-    expect(TOOL_IDS.length).toBe(11)
+    expect(TOOL_IDS.length).toBe(12)
     for (const id of TOOL_IDS) expect(STORE_KEYS[id]).toBeTruthy()
   })
 
@@ -60,6 +60,7 @@ describe('storage keys', () => {
       numline: 'fem.numline.v1',
       truth: 'fem.truth.v1',
       hwpmath: 'fem.hwpmath.v1',
+      chem: 'fem.chem.v1',
     })
   })
 })

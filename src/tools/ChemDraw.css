@@ -1,0 +1,101 @@
+/* hand-authored, prefixed with .scope-chem (native tool, not generated) */
+
+.scope-chem .shot {
+  display: inline-block;
+  width: max-content;
+  padding: 0;
+  /* the canvas is the page: a border here would show on screen and not in the
+     exported file, so the frame is the checkerboard behind it instead */
+  outline: 2px solid rgba(34, 34, 34, 0.25);
+}
+
+.scope-chem .cd-num {
+  width: 5.5ch;
+  padding: 4px 6px;
+  border: 2px solid #222;
+  background: #fff;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-align: right;
+  outline: none;
+}
+.scope-chem .cd-num:focus {
+  box-shadow: 3px 3px 0 0 rgba(0, 0, 0, 0.2);
+}
+.scope-chem .cd-tilde {
+  font-weight: 700;
+  opacity: 0.6;
+}
+
+.scope-chem .cd-preset {
+  padding: 5px 8px;
+  border: 2px solid #222;
+  border-radius: 0;
+  background: #fff;
+  font-family: var(--funky-font-family);
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #222;
+  cursor: pointer;
+  outline: none;
+}
+.scope-chem .cd-preset:focus {
+  box-shadow: 3px 3px 0 0 rgba(0, 0, 0, 0.2);
+}
+
+/* ---------- element palette ---------- */
+
+/* Twenty symbols is too many for a row of Buttons — they would push the export
+   controls off the toolbar. A dense grid of small square keys reads as one
+   control instead of twenty. */
+.scope-chem .cd-elements {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  max-width: 300px;
+}
+
+.scope-chem .cd-elements--panel {
+  max-width: none;
+}
+
+.scope-chem .cd-el {
+  min-width: 26px;
+  padding: 3px 5px;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 800;
+  color: #222;
+  background: #fff;
+  border: 2px solid #222;
+  cursor: pointer;
+}
+.scope-chem .cd-el:hover {
+  background: #ffd500;
+}
+.scope-chem .cd-el.is-on {
+  background: #7828c8;
+  color: #fff;
+}
+
+.scope-chem .cd-count {
+  min-width: 3ch;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+/* ---------- size bar ---------- */
+
+.scope-chem .cd-sizebar {
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+}
+
+.scope-chem .cd-sizebar input[type='range'] {
+  flex: 0 1 220px;
+  accent-color: #7828c8;
+}

@@ -51,6 +51,7 @@ const TOOLS: Tool[] = [
   { id: 'numline', label: 'Number Line', desc: '수직선 · 구간 · 부등식', icon: '⊢', scope: 'scope-numline', file: 'numberline', Component: lazy(() => import('./tools/NumberLine')) },
   { id: 'truth', label: 'Truth Table', desc: '진리표', icon: '⊤', scope: 'scope-truth', file: 'truthtable', Component: lazy(() => import('./tools/TruthTable')) },
   { id: 'hwpmath', label: 'HWP Math', desc: 'LaTeX → 한글 수식', icon: '⇄', scope: 'scope-hwpmath', file: 'hwp-equation', Component: lazy(() => import('./tools/HwpMath')) },
+  { id: 'chem', label: 'Chem Draw', desc: '화학 구조식 · 반응식', icon: '⬡', scope: 'scope-chem', file: 'structure', Component: lazy(() => import('./tools/ChemDraw')) },
 ]
 
 const KEY = 'funky-esset-maker.active'

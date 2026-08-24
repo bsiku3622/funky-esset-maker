@@ -6,6 +6,11 @@ import { BG_HEX, type BgKey } from './bg'
 import { useTheme } from '../theme'
 import UndoRedo from './UndoRedo'
 import katex from 'katex'
+/* mhchem, for `\ce{...}`. Imported for its side effect: it registers the macro
+   on the katex singleton above, so it has to come after that import and before
+   anything renders. Without it `\ce` is an unknown control sequence and every
+   chemical equation in a saved document turns red. */
+import 'katex/contrib/mhchem'
 import 'katex/dist/katex.min.css'
 import './LatexImager.css'
 
@@ -524,7 +529,7 @@ export default function LatexImagerTool() {
           placeholder={
             mode === 'document'
               ? '텍스트 + $수식$ 을 입력하세요 — \\textbf{...}, 따옴표, 빈 줄로 단락 구분'
-              : 'LaTeX 수식을 입력하세요 — Enter로 줄바꿈 (예: e^{i\\pi} + 1 = 0)'
+              : 'LaTeX 수식을 입력하세요 — Enter로 줄바꿈 · 화학식은 \\ce{2H2 + O2 -> 2H2O}'
           }
           spellCheck={false}
           autoCapitalize="off"
@@ -537,7 +542,7 @@ export default function LatexImagerTool() {
       <Text variant="chrome" muted className="hint">
         {mode === 'document'
           ? '문서 모드 — 본문 텍스트 + $...$ 인라인 수식, \\textbf · 따옴표 · 빈 줄 단락 지원'
-          : '수식 모드 — Enter로 여러 줄 수식 · 색 / 배경 / 크기 조절 후 투명 PNG로 저장'}
+          : '수식 모드 — Enter로 여러 줄 수식 · \\ce{...}로 화학 반응식 · 색 / 배경 / 크기 조절 후 투명 PNG로 저장'}
       </Text>
     </div>
   )
