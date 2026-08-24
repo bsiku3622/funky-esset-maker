@@ -488,3 +488,65 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* A tool that could not render what it was handed. Styled like the paste box —
+   it is the same kind of moment, a panel over the stage asking one question —
+   but it sits inside .femtool, so every class here is prefixed to stay out of
+   the per-tool stylesheets' way. */
+.fem__crash {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 24px;
+}
+
+.fem__crash-box {
+  width: min(560px, 100%);
+  padding: 18px;
+  background: var(--funky-bg, #fff5d1);
+  border: 3px solid #222;
+  box-shadow: 8px 8px 0 0 rgba(0, 0, 0, 0.25);
+}
+
+.fem__crash-box h2 {
+  margin: 0 0 10px;
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.fem__crash-note {
+  margin: 0 0 12px;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  opacity: 0.8;
+}
+
+/* The message is for whoever wrote the JSON, so it is quoted rather than
+   dressed up — and it wraps, because a stack-shaped message is long. */
+.fem__crash-why {
+  margin: 0 0 14px;
+  padding: 9px 11px;
+  max-height: 30vh;
+  overflow: auto;
+  background: #fff;
+  border: 2px solid #222;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.fem__crash-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* .fem__action grows to fill the sidebar's row; here the two buttons sit at the
+   end at their own width instead. */
+.fem__crash-row .fem__action {
+  flex: 0 0 auto;
+  padding: 7px 14px;
+}

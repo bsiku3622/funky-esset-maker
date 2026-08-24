@@ -8,6 +8,7 @@ import {
   type DragEvent,
 } from 'react'
 import {
+  STORE_KEYS,
   applyProject,
   buildProject,
   downloadProject,
@@ -16,6 +17,7 @@ import {
   type ToolId,
 } from './project'
 import { THEME_KEY, ThemeCtx, readTheme, type Theme } from './theme'
+import ToolBoundary from './ToolBoundary'
 import './App.css'
 /* The shared tool chrome. Imported here rather than from a tool because the
    selectors match the per-tool ones and the later stylesheet wins — App is in
@@ -172,6 +174,22 @@ export default function App() {
     const picked = await pickJsonFile()
     if (picked) loadText(picked.text)
   }, [loadText])
+
+  /* The way out when a tool cannot render what it was handed. The payload lives
+     in localStorage, so a reload would only replay the crash — the slot has to
+     go before the remount. */
+  const clearTool = useCallback(
+    (id: ToolId) => {
+      try {
+        localStorage.removeItem(STORE_KEYS[id])
+      } catch {
+        /* ignore */
+      }
+      setReloadNonce((n) => n + 1)
+      flash('저장된 내용을 지우고 새로 시작했습니다')
+    },
+    [flash],
+  )
 
   /* ---------- drop a .json anywhere ---------- */
 
@@ -370,12 +388,19 @@ export default function App() {
 
       <main className="fem__content">
         <div className={`femtool ${tool.scope}`}>
-          <Suspense fallback={<div className="fem__loading">로딩 중…</div>}>
-            {/* keyed so loading a project remounts the tool */}
-            <ThemeCtx value={theme}>
-              <ToolComponent key={`${tool.id}:${reloadNonce}`} />
-            </ThemeCtx>
-          </Suspense>
+          {/* Outside Suspense so a chunk that fails to load is caught too. */}
+          <ToolBoundary
+            resetKey={`${tool.id}:${reloadNonce}`}
+            toolLabel={tool.label}
+            onClear={() => clearTool(tool.id)}
+          >
+            <Suspense fallback={<div className="fem__loading">로딩 중…</div>}>
+              {/* keyed so loading a project remounts the tool */}
+              <ThemeCtx value={theme}>
+                <ToolComponent key={`${tool.id}:${reloadNonce}`} />
+              </ThemeCtx>
+            </Suspense>
+          </ToolBoundary>
         </div>
       </main>
 

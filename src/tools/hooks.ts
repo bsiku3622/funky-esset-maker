@@ -41,9 +41,64 @@ export function useLatest<T>(value: T): { readonly current: T } {
 
 /* ---------- localStorage ---------- */
 
+/** Does `value` have the same JSON shape as `ref`?
+ *
+ *  Array vs object vs primitive type, two levels deep. Two levels is where a
+ *  hand-written file actually goes wrong: a table's `cells` arriving as one
+ *  string instead of an array of rows passes any check that only looks at the
+ *  top level, and then a `row.map` deep inside the render throws.
+ *
+ *  Objects are compared as objects and not key by key, because most of them
+ *  here are records with caller-chosen keys (`codes` per language, `fills` per
+ *  cell) where a default has nothing to say about which keys are legal. */
+export function shapeMatches(value: unknown, ref: unknown, depth = 2): boolean {
+  // no reference to compare against — a nullable default says nothing about
+  // what a real value looks like
+  if (ref === null || ref === undefined) return true
+  if (Array.isArray(ref)) {
+    if (!Array.isArray(value)) return false
+    const sample = ref[0]
+    // an empty default array carries no element shape to check
+    if (depth <= 0 || sample === undefined) return true
+    return value.every((el) => shapeMatches(el, sample, depth - 1))
+  }
+  if (typeof ref === 'object')
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+  return typeof value === typeof ref
+}
+
+/** Drop the saved fields whose shape no longer matches the default's, so one
+ *  malformed field costs its own default rather than the whole file.
+ *
+ *  Fields absent from `defaults` pass through untouched: they are the older
+ *  shapes a `migrate` exists to read, and this is not the place to decide they
+ *  are junk. */
+function keepUsable<T extends object>(saved: Partial<T>, defaults: T): Partial<T> {
+  const out: Partial<T> = {}
+  let dropped: string[] | null = null
+  for (const [k, v] of Object.entries(saved) as [keyof T & string, unknown][]) {
+    if (k in defaults && !shapeMatches(v, defaults[k])) {
+      ;(dropped ??= []).push(k)
+      continue
+    }
+    out[k] = v as T[keyof T & string]
+  }
+  if (dropped)
+    console.warn(
+      `[funky-esset-maker] 저장된 값의 형태가 맞지 않아 기본값으로 되돌렸습니다: ${dropped.join(', ')}`,
+    )
+  return out
+}
+
 /** Read `key` once, on mount, merged over `defaults`. The result is frozen for
  *  the life of the component: tools spread it into their own `useState`
- *  initialisers, so a later re-read would have nowhere to go. */
+ *  initialisers, so a later re-read would have nowhere to go.
+ *
+ *  A saved payload is not necessarily something this app wrote — a project file
+ *  is hand-editable and `llms.txt` invites an assistant to author one — so what
+ *  comes back is filtered against the shape of `defaults` before it is used.
+ *  The check is shallow by design; ErrorBoundary in App.tsx catches what gets
+ *  past it, and offers to clear the slot. */
 export function useStored<T extends object>(
   key: string,
   defaults: T,
@@ -54,7 +109,11 @@ export function useStored<T extends object>(
     try {
       const raw = localStorage.getItem(key)
       if (!raw) return defaults
-      const saved = JSON.parse(raw) as Partial<T>
+      const parsed: unknown = JSON.parse(raw)
+      // a payload that is not an object at all has nothing to merge
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))
+        return defaults
+      const saved = keepUsable(parsed as Partial<T>, defaults)
       return migrate ? migrate(saved, defaults) : { ...defaults, ...saved }
     } catch {
       return defaults
