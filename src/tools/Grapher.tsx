@@ -11,6 +11,15 @@ import {
   type DiagramColor,
 } from '../cores/palette'
 import { useLatest } from './hooks'
+import {
+  atLength,
+  pathD,
+  pathInfo,
+  route,
+  trimPath,
+  type AnchorPoint,
+  type RouteKind,
+} from './routing'
 import UndoRedo from './UndoRedo'
 import './Grapher.css'
 
@@ -48,7 +57,27 @@ interface Edge {
   id: string
   source: string
   target: string
+  /** How the line gets from one end to the other. Absent means straight, which
+   *  is what every edge drawn before this existed is — so old files open
+   *  looking exactly as they were saved. */
+  route?: RouteKind
 }
+
+const ROUTES: { key: RouteKind; label: string; icon: string }[] = [
+  { key: 'straight', label: '직선', icon: '╱' },
+  { key: 'ortho', label: '직각', icon: '⌐' },
+  { key: 'curve', label: '곡선', icon: '∿' },
+  { key: 'arc', label: '호', icon: '⌒' },
+]
+
+const isRoute = (v: unknown): v is RouteKind =>
+  ROUTES.some((r) => r.key === v)
+
+/** Corner radius of an orthogonal route, and how far an arc bows out. Grapher's
+ *  boxes are bigger and further apart than a paper figure's, so both are larger
+ *  than the router's own defaults. */
+const EDGE_RADIUS = 12
+const EDGE_BOW = 32
 
 const DEFAULT_SIZE = { w: 150, h: 50 }
 
@@ -61,17 +90,26 @@ interface Size {
   h: number
 }
 
-// point on a node's rectangle border in the direction of (tx, ty)
-function borderPoint(n: Node, size: Size, tx: number, ty: number) {
+/* Point on a node's rectangle border in the direction of (tx, ty), plus the
+   direction the line leaves in.
+ *
+ * ⚠️ The direction is snapped to the side it lands on rather than pointing at
+ * the far node. An orthogonal route has to leave square to the edge it starts
+ * from; given a diagonal it opens with a leg that cuts back across the box it
+ * just left. */
+function borderPoint(n: Node, size: Size, tx: number, ty: number): AnchorPoint {
   const cx = n.x + size.w / 2
   const cy = n.y + size.h / 2
   const dx = tx - cx
   const dy = ty - cy
-  if (dx === 0 && dy === 0) return { x: cx, y: cy }
+  if (dx === 0 && dy === 0) return { p: { x: cx, y: cy }, dir: { x: 0, y: 0 } }
   const sx = dx === 0 ? Infinity : size.w / 2 / Math.abs(dx)
   const sy = dy === 0 ? Infinity : size.h / 2 / Math.abs(dy)
   const s = Math.min(sx, sy)
-  return { x: cx + dx * s, y: cy + dy * s }
+  return {
+    p: { x: cx + dx * s, y: cy + dy * s },
+    dir: sx <= sy ? { x: Math.sign(dx), y: 0 } : { x: 0, y: Math.sign(dy) },
+  }
 }
 
 // wrap text to a max pixel width (handles \n and long unspaced runs)
@@ -162,6 +200,8 @@ interface Saved {
   view: View
   snap: boolean
   transparentBg: boolean
+  /** the routing the next edge drawn will get */
+  edgeRoute: RouteKind
 }
 
 interface Snapshot {
@@ -184,6 +224,7 @@ function loadState(): Saved | null {
       view: data.view ?? { x: 0, y: 0, zoom: 1 },
       snap: !!data.snap,
       transparentBg: !!data.transparentBg,
+      edgeRoute: isRoute(data.edgeRoute) ? data.edgeRoute : 'straight',
     }
   } catch {
     return null
@@ -280,6 +321,12 @@ export default function GrapherTool() {
   )
   const [toast, setToast] = useState<string | null>(null)
   const [snap, setSnap] = useState<boolean>(() => boot?.snap ?? false)
+  /* Which routing a newly drawn edge gets. Remembered rather than asked for:
+     a diagram is usually all one kind, so the last choice is the right guess
+     for the next line. */
+  const [edgeRoute, setEdgeRoute] = useState<RouteKind>(
+    () => boot?.edgeRoute ?? 'straight',
+  )
   const [transparentBg, setTransparentBg] = useState<boolean>(
     () => boot?.transparentBg ?? false,
   )
@@ -298,6 +345,7 @@ export default function GrapherTool() {
   const nodesRef = useLatest(nodes)
   const edgesRef = useLatest(edges)
   const snapRef = useLatest(snap)
+  const routeRef = useLatest(edgeRoute)
 
   // internal clipboard for copy/paste of nodes (+ edges between them)
   const clipboard = useRef<{ nodes: Node[]; edges: Edge[] } | null>(null)
@@ -501,7 +549,7 @@ export default function GrapherTool() {
             dirty.current = true
             setEdges((es) => [
               ...es,
-              { id: uid(), source: drag.source, target: targetId },
+              { id: uid(), source: drag.source, target: targetId, route: routeRef.current },
             ])
           }
         }
@@ -547,6 +595,18 @@ export default function GrapherTool() {
     )
     clearSelection()
     setEditingId(null)
+  }
+
+  /* Picking a routing applies it to the selected edge and becomes the default
+     for the next one drawn. One control, because in practice the answer to
+     "which shape should this line be" is the same for the whole diagram. */
+  const chooseRoute = (kind: RouteKind) => {
+    setEdgeRoute(kind)
+    if (!selectedEdgeId) return
+    record()
+    setEdges((es) =>
+      es.map((e) => (e.id === selectedEdgeId ? { ...e, route: kind } : e)),
+    )
   }
 
   const deleteEdge = (id: string) => {
@@ -628,7 +688,7 @@ export default function GrapherTool() {
     const rawEdges = edges.filter(
       (e) => e.source !== e.target && idset.has(e.source) && idset.has(e.target),
     )
-    const key = (s: string, t: string) => `${s} ${t}`
+    const key = (s: string, t: string) => `${s}\u0000${t}`
 
     // 1) break cycles: DFS — an edge into a node still on the stack is a back edge
     const adj = new Map<string, string[]>(ids.map((id) => [id, []]))
@@ -707,7 +767,7 @@ export default function GrapherTool() {
       const Lb = vlayer.get(e.t)!
       let prev = e.s
       for (let L = La + 1; L < Lb; L++) {
-        const d = `d${dummyN++}`
+        const d = `\u0001d${dummyN++}`
         order[L].push(d)
         vlayer.set(d, L)
         link(prev, d)
@@ -884,19 +944,38 @@ export default function GrapherTool() {
       const s = getNode(e.source)
       const t = getNode(e.target)
       if (!s || !t) continue
-      const p1 = borderPoint(s, getSize(s.id), center(t).x, center(t).y)
-      const p2 = borderPoint(t, getSize(t.id), center(s).x, center(s).y)
-      const ang = Math.atan2(p2.y - p1.y, p2.x - p1.x)
+      const ss = getSize(s.id)
+      const ts = getSize(t.id)
+      const a = borderPoint(s, ss, center(t).x, center(t).y)
+      const b = borderPoint(t, ts, center(s).x, center(s).y)
+      /* ⚠️ The PNG is drawn here rather than rasterised from the SVG on screen,
+         so this is a second renderer — it has to route the line the same way
+         the canvas does, or an orthogonal edge would export as a diagonal. The
+         router hands back segments, and Path2D takes the same `d` string the
+         <path> gets. */
+      const segs = route(
+        e.route ?? 'straight',
+        a,
+        b,
+        [],
+        EDGE_BOW,
+        EDGE_RADIUS,
+        [
+          { x: s.x, y: s.y, w: ss.w, h: ss.h },
+          { x: t.x, y: t.y, w: ts.w, h: ts.h },
+        ],
+      )
       const head = 9
-      const tipX = p2.x
-      const tipY = p2.y
-      // line (stop a little short of the tip)
+      // the head points along the path's own final direction, which for an
+      // orthogonal route is the last leg and not the line between the ends
+      const tip = atLength(pathInfo(segs), 1)
+      const ang = Math.atan2(tip.dir.y, tip.dir.x)
+      const tipX = tip.p.x
+      const tipY = tip.p.y
+      // line (trimmed so the filled head sits flush on its end)
       ctx.strokeStyle = INK_HEX
       ctx.lineWidth = 2
-      ctx.beginPath()
-      ctx.moveTo(p1.x, p1.y)
-      ctx.lineTo(tipX - Math.cos(ang) * head, tipY - Math.sin(ang) * head)
-      ctx.stroke()
+      ctx.stroke(new Path2D(pathD(trimPath(segs, 0, head))))
       // arrowhead
       ctx.fillStyle = INK_HEX
       ctx.beginPath()
@@ -988,14 +1067,14 @@ export default function GrapherTool() {
       try {
         localStorage.setItem(
           STORAGE_KEY,
-          JSON.stringify({ nodes, edges, view, snap, transparentBg }),
+          JSON.stringify({ nodes, edges, view, snap, transparentBg, edgeRoute }),
         )
       } catch {
         /* quota / disabled storage — ignore */
       }
     }, 300)
     return () => window.clearTimeout(id)
-  }, [nodes, edges, view, snap, transparentBg])
+  }, [nodes, edges, view, snap, transparentBg, edgeRoute])
 
   /* ---- wheel to zoom (non-passive so we can preventDefault) ---- */
   useEffect(() => {
@@ -1119,25 +1198,25 @@ export default function GrapherTool() {
     const ts = getSize(t.id)
     const sc = { x: s.x + ss.w / 2, y: s.y + ss.h / 2 }
     const tc = { x: t.x + ts.w / 2, y: t.y + ts.h / 2 }
-    const p1 = borderPoint(s, ss, tc.x, tc.y)
-    const p2 = borderPoint(t, ts, sc.x, sc.y)
+    const a = borderPoint(s, ss, tc.x, tc.y)
+    const b = borderPoint(t, ts, sc.x, sc.y)
+    /* The two boxes are what an orthogonal route must not run through — it is
+       allowed to detour around them, and given nothing to avoid it would
+       happily cut a corner off the shape it started from. */
+    const avoid = [
+      { x: s.x, y: s.y, w: ss.w, h: ss.h },
+      { x: t.x, y: t.y, w: ts.w, h: ts.h },
+    ]
+    const d = pathD(
+      route(edge.route ?? 'straight', a, b, [], EDGE_BOW, EDGE_RADIUS, avoid),
+    )
     const selected = selectedEdgeId === edge.id
     return (
       <g key={edge.id} className={selected ? 'edge--selected' : undefined}>
-        <line
-          className="edge-line"
-          x1={p1.x}
-          y1={p1.y}
-          x2={p2.x}
-          y2={p2.y}
-          markerEnd="url(#arrow)"
-        />
-        <line
+        <path className="edge-line" d={d} markerEnd="url(#arrow)" />
+        <path
           className="edge-hit"
-          x1={p1.x}
-          y1={p1.y}
-          x2={p2.x}
-          y2={p2.y}
+          d={d}
           onPointerDown={(e) => {
             e.stopPropagation()
             selectEdge(edge.id)
@@ -1154,6 +1233,11 @@ export default function GrapherTool() {
     selectedNodes.every((n) => n.color === selectedNodes[0].color)
       ? selectedNodes[0].color
       : null
+
+  /* The selected edge's own routing, falling back to what a new edge would
+     get — an edge saved before routing existed has none of its own. */
+  const selectedRoute: RouteKind =
+    edges.find((e) => e.id === selectedEdgeId)?.route ?? 'straight'
 
   const worldTransform = `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`
 
@@ -1249,16 +1333,22 @@ export default function GrapherTool() {
             (() => {
               const s = getNode(tempEdge.source)
               if (!s) return null
-              const p1 = borderPoint(s, getSize(s.id), tempEdge.x, tempEdge.y)
-              return (
-                <line
-                  className="edge-temp"
-                  x1={p1.x}
-                  y1={p1.y}
-                  x2={tempEdge.x}
-                  y2={tempEdge.y}
-                />
+              const a = borderPoint(s, getSize(s.id), tempEdge.x, tempEdge.y)
+              /* Drawn the way the finished edge will be, so the shape of the
+                 connection is visible before the mouse comes up. The loose end
+                 has no shape to leave, hence no direction. */
+              const d = pathD(
+                route(
+                  edgeRoute,
+                  a,
+                  { p: { x: tempEdge.x, y: tempEdge.y }, dir: { x: 0, y: 0 } },
+                  [],
+                  EDGE_BOW,
+                  EDGE_RADIUS,
+                  [{ x: s.x, y: s.y, w: getSize(s.id).w, h: getSize(s.id).h }],
+                ),
               )
+              return <path className="edge-temp" d={d} />
             })()}
         </svg>
 
@@ -1407,13 +1497,35 @@ export default function GrapherTool() {
           <Text variant="heading" as="h2">
             Edge
           </Text>
-          <Button
-            variant="danger"
-            size="sm"
-            onClick={() => deleteEdge(selectedEdgeId)}
-          >
-            연결 삭제
-          </Button>
+
+          <div className="inspector__section">
+            <Text variant="chrome" muted>
+              모양
+            </Text>
+            <div className="inspector__row">
+              {ROUTES.map((r) => (
+                <Button
+                  key={r.key}
+                  variant={selectedRoute === r.key ? 'primary' : 'neutral'}
+                  size="sm"
+                  title={r.label}
+                  onClick={() => chooseRoute(r.key)}
+                >
+                  {r.icon} {r.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          <div className="inspector__section">
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => deleteEdge(selectedEdgeId)}
+            >
+              연결 삭제
+            </Button>
+          </div>
         </div>
       )}
 
