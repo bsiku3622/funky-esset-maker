@@ -86,6 +86,10 @@ export interface SeriesSpec {
   /* ---- style ---- */
   /** literal hex; without it the series takes its place in the palette */
   color?: string
+  /** one palette colour per category rather than one for the whole series —
+   *  seaborn's `hue` on a bar chart, and what a legend of category names goes
+   *  with. Meaningless on a series that is already split by `group`. */
+  colorEach?: boolean
   width?: number
   dash?: DashKind
   marker?: MarkerKind

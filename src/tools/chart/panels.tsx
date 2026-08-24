@@ -173,6 +173,15 @@ export function SeriesPanel({ ctl }: { ctl: Ctl }) {
               <button type="button" className="fx-insp__btn" onClick={() => ctl.patchSeries(s.id, { color: undefined })}>
                 팔레트 순서대로
               </button>
+              {(s.mark === 'bar' || s.mark === 'scatter') && (
+                <Toggle
+                  on={!!s.colorEach}
+                  onChange={(colorEach) => ctl.patchSeries(s.id, { colorEach })}
+                  title="항목마다 다른 색 — 범례가 항목 이름이 됩니다"
+                >
+                  항목별
+                </Toggle>
+              )}
             </Row>
             {LINE_LIKE.has(s.mark) && (
               <>

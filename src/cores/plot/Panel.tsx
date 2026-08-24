@@ -169,8 +169,9 @@ function legendEntries(rp: ResolvedPanel): LegendEntry[] {
   const out: LegendEntry[] = []
   const seen = new Set<string>()
   for (const s of rp.series) {
-    if (s.mark === 'pie') {
-      // a pie's legend is its slices, not the series
+    if (s.mark === 'pie' || s.spec.colorEach) {
+      // the key is the slices, or the categories — not the series, which has
+      // no single colour to show
       s.data.forEach((d, i) => {
         const name = d.label ?? `${i + 1}`
         if (seen.has(name)) return
@@ -263,7 +264,7 @@ function Legend({
         const row = i % rows
         const ex = x + pad + col * colW
         const ey = y + pad + titleH + row * rowH + rowH / 2
-        const color = e.mark === 'pie' ? palette[i % palette.length] : e.color
+        const color = e.mark === 'pie' || e.spec.colorEach ? palette[i % palette.length] : e.color
         return (
           <Fragment key={`${e.name}:${i}`}>
             <LegendGlyph mark={e.mark} spec={e.spec} color={color} x={ex} y={ey} size={swatch} st={st} />
@@ -696,11 +697,11 @@ export default function Panel(props: PanelProps) {
       <g clipPath={`url(#${clipId})`}>
         {rp.series.map((s, i) => {
           const proj = s.axis === 'right' && ay2 ? p2 : p
-          const mp: MarkProps = { s, p: proj, st, slot: slotOf(s), onPick, selected }
+          const mp: MarkProps = { s, p: proj, st, palette, slot: slotOf(s), onPick, selected }
           return <Fragment key={`${s.spec.id}:${s.name}:${i}`}>{renderMark(mp)}</Fragment>
         })}
         {rp.series.map((s, i) => (
-          <TrendLine key={`tr${i}`} s={s} p={s.axis === 'right' && ay2 ? p2 : p} st={st} />
+          <TrendLine key={`tr${i}`} s={s} p={s.axis === 'right' && ay2 ? p2 : p} st={st} palette={palette} />
         ))}
         <Annotations list={rp.spec.annotations ?? []} p={aProj} st={st} plot={plot} />
       </g>

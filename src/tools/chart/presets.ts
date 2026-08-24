@@ -208,7 +208,7 @@ export const PRESETS: Preset[] = [
           annotations: [
             { id: 'a1', kind: 'vline', x: 100, dash: 'dot', color: '#8C8C8C' },
           ],
-          series: [{ id: 's1', mark: 'bar', x: 'model', y: 'RMSE', orient: 'h', labels: true, labelFormat: 'int' }],
+          series: [{ id: 's1', mark: 'bar', x: 'model', y: 'RMSE', orient: 'h', colorEach: true, labels: true, labelFormat: 'int' }],
         }),
       ],
     }),

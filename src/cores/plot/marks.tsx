@@ -34,6 +34,8 @@ export interface MarkProps {
   s: ResolvedSeries
   p: Proj
   st: PlotStyle
+  /** the figure's palette, for the marks that colour each datum separately */
+  palette: string[]
   /** side-by-side placement among the panel's unstacked bar-like series */
   slot?: { count: number; index: number }
   onPick?: (seriesId: string, row: number) => void
@@ -108,7 +110,7 @@ function slotWidth(s: ResolvedSeries, p: Proj): number {
 }
 
 export function BarMark(props: MarkProps) {
-  const { s, p, st, slot, onPick, selected } = props
+  const { s, p, st, slot, palette, onPick, selected } = props
   const count = slot?.count ?? 1
   const index = slot?.index ?? 0
   const frac = s.spec.barWidth ?? 0.8
@@ -130,11 +132,12 @@ export function BarMark(props: MarkProps) {
       ? { x: lo, y: cross, width: len, height: w }
       : { x: cross, y: lo, width: w, height: len }
     pts.push({ d, at: p.flip ? { x: lo + len, y: cross + w / 2 } : { x: cross + w / 2, y: lo } })
+    const fill = s.spec.colorEach ? palette[i % palette.length] : s.color
     return (
       <Fragment key={i}>
         <rect
           {...rect}
-          fill={s.color}
+          fill={fill}
           fillOpacity={opacityOf(s.spec.fillOpacity, opacityOf(s.spec.opacity))}
           stroke={st.outline ? st.c.outline ?? undefined : undefined}
           strokeWidth={st.outline || undefined}
@@ -326,7 +329,7 @@ export function StemMark(props: MarkProps) {
 }
 
 export function ScatterMark(props: MarkProps) {
-  const { s, p, st, onPick, selected } = props
+  const { s, p, st, palette, onPick, selected } = props
   const map = colorMapById(s.spec.colorMap ?? 'viridis')
   const vs = s.data.map((d) => d.v).filter((v): v is number => v !== undefined && Number.isFinite(v))
   const vmin = s.spec.vmin ?? (vs.length ? Math.min(...vs) : 0)
@@ -344,7 +347,9 @@ export function ScatterMark(props: MarkProps) {
         const fill =
           d.v !== undefined && Number.isFinite(d.v)
             ? sampleMap(map, (d.v - vmin) / (vmax - vmin || 1))
-            : s.color
+            : s.spec.colorEach
+              ? palette[i % palette.length]
+              : s.color
         // area, not radius, carries the size column
         const r =
           d.s !== undefined && Number.isFinite(d.s) && smax > 0
