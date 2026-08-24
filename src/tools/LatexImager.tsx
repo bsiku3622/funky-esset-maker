@@ -6,6 +6,7 @@ import { BG_HEX, type BgKey } from './bg'
 import { useTheme } from '../theme'
 import UndoRedo from './UndoRedo'
 import katex from 'katex'
+import 'katex/dist/katex.min.css'
 import './LatexImager.css'
 
 /* ---------- model ---------- */

@@ -4,6 +4,7 @@ import katex from 'katex'
 import { useHistory, usePersist, useStored } from './hooks'
 import UndoRedo from './UndoRedo'
 import { hwpToLatex, latexToHwp } from './hwp'
+import 'katex/dist/katex.min.css'
 import './HwpMath.css'
 
 /* LaTeX와 한글(HWP) 수식 편집기 문법 사이를 옮기는 도구.
