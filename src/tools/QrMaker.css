@@ -1,0 +1,100 @@
+/* hand-authored, prefixed with .scope-qr (native tool, not generated) */
+
+.scope-qr .qr-num {
+  width: 5.5ch;
+  padding: 4px 6px;
+  border: 2px solid #222;
+  background: #fff;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-align: right;
+  outline: none;
+}
+.scope-qr .qr-num:focus {
+  box-shadow: 3px 3px 0 0 rgba(0, 0, 0, 0.2);
+}
+
+/* the shape pickers hold two or three words, not a conference name */
+.scope-qr .qr-select {
+  max-width: 11ch;
+}
+
+.scope-qr .shot {
+  display: inline-block;
+  width: max-content;
+  padding: 16px;
+}
+
+.scope-qr .qr-svg {
+  display: block;
+}
+
+/* stands in for the figure while there is nothing to draw, at roughly the size
+   the code would have been so the stage does not jump when it appears */
+.scope-qr .qr-empty {
+  display: grid;
+  place-items: center;
+  width: 320px;
+  height: 320px;
+  padding: 24px;
+  text-align: center;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #222;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(34, 34, 34, 0.06) 0 8px,
+    transparent 8px 16px
+  );
+  border: 2px dashed #222;
+}
+
+/* a value that turns red when it crosses the line it is measuring against */
+.scope-qr .qr-stat {
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  font-weight: 700;
+  opacity: 0.75;
+}
+.scope-qr .qr-stat.is-warn {
+  padding: 1px 5px;
+  color: #fff;
+  background: #d11;
+  opacity: 1;
+}
+
+/* Warnings live on their own strip above the hint rather than in a tooltip.
+   Every one of them is a reason the code will not scan, and none of them is
+   visible in the preview — which is exactly the kind of thing a tooltip hides
+   until it is too late. */
+.scope-qr .qr-warn {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 20px;
+  background: #ffd500;
+  border-top: 2px solid #222;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #222;
+}
+
+/* editor */
+.scope-qr .editor {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 20px;
+  background: var(--funky-bg);
+  border-top: 3px solid var(--funky-border-color, #222);
+  flex: 0 0 auto;
+}
+
+/* a URL is one long line; wrapping it beats scrolling it sideways */
+.scope-qr .editor__input {
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 0.92rem;
+}

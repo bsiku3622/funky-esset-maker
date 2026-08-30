@@ -1,6 +1,6 @@
 ---
 name: esset
-description: Funky Esset Maker용 프로젝트 JSON을 만든다. 코드 하이라이트·수식·표·자료구조·다이어그램·논문 figure·함수 그래프·차트·수직선·진리표를 슬라이드나 논문에 넣을 이미지로 뽑아야 할 때 호출. 사용자가 "표 이미지로", "이 코드 슬라이드에 넣게", "수식 PNG로", "구조도 그려줘" 같이 요청하면 발동.
+description: Funky Esset Maker용 프로젝트 JSON을 만든다. 코드 하이라이트·수식·표·자료구조·다이어그램·논문 figure·함수 그래프·차트·수직선·진리표·QR 코드를 슬라이드나 논문에 넣을 이미지로 뽑아야 할 때 호출. 사용자가 "표 이미지로", "이 코드 슬라이드에 넣게", "수식 PNG로", "구조도 그려줘", "QR 만들어줘" 같이 요청하면 발동.
 ---
 
 # Funky Esset Maker 프로젝트 만들기
@@ -51,6 +51,7 @@ description: Funky Esset Maker용 프로젝트 JSON을 만든다. 코드 하이�
 | `chart` | 막대·선·원·산점도 |
 | `numline` | 수직선, 구간, 부등식 |
 | `truth` | 진리표 |
+| `qr` | QR 코드 (링크·설문·WiFi 안내) |
 
 `grapher`와 `aifig`가 헷갈리면: 논문 figure면 `aifig`(벡터 SVG·LaTeX 라벨·단 폭 프리셋),
 슬라이드용 순서도면 `grapher`.
@@ -69,6 +70,11 @@ description: Funky Esset Maker용 프로젝트 JSON을 만든다. 코드 하이�
 - **표·코드는 논문에 이미지로 넣지 않는 편이 낫습니다.** `tabler`·`truth`는 booktabs
   `.tex`를, `highlighter`는 `listings` 블록을 내보냅니다 — 본문 폰트와 맞고 검색도 됩니다.
   대상이 논문이면 이 경로를 먼저 권합니다.
+- **QR은 보기보다 스캔이 우선입니다.** 로고를 넣으면 `"ecl": "H"`를 같이 넣습니다 —
+  로고가 가리는 면적은 대략 `logoPct²`인데 L 레벨이 복원하는 건 7%뿐입니다. 전경색은
+  배경과 대비 4:1 이상이어야 하고(네온 핑크는 2:1대라 안 읽힙니다), 배경은 이 도구만
+  기본이 흰색입니다 — 투명 QR을 어두운 슬라이드에 얹으면 반전돼서 스캔되지 않습니다.
+  인쇄물이면 모듈 한 칸이 0.5mm 이상 나오는지 앱의 툴바 수치를 확인하라고 알려줍니다.
 - `cartesian`·`chart`·`numline`에 단 폭(`widthId`)을 지정할 땐 **`figW`도 같이 픽셀로
   맞춥니다** (1인치 = 96px). 안 그러면 760px 그림이 3.25인치로 인쇄되어 라벨이 4pt가 됩니다.
   ICML 1단 → `figW: 312`, NeurIPS 본문 → `528`, Nature 2단 → `691`.
@@ -76,7 +82,7 @@ description: Funky Esset Maker용 프로젝트 JSON을 만든다. 코드 하이�
 ## 만든 뒤
 
 - PNG는 ⌘E 저장 / ⌘⇧C 복사, 실행 취소는 ⌘Z.
-- `cartesian`·`chart`·`numline`·`aifig`는 벡터 SVG(⌘⇧E)도 나옵니다 — 물리 크기가 mm로
+- `cartesian`·`chart`·`numline`·`qr`·`aifig`는 벡터 SVG(⌘⇧E)도 나옵니다 — 물리 크기가 mm로
   들어가 `\includegraphics`가 단 폭에 정확히 앉습니다.
 - 값이 조금 어긋났으면 다시 만들 필요 없습니다. `cartesian`·`chart`·`numline`은 그림에서
   항목을 클릭해 옆 패널에서 고칠 수 있다고 알려주세요.

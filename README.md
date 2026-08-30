@@ -1,6 +1,6 @@
 # Funky Esset Maker
 
-A set of web tools for making visual assets you can drop straight into slides, handouts, and papers — code listings, equations, tables, data structures, graphs, plots, structural formulas — all wearing the same [`@studio-baeks/funky-ui`](https://www.npmjs.com/package/@studio-baeks/funky-ui) neo-brutalist look, and exported as PNG.
+A set of web tools for making visual assets you can drop straight into slides, handouts, and papers — code listings, equations, tables, data structures, graphs, plots, structural formulas, QR codes — all wearing the same [`@studio-baeks/funky-ui`](https://www.npmjs.com/package/@studio-baeks/funky-ui) neo-brutalist look, and exported as PNG.
 
 ## Tools
 
@@ -18,6 +18,7 @@ A set of web tools for making visual assets you can drop straight into slides, h
 | **Truth Table** | Truth tables |
 | **HWP Math** | LaTeX ↔ 한글(HWP) equation script |
 | **Chem Draw** | Structural formulas and reaction schemes |
+| **QR Maker** | QR codes |
 
 The tool you used last is remembered in `localStorage` and reopens on your next visit.
 
@@ -68,13 +69,13 @@ Beyond that, each tool exports whatever its content actually is:
 
 | | also exports |
 | --- | --- |
-| Cartesian Plotter · Chart Maker · Number Line · Chem Draw · AI Figure Maker | **vector SVG** (`⌘⇧E`) — physical width in millimetres, so `\includegraphics` lands on the column width. Their PNG is rasterised from that same SVG at up to 1200 dpi (2400 in AI Figure Maker) |
+| Cartesian Plotter · Chart Maker · Number Line · Chem Draw · QR Maker · AI Figure Maker | **vector SVG** (`⌘⇧E`) — physical width in millimetres, so `\includegraphics` lands on the column width. Their PNG is rasterised from that same SVG at up to 1200 dpi (2400 in AI Figure Maker) |
 | Tabler · Truth Table | **booktabs LaTeX** — a table belongs in a paper as source, not as a picture of a table |
 | Highlighter | **`listings` block** |
 | AI Figure Maker | approximate **TikZ** |
 | HWP Math | **한글 equation script**, or **LaTeX** back out of one — copied as text (`⌘⇧C`); there is no image |
 
-The five SVG tools also carry a printed-width preset (ICML, CVPR, Nature, …) and show the resulting point size in the toolbar, turning red below 6 pt — the failure mode is otherwise invisible until the PDF comes back.
+The SVG tools also carry a printed-width preset (ICML, CVPR, Nature, …) and show the resulting point size in the toolbar, turning red below 6 pt — the failure mode is otherwise invisible until the PDF comes back. QR Maker reads the same preset but reports the millimetre size of one module instead, which is the number that decides whether a printed code scans.
 
 ## Projects
 
@@ -146,6 +147,9 @@ src/
     NumField.tsx   numeric input that lets you finish typing before committing
     aifig/         AI Figure Maker modules (document model · shapes · anchors · LaTeX · export)
       funky.ts     the funky look, applied to a stored Style at render time
+    qr/            QR Maker modules
+      encode.ts    the ISO/IEC 18004 encoder — text in, module grid out
+      paint.ts     module grid → SVG paths, plus the three scan checks
   cores/           pure render components (CodeBlock · Diagram · Chart) + figure tokens
 public/
   llms.txt         tool schemas and input grammars, for an assistant
@@ -228,6 +232,39 @@ A dedicated editor for the model architecture figures that go into AI/ML papers.
 - **Both looks** — the sidebar's funky/paper switch reaches this tool too. Funky redraws the stored figure with 2px black outlines, square corners, a hard offset shadow and bold labels, so the same document goes on a slide or into a paper without being rebuilt. It restyles at render time and never edits the document, so switching back restores the authored figure exactly; the shadow is a duplicated shape rather than an SVG `<filter>`, which vector editors rasterise on import. Colours are left as authored — the **Funky 네온** palette is there for when the fills should change too, and that is a document edit you can undo.
 
 MathJax is heavy, so it is lazy-loaded in its own chunk the first time this tool is opened. Until it arrives, formulas show briefly as their LaTeX source and are then replaced.
+
+## QR Maker
+
+The one tool here whose output has a job beyond looking right: a phone has to
+read it. So the encoder is written out rather than pulled in
+(`src/tools/qr/encode.ts`) — not for the sake of it, but because a library that
+hands back a picture cannot be asked which modules are the *timing pattern*,
+and that question is what separates a decorated code from a broken one.
+
+Everything decorative is checked against what it costs:
+
+- **Contrast** between the code and its plate is shown as a ratio and turns red
+  under 4:1. Neon pink on cream is 2.2:1 — it looks like the rest of the app
+  and does not scan.
+- **A centre logo** is measured against what the error correction can actually
+  rebuild: the panel reads `10% / 30%`, hidden over recoverable, and says so
+  when the first number gets close to the second. The modules under it are
+  cleared rather than covered, so the logo sits on a clean field.
+- **Module size in millimetres** at the chosen print width, red under 0.5 mm.
+  This is the QR equivalent of the 6 pt label warning, and just as invisible
+  until the poster comes back from the printer.
+
+⚠️ Timing and alignment patterns stay square in every module style. They are
+not decoration — they are the ruler a reader lays over the symbol — and drawing
+them as dots produced codes that decoders could not read at all. The
+`fn` grid the encoder returns exists for exactly this.
+
+The encoder's spec tables are the kind of thing that fails silently at one
+version and level, so `encode.test.ts` decodes what it produced: real payloads
+across the version bands and all four levels go through jsQR and have to come
+back unchanged, and the data-codeword table for all 160 version/level
+combinations is pinned after being cross-checked module-for-module against an
+independent implementation.
 
 ## Deploying (Vercel)
 

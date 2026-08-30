@@ -52,6 +52,7 @@ const TOOLS: Tool[] = [
   { id: 'truth', label: 'Truth Table', desc: '진리표', icon: '⊤', scope: 'scope-truth', file: 'truthtable', Component: lazy(() => import('./tools/TruthTable')) },
   { id: 'hwpmath', label: 'HWP Math', desc: 'LaTeX → 한글 수식', icon: '⇄', scope: 'scope-hwpmath', file: 'hwp-equation', Component: lazy(() => import('./tools/HwpMath')) },
   { id: 'chem', label: 'Chem Draw', desc: '화학 구조식 · 반응식', icon: '⬡', scope: 'scope-chem', file: 'structure', Component: lazy(() => import('./tools/ChemDraw')) },
+  { id: 'qr', label: 'QR Maker', desc: 'QR 코드', icon: '▩', scope: 'scope-qr', file: 'qrcode', Component: lazy(() => import('./tools/QrMaker')) },
 ]
 
 const KEY = 'funky-esset-maker.active'

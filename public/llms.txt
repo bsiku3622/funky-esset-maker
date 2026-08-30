@@ -1,10 +1,10 @@
 # Funky Esset Maker
 
-> Eleven browser tools that turn text into a figure you can paste into a slide,
+> Browser tools that turn text into a figure you can paste into a slide,
 > handout, or paper — code listings, equations, tables, data structures,
-> diagrams, plots, charts, number lines, truth tables, and model architecture
-> figures — plus one that converts between LaTeX and 한글(HWP) equation script.
-> Everything runs client-side; nothing is uploaded.
+> diagrams, plots, charts, number lines, truth tables, QR codes, and model
+> architecture figures — plus one that converts between LaTeX and 한글(HWP)
+> equation script. Everything runs client-side; nothing is uploaded.
 
 This file is for an assistant helping someone use the app. The useful thing you
 can do here is **write a project file**: a small JSON the user opens in the app,
@@ -57,9 +57,9 @@ Values shared by most tools:
   slides, and is the default nearly everywhere.
 - neon color names: `pink · purple · cyan · yellow · orange · sky · green`
 
-### Print settings (`cartesian`, `chart`, `numline` only)
+### Print settings (`cartesian`, `chart`, `numline`, `qr`)
 
-These three draw as SVG and export true vector, so they also take:
+These draw as SVG and export true vector, so they also take:
 
 - `widthId` — how wide the figure prints. `"screen"` (default, 1 px = 1/96 in),
   `"icml-col"` (3.25"), `"cvpr-col"`, `"acl-col"`, `"aaai-col"`,
@@ -72,7 +72,8 @@ These three draw as SVG and export true vector, so they also take:
 has 4 pt labels. **Also set `figW` to the column width in pixels** — 96 px per
 inch, so `"icml-col"` wants `figW: 312`, `"neurips-col"` wants `figW: 528`,
 `"nature-2"` wants `figW: 691`. The app shows the resulting point size in the
-toolbar and turns it red under 6 pt.
+toolbar and turns it red under 6 pt. (In `qr` the same readout is the printed
+size of one module, red under 0.5 mm.)
 
 ## Tools
 
@@ -89,6 +90,7 @@ toolbar and turns it red under 6 pt.
 | `numline` | number lines, intervals, inequalities | `input` |
 | `truth` | truth tables | `input` |
 | `hwpmath` | LaTeX ↔ 한글(HWP) equation script, either way | `latex` / `hwp` |
+| `qr` | QR codes | `text` |
 
 ### highlighter — code
 
@@ -320,11 +322,52 @@ on the other side (blackboard bold, `\mathcal`, angle brackets going out;
 LADDER, LONGDIV, REL coming back) still convert on a best effort, and the tool
 lists what it had to approximate.
 
+### qr — QR codes
+
+`text` is encoded exactly as written — a URL, a sentence, a WiFi or vCard
+payload string, anything. Everything else is how it looks.
+
+```json
+{"app":"funky-esset-maker","format":1,"tool":"qr","data":{
+  "text":"https://ksa.hs.kr/festival",
+  "ecl":"H","style":"rounded","eyes":"circle","fg":"#7828c8",
+  "caption":"축제 안내","logoKind":"text","logoText":"✦","logoPct":0.2,
+  "figW":420,"bg":"white","widthId":"screen","dpi":600
+}}
+```
+
+- `ecl` — error correction, `"L" | "M" | "Q" | "H"`. `"M"` by default; go to
+  `"H"` when there is a logo, or when the code will be printed small or on
+  something that creases.
+- `style` — module shape, `"square" | "rounded" | "dot"` · `eyes` — the three
+  corner patterns, `"square" | "rounded" | "circle"`.
+- `fg` — `#rrggbb` for the dark modules. It must be *dark against the
+  background*: the app shows the contrast ratio and warns under 4:1, and neon
+  on cream is around 2:1. Leave it out for near-black.
+- `bg` — as elsewhere, but this tool defaults to `"white"`, not transparent. A
+  transparent code on a dark slide has inverted contrast and no quiet zone.
+- `caption` — a line of text under the code, `captionSize` its px size.
+- `logoKind` — `"none" | "text" | "image"`. `"text"` draws `logoText` (an emoji
+  or a couple of letters) in the middle; `"image"` needs `logoSrc` as a data
+  URL, which the user is better off adding themselves by dropping a file on the
+  code. `logoPct` (0.05–0.4) is the logo's width as a fraction of the code, and
+  `logoWell: true` clears the modules underneath it.
+- `quiet` — quiet zone in modules, 4 by the spec. Lower it only for a code
+  already sitting inside plenty of white space.
+- `minVersion` — 1 (default) picks the smallest symbol the content fits in.
+  Raise it to keep a code the same size while its content is edited.
+
+A logo can only hide as much as the error correction can rebuild: roughly
+`logoPct²` of the symbol, against 7/15/25/30% for L/M/Q/H. `logoPct: 0.2` at
+`"H"` is comfortable; the same logo at `"L"` is not. The tool says so on screen,
+and refuses nothing — but a project that ships an unreadable code helps nobody,
+so pair a logo with `"ecl": "H"`.
+
 ## Once it is open
 
 - **PNG** — ⌘E saves, ⌘⇧C copies to the clipboard. Transparent background by
   default, so it drops onto any slide.
-- **Vector SVG** — ⌘⇧E in `cartesian`, `chart`, `numline` and `aifig`. The
+- **Vector SVG** — ⌘⇧E in `cartesian`, `chart`, `numline`, `qr` and `aifig`. The
   physical width is written in millimetres, so `\includegraphics{fig.svg}`
   lands on the column width with no scale factor. These four also rasterise
   their PNG from that same SVG, at up to 1200 dpi (2400 in `aifig`).
