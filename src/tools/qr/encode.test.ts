@@ -115,7 +115,7 @@ describe('capacity', () => {
 })
 
 describe('symbol geometry', () => {
-  const result = encodeQr('https://funky-esset-maker.vercel.app', { ecl: 'M' })
+  const result = encodeQr('https://funky-esset-maker.bsiku.dev', { ecl: 'M' })
   if (!result.ok) throw new Error(result.error)
   const qr = result.qr
 
@@ -155,7 +155,7 @@ describe('round trip through a real decoder', () => {
   const cases: { name: string; text: string }[] = [
     { name: 'numeric, version 1', text: '01234567' },
     { name: 'alphanumeric', text: 'HELLO WORLD' },
-    { name: 'a URL', text: 'https://funky-esset-maker.vercel.app/llms.txt' },
+    { name: 'a URL', text: 'https://funky-esset-maker.bsiku.dev/llms.txt' },
     { name: '한글 byte mode', text: '한국과학영재학교 2026 학술제' },
     { name: 'emoji', text: '펑키 에셋 메이커 ✦ QR' },
     { name: 'a newline-separated payload', text: 'WIFI:T:WPA;S:KSA;P:secret;;' },

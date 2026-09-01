@@ -94,7 +94,7 @@ interface Persisted {
 }
 
 const DEFAULTS: Persisted = {
-  text: 'https://funky-esset-maker.vercel.app',
+  text: 'https://funky-esset-maker.bsiku.dev',
   ecl: 'M',
   minVersion: 1,
   style: 'square',

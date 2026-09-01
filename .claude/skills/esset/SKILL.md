@@ -19,7 +19,7 @@ description: Funky Esset Maker용 프로젝트 JSON을 만든다. 코드 하이�
 4. 여는 방법을 한 줄로 알려줍니다: 앱 사이드바 **열기**(⌘O) 또는 창에 드래그.
 
 저장소 밖에서 작업 중이라 `llms.txt`가 없으면
-`https://funky-esset-maker.vercel.app/llms.txt`를 가져오면 됩니다.
+`https://funky-esset-maker.bsiku.dev/llms.txt`를 가져오면 됩니다.
 
 ## 봉투
 
