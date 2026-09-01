@@ -1,0 +1,6 @@
+# Store and check out every text file with LF, on every platform.
+# Git for Windows defaults to core.autocrlf=true, which rewrites the working
+# tree to CRLF. scripts/gen-scoped-css.mjs writes LF, so without this rule a
+# build leaves src/tools/*.css permanently dirty on Windows checkouts.
+# Binary files are left alone: text=auto detects them by content.
+* text=auto eol=lf
